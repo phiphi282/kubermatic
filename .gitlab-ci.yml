@@ -2,6 +2,7 @@ stages:
 - check
 - test
 - build
+- release
 
 before_script:
 - mkdir -p /go/src/github.com/kubermatic/
@@ -113,7 +114,7 @@ build:
   - multi
 
 docker-release:
-  stage: build
+  stage: release
   image: docker:latest
   before_script:
   - docker login -u gitlab-ci-token -p $CI_JOB_TOKEN $CI_REGISTRY
