@@ -1,0 +1,88 @@
+stages:
+- check
+- build
+- test
+
+before_script:
+- mkdir -p /go/src/github.com/kubermatic/
+- ln -s $PWD /go/src/github.com/kubermatic/
+- cd /go/src/github.com/kubermatic/kubermatic
+
+dep:
+  stage: check
+  image:
+    name: metalmatze/dep:0.5.0
+    entrypoint: ['']
+  script:
+  - cd api
+  - dep ensure -v
+  - '[[ -z "$(git diff)" ]]'
+  tags:
+  - shared
+  - small
+  - multi
+
+gofmt:
+  stage: check
+  image: golang:1.10.3
+  script:
+  - cd api
+  - make gofmt
+  tags:
+  - shared
+  - small
+  - multi
+
+verify-codegen:
+  stage: check
+  image: golang:1.10.3
+  script:
+  - cd api
+  - ./hack/verify-codegen.sh
+  tags:
+  - shared
+  - small
+  - multi
+
+license-validation:
+  stage: check
+  image: metalmatze/wwhrd:1.9
+  script:
+  - cd api
+  - wwhrd check -f ../allowed_licensed.yaml
+  tags:
+  - shared
+  - small
+  - multi
+
+lint:
+  stage: check
+  image: quay.io/kubermatic/gometalinter:latest
+  script:
+  - cd api
+  - make lint
+  tags:
+  - shared
+  - small
+  - multi
+
+verify-addons-up-to-date:
+  stage: check
+  image: docker:stable
+  script:
+  - ./api/hack/verify-addon-version.sh
+  tags:
+  - shared
+  - small
+  - multi
+
+verify-swagger-spec:
+  stage: check
+  image: golang:1.10.3
+  script:
+  - cd api
+  - ./hack/verify-swagger.sh
+  tags:
+  - shared
+  - small
+  - multi
