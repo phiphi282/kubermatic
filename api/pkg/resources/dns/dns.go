@@ -86,6 +86,16 @@ func Deployment(data *resources.TemplateData, existing *appsv1.Deployment) (*app
 		return nil, err
 	}
 
+	limitMemory, err := resource.ParseQuantity("20Mi")
+	if err != nil {
+		return nil, err
+	}
+	limitCPU, err := resource.ParseQuantity("20m")
+	if err != nil {
+		return nil, err
+	}
+
+
 	dep.Spec.Template.Spec.Containers = []corev1.Container{
 		*openvpnSidecar,
 		{
@@ -99,8 +109,8 @@ func Deployment(data *resources.TemplateData, existing *appsv1.Deployment) (*app
 					corev1.ResourceCPU:    requestedCPU,
 				},
 				Limits: corev1.ResourceList{
-					corev1.ResourceMemory: requestedMemory,
-					corev1.ResourceCPU:    requestedCPU,
+					corev1.ResourceMemory: limitMemory,
+					corev1.ResourceCPU:    limitCPU,
 				},
 			},
 			TerminationMessagePath:   corev1.TerminationMessagePathDefault,

@@ -22,7 +22,7 @@ const (
 var (
 	defaultCPURequest    = resource.MustParse("50m")
 	defaultMemoryRequest = resource.MustParse("128Mi")
-	defaultCPULimit      = resource.MustParse("100m")
+	defaultCPULimit      = resource.MustParse("200m")
 	defaultMemoryLimit   = resource.MustParse("512Mi")
 )
 
