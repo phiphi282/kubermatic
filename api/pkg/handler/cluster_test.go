@@ -71,7 +71,6 @@ func TestRemoveSensitiveDataFromCluster(t *testing.T) {
 			ExistingCluster: genClusterWithAdminToken(),
 			ExpectedCluster: func() *kubermaticv1.Cluster {
 				cluster := genClusterWithAdminToken()
-				cluster.Address.AdminToken = ""
 				return cluster
 			}(),
 		},
@@ -1545,7 +1544,8 @@ func TestClusterEndpoint(t *testing.T) {
 					RootCA: kubermaticv1.KeyCert{Cert: []byte("foo")},
 				},
 				Address: kubermaticv1.ClusterAddress{
-					URL: "https://foo.bar:8443",
+					AdminToken: "admintoken",
+					URL:        "https://foo.bar:8443",
 				},
 				Spec: kubermaticv1.ClusterSpec{},
 			},
@@ -1805,7 +1805,8 @@ func TestUpdateClusterEndpoint(t *testing.T) {
 					RootCA: kubermaticv1.KeyCert{Cert: []byte("foo")},
 				},
 				Address: kubermaticv1.ClusterAddress{
-					URL: "https://foo.bar:8443",
+					AdminToken: "bbbbbb.bbbbbbbbbbbbbbbb",
+					URL:        "https://foo.bar:8443",
 				},
 				Spec: kubermaticv1.ClusterSpec{
 					Cloud: kubermaticv1.CloudSpec{
@@ -1854,7 +1855,8 @@ func TestUpdateClusterEndpoint(t *testing.T) {
 					RootCA: kubermaticv1.KeyCert{Cert: []byte("foo")},
 				},
 				Address: kubermaticv1.ClusterAddress{
-					URL: "https://foo.bar:8443",
+					AdminToken: "cccccc.cccccccccccccccc",
+					URL:        "https://foo.bar:8443",
 				},
 				Spec: kubermaticv1.ClusterSpec{
 					Cloud: kubermaticv1.CloudSpec{

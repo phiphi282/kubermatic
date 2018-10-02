@@ -439,7 +439,6 @@ func convertInternalClustersToExternal(internalClusters []*kubermaticapiv1.Clust
 func removeSensitiveDataFromCluster(cluster *kubermaticapiv1.Cluster) *kubermaticapiv1.Cluster {
 	clusterCopy := cluster.DeepCopy()
 
-	clusterCopy.Address.AdminToken = ""
 	clusterCopy.Spec.Cloud = kubermaticapiv1.RemoveSensitiveDataFromCloudSpec(clusterCopy.Spec.Cloud)
 
 	return clusterCopy
