@@ -71,6 +71,20 @@ pipeline:
     group: build
     image: ubuntu
     pull: true
+  5-kubermatic-docker-ci-release-27:
+    context: api
+    dockerfile: api/Dockerfile
+    group: push-master
+    image: plugins/docker
+    pull: true
+    repo: kubermatic/api
+    secrets:
+    - docker_username
+    - docker_password
+    tags:
+    - ${DRONE_COMMIT}
+    when:
+      branch: release/v2.7
   5-kubermatic-docker-master:
     context: api
     dockerfile: api/Dockerfile
@@ -86,7 +100,7 @@ pipeline:
     - ${DRONE_COMMIT}
     when:
       branch: master
-  6-kubermatic-docker-release:
+  5-kubermatic-docker-release:
     context: api
     dockerfile: api/Dockerfile
     group: push-master
@@ -334,8 +348,7 @@ pipeline:
     - name: prometheus
       namespace: monitoring
       path: config/monitoring/prometheus/
-    helm: upgrade --install --wait --timeout 300 --tiller-namespace=kubermatic-installer
-      --values config/versions-values.yaml
+    helm: upgrade --install --wait --timeout 300 --values config/versions-values.yaml
     image: kubeciio/helm
     pull: true
     secrets:
@@ -346,7 +359,7 @@ pipeline:
     values:
     - values
     when:
-      branch: release/v2.7.*
+      branch: release/v2.7
   10-e2e:
     commands:
     - echo "$KUBECONFIG" | base64 -d > /tmp/kubeconfig

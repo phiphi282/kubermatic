@@ -9,7 +9,7 @@ local drone = import 'drone/drone.libsonnet';
     local goImage = 'golang:1.10.3',
     local dockerSecrets = ['docker_username', 'docker_password'],
     local whenBranchMaster = { when: { branch: 'master' } },
-    local whenBranchRelease = { when: { branch: 'release/v2.7.*' } },
+    local whenBranchRelease = { when: { branch: 'release/v2.7' } },
     local whenEventTag = { when: { event: ['tag'] } },
     local charts = [
       { namespace: 'kubermatic', name: 'kubermatic', path: 'config/kubermatic/' },
@@ -114,9 +114,17 @@ local drone = import 'drone/drone.libsonnet';
       context: 'api',
     } + whenBranchMaster,
 
+    // Push release
+    '5-kubermatic-docker-ci-release-27': drone.step.docker.new('kubermatic/api', group='push-master') + {
+      secrets: dockerSecrets,
+      dockerfile: 'api/Dockerfile',
+      tags: ['${DRONE_COMMIT}'],
+      context: 'api',
+    } + whenBranchRelease,
+
 
     // Push Release
-    '6-kubermatic-docker-release': drone.step.docker.new('kubermatic/api', group='push-master') + {
+    '5-kubermatic-docker-release': drone.step.docker.new('kubermatic/api', group='push-master') + {
       secrets: dockerSecrets,
       dockerfile: 'api/Dockerfile',
       tags: ['${DRONE_TAG}', 'latest'],
@@ -162,7 +170,7 @@ local drone = import 'drone/drone.libsonnet';
 
     // deploy run
     '9-deploy-run': drone.step.new('kubeciio/helm') + {
-      helm: 'upgrade --install --wait --timeout 300' + tillerNamespace + versionsValues,
+      helm: 'upgrade --install --wait --timeout 300' + versionsValues,
       secrets: [
         { source: 'kubeconfig_run', target: 'kubeconfig' },
         { source: 'values_run', target: 'values' },
