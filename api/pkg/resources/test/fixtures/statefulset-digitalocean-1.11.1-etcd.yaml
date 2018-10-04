@@ -55,8 +55,6 @@ spec:
           exec /usr/local/bin/etcd \
               --name=${POD_NAME} \
               --data-dir="/var/run/etcd/pod_${POD_NAME}/" \
-              --heartbeat-interval=500 \
-              --election-timeout=5000 \
               --initial-cluster=${INITIAL_CLUSTER} \
               --initial-cluster-token="de-test-01" \
               --initial-cluster-state=${INITIAL_STATE} \
@@ -67,7 +65,8 @@ spec:
               --trusted-ca-file /etc/etcd/pki/ca/ca.crt \
               --client-cert-auth \
               --cert-file /etc/etcd/pki/tls/etcd-tls.crt \
-              --key-file /etc/etcd/pki/tls/etcd-tls.key
+              --key-file /etc/etcd/pki/tls/etcd-tls.key \
+              --auto-compaction-retention=8
         env:
         - name: POD_NAME
           valueFrom:
@@ -81,7 +80,7 @@ spec:
               fieldPath: status.podIP
         - name: ETCDCTL_API
           value: "3"
-        image: quay.io/coreos/etcd:v3.2.20
+        image: gcr.io/etcd-development/etcd:v3.3.9
         imagePullPolicy: IfNotPresent
         name: etcd
         ports:
@@ -102,7 +101,7 @@ spec:
             - --key
             - /etc/etcd/pki/client/apiserver-etcd-client.key
             - --endpoints
-            - https://localhost:2379
+            - https://127.0.0.1:2379
             - endpoint
             - health
           failureThreshold: 3

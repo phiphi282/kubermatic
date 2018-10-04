@@ -12,6 +12,7 @@ import (
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/util/rand"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/kubernetes"
 	rbaclister "k8s.io/client-go/listers/rbac/v1"
@@ -30,10 +31,6 @@ func (c *Controller) sync(key string) error {
 		}
 		return err
 	}
-	if c.shouldSkipProject(sharedProject) {
-		glog.V(8).Infof("skipping project %s due to different worker than (%s) is assigned to it", key, c.workerName)
-		return nil
-	}
 	if c.shouldDeleteProject(sharedProject) {
 		return c.ensureProjectCleanup(sharedProject)
 	}
@@ -45,10 +42,10 @@ func (c *Controller) sync(key string) error {
 	if err = c.ensureProjectOwner(project); err != nil {
 		return err
 	}
-	if err = c.ensureClusterRBACRoleForNamedResource(project.Name, kubermaticv1.ProjectResourceName, kubermaticv1.ProjectKindName, project.GetObjectMeta(), c.kubeMasterClient, c.rbacClusterRoleMasterLister); err != nil {
+	if err = c.ensureClusterRBACRoleForNamedResource(project.Name, kubermaticv1.ProjectResourceName, kubermaticv1.ProjectKindName, project.GetObjectMeta(), c.masterClusterProvider.kubeClient, c.masterClusterProvider.rbacClusterRoleLister); err != nil {
 		return err
 	}
-	if err = c.ensureClusterRBACRoleBindingForNamedResource(project.Name, kubermaticv1.ProjectKindName, project.GetObjectMeta(), c.kubeMasterClient, c.rbacClusterRoleBindingMasterLister); err != nil {
+	if err = c.ensureClusterRBACRoleBindingForNamedResource(project.Name, kubermaticv1.ProjectResourceName, kubermaticv1.ProjectKindName, project.GetObjectMeta(), c.masterClusterProvider.kubeClient, c.masterClusterProvider.rbacClusterRoleBindingLister); err != nil {
 		return err
 	}
 	if err = c.ensureClusterRBACRoleForResources(); err != nil {
@@ -67,7 +64,7 @@ func (c *Controller) ensureProjectInitialized(project *kubermaticv1.Project) err
 		finalizers := sets.NewString(project.Finalizers...)
 		finalizers.Insert(cleanupFinalizerName)
 		project.Finalizers = finalizers.List()
-		project, err = c.kubermaticMasterClient.KubermaticV1().Projects().Update(project)
+		project, err = c.masterClusterProvider.kubermaticClient.KubermaticV1().Projects().Update(project)
 		if err != nil {
 			return err
 		}
@@ -79,7 +76,7 @@ func (c *Controller) ensureProjectIsInActivePhase(project *kubermaticv1.Project)
 	var err error
 	if project.Status.Phase != kubermaticv1.ProjectActive {
 		project.Status.Phase = kubermaticv1.ProjectActive
-		project, err = c.kubermaticMasterClient.KubermaticV1().Projects().Update(project)
+		project, err = c.masterClusterProvider.kubermaticClient.KubermaticV1().Projects().Update(project)
 		if err != nil {
 			return err
 		}
@@ -103,31 +100,54 @@ func (c *Controller) ensureProjectOwner(project *kubermaticv1.Project) error {
 	}
 	owner := sharedOwner.DeepCopy()
 
-	for _, pg := range owner.Spec.Projects {
-		if pg.Name == project.Name && pg.Group == GenerateActualGroupNameFor(project.Name, OwnerGroupNamePrefix) {
+	bindings, err := c.userProjectBindingLister.List(labels.Everything())
+	if err != nil {
+		return err
+	}
+	for _, binding := range bindings {
+		if binding.Spec.ProjectID == project.Name && binding.Spec.UserEmail == owner.Spec.Email && binding.Spec.Group == GenerateActualGroupNameFor(project.Name, OwnerGroupNamePrefix) {
 			return nil
 		}
 	}
-	owner.Spec.Projects = append(owner.Spec.Projects, kubermaticv1.ProjectGroup{Name: project.Name, Group: GenerateActualGroupNameFor(project.Name, OwnerGroupNamePrefix)})
-	_, err := c.kubermaticMasterClient.KubermaticV1().Users().Update(owner)
+	ownerBinding := &kubermaticv1.UserProjectBinding{
+		ObjectMeta: metav1.ObjectMeta{
+			OwnerReferences: []metav1.OwnerReference{
+				{
+					APIVersion: kubermaticv1.SchemeGroupVersion.String(),
+					Kind:       kubermaticv1.ProjectKindName,
+					UID:        project.GetUID(),
+					Name:       project.Name,
+				},
+			},
+			Name: rand.String(10),
+		},
+		Spec: kubermaticv1.UserProjectBindingSpec{
+			UserEmail: owner.Spec.Email,
+			ProjectID: project.Name,
+			Group:     GenerateActualGroupNameFor(project.Name, OwnerGroupNamePrefix),
+		},
+	}
+
+	_, err = c.masterClusterProvider.kubermaticClient.KubermaticV1().UserProjectBindings().Create(ownerBinding)
 	return err
 }
 
 func (c *Controller) ensureClusterRBACRoleForResources() error {
 	for _, projectResource := range c.projectResources {
 		for _, groupPrefix := range AllGroupsPrefixes {
-			err := ensureClusterRBACRoleForResource(c.kubeMasterClient, groupPrefix, projectResource.gvr.Resource, c.rbacClusterRoleMasterLister)
-			if err != nil {
-				return err
-			}
 
 			if projectResource.destination == destinationSeed {
 				for _, seedClusterProvider := range c.seedClusterProviders {
 					seedClusterRESTClient := seedClusterProvider.kubeClient
-					err := ensureClusterRBACRoleForResource(seedClusterRESTClient, groupPrefix, projectResource.gvr.Resource, seedClusterProvider.rbacClusterRoleLister)
+					err := ensureClusterRBACRoleForResource(seedClusterRESTClient, groupPrefix, projectResource.gvr.Resource, projectResource.kind, seedClusterProvider.rbacClusterRoleLister)
 					if err != nil {
 						return err
 					}
+				}
+			} else {
+				err := ensureClusterRBACRoleForResource(c.masterClusterProvider.kubeClient, groupPrefix, projectResource.gvr.Resource, projectResource.kind, c.masterClusterProvider.rbacClusterRoleLister)
+				if err != nil {
+					return err
 				}
 			}
 		}
@@ -140,19 +160,9 @@ func (c *Controller) ensureClusterRBACRoleBindingForResources(projectName string
 		for _, groupPrefix := range AllGroupsPrefixes {
 			groupName := GenerateActualGroupNameFor(projectName, groupPrefix)
 
-			// for some resources we actually don't create ClusterRole
-			// thus before creating ClusterRoleBinding check if the role was generated for the given resource and the group
-			generatedClusterRole, err := generateClusterRBACRoleForResource(groupName, projectResource.gvr.Resource, kubermaticv1.SchemeGroupVersion.Group)
-			if err != nil {
-				return err
-			}
-			if generatedClusterRole == nil {
-				glog.V(5).Infof("skipping ClusterRoleBinding generation because corresponding ClusterRole will not be created for group \"%s\" and \"%s\" resource for project %s", groupPrefix, projectResource.gvr.Resource, projectName)
+			if skip, err := shouldSkipRBACRoleBindingFor(groupName, projectResource.gvr.Resource, kubermaticv1.SchemeGroupVersion.Group, projectName, projectResource.kind); skip {
 				continue
-			}
-
-			err = ensureClusterRBACRoleBindingForResource(c.kubeMasterClient, groupName, projectResource.gvr.Resource, c.rbacClusterRoleBindingMasterLister)
-			if err != nil {
+			} else if err != nil {
 				return err
 			}
 
@@ -164,19 +174,24 @@ func (c *Controller) ensureClusterRBACRoleBindingForResources(projectName string
 						return err
 					}
 				}
+			} else {
+				err := ensureClusterRBACRoleBindingForResource(c.masterClusterProvider.kubeClient, groupName, projectResource.gvr.Resource, c.masterClusterProvider.rbacClusterRoleBindingLister)
+				if err != nil {
+					return err
+				}
 			}
 		}
 	}
 	return nil
 }
 
-func ensureClusterRBACRoleForResource(kubeClient kubernetes.Interface, groupName, resource string, rbacLister rbaclister.ClusterRoleLister) error {
-	generatedClusterRole, err := generateClusterRBACRoleForResource(groupName, resource, kubermaticv1.SchemeGroupVersion.Group)
+func ensureClusterRBACRoleForResource(kubeClient kubernetes.Interface, groupName, resource, kind string, rbacLister rbaclister.ClusterRoleLister) error {
+	generatedClusterRole, err := generateClusterRBACRoleForResource(groupName, resource, kubermaticv1.SchemeGroupVersion.Group, kind)
 	if err != nil {
 		return err
 	}
 	if generatedClusterRole == nil {
-		glog.V(5).Infof("skipping ClusterRole generation because ClusterRole for group \"%s\" and resource \"%s\" will not be created", groupName, resource)
+		glog.V(5).Infof("skipping ClusterRole generation because the resource for group \"%s\" and resource \"%s\" will not be created", groupName, resource)
 		return nil
 	}
 	sharedExistingClusterRole, err := rbacLister.Get(generatedClusterRole.Name)
@@ -246,27 +261,25 @@ func ensureClusterRBACRoleBindingForResource(kubeClient kubernetes.Interface, gr
 // ensureProjectCleanup ensures proper clean up of dependent resources upon deletion
 //
 // In particular:
-// - removes project/group reference from users object
 // - removes no longer needed Subject from RBAC Binding for project's resources
+// - removes cluster resources on master and seed because for them we use Labels not OwnerReferences
 // - removes cleanupFinalizer
 func (c *Controller) ensureProjectCleanup(project *kubermaticv1.Project) error {
-	sharedUsers, err := c.userLister.List(labels.Everything())
-	if err != nil {
-		return err
-	}
-	for _, sharedUser := range sharedUsers {
-		updatedProjectGroup := []kubermaticv1.ProjectGroup{}
-		for _, pg := range sharedUser.Spec.Projects {
-			if pg.Name == project.Name {
-				continue
-			}
-			updatedProjectGroup = append(updatedProjectGroup, pg)
+	// cluster resources don't have OwnerReferences set thus we need to manually remove them
+	for _, clusterProvider := range c.seedClusterProviders {
+		if clusterProvider.clusterResourceLister == nil {
+			return fmt.Errorf("there is no lister for cluster resources for cluster provider %s", clusterProvider.providerName)
 		}
-		if len(updatedProjectGroup) != len(sharedUser.Spec.Projects) {
-			user := sharedUser.DeepCopy()
-			user.Spec.Projects = updatedProjectGroup
-			if _, err = c.kubermaticMasterClient.KubermaticV1().Users().Update(user); err != nil {
-				return err
+		clusterResources, err := clusterProvider.clusterResourceLister.List(labels.Everything())
+		if err != nil {
+			return err
+		}
+		for _, clusterResource := range clusterResources {
+			if clusterProject := clusterResource.Labels[kubermaticv1.ProjectIDLabelKey]; clusterProject == project.Name {
+				err := clusterProvider.kubermaticClient.KubermaticV1().Clusters().Delete(clusterResource.Name, &metav1.DeleteOptions{})
+				if err != nil {
+					return err
+				}
 			}
 		}
 	}
@@ -275,8 +288,9 @@ func (c *Controller) ensureProjectCleanup(project *kubermaticv1.Project) error {
 	for _, projectResource := range c.projectResources {
 		for _, groupPrefix := range AllGroupsPrefixes {
 			groupName := GenerateActualGroupNameFor(project.Name, groupPrefix)
-			err := cleanUpRBACRoleBindingFor(c.kubeMasterClient, groupName, projectResource.gvr.Resource)
-			if err != nil {
+			if skip, err := shouldSkipRBACRoleBindingFor(groupName, projectResource.gvr.Resource, kubermaticv1.SchemeGroupVersion.Group, project.Name, projectResource.kind); skip {
+				continue
+			} else if err != nil {
 				return err
 			}
 
@@ -288,6 +302,11 @@ func (c *Controller) ensureProjectCleanup(project *kubermaticv1.Project) error {
 						return err
 					}
 				}
+			} else {
+				err := cleanUpRBACRoleBindingFor(c.masterClusterProvider.kubeClient, groupName, projectResource.gvr.Resource)
+				if err != nil {
+					return err
+				}
 			}
 		}
 	}
@@ -295,7 +314,7 @@ func (c *Controller) ensureProjectCleanup(project *kubermaticv1.Project) error {
 	finalizers := sets.NewString(project.Finalizers...)
 	finalizers.Delete(cleanupFinalizerName)
 	project.Finalizers = finalizers.List()
-	_, err = c.kubermaticMasterClient.KubermaticV1().Projects().Update(project)
+	_, err := c.masterClusterProvider.kubermaticClient.KubermaticV1().Projects().Update(project)
 	return err
 }
 
@@ -326,10 +345,22 @@ func cleanUpRBACRoleBindingFor(kubeClient kubernetes.Interface, groupName, resou
 	return err
 }
 
-func (c *Controller) shouldSkipProject(project *kubermaticv1.Project) bool {
-	return project.Labels[kubermaticv1.WorkerNameLabelKey] != c.workerName
-}
-
 func (c *Controller) shouldDeleteProject(project *kubermaticv1.Project) bool {
 	return project.DeletionTimestamp != nil && sets.NewString(project.Finalizers...).Has(cleanupFinalizerName)
+}
+
+// for some groups we actually don't create ClusterRole
+// thus before doing something with ClusterRoleBinding check if the role was generated for the given resource and the group
+//
+// note: this method will add status to the log file
+func shouldSkipRBACRoleBindingFor(groupName, policyResource, policyAPIGroups, projectName, kind string) (bool, error) {
+	generatedClusterRole, err := generateClusterRBACRoleForResource(groupName, policyResource, policyAPIGroups, kind)
+	if err != nil {
+		return false, err
+	}
+	if generatedClusterRole == nil {
+		glog.V(5).Infof("skipping operation on ClusterRoleBinding because corresponding ClusterRole was not(will not be) created for group \"%s\" and \"%s\" resource for project %s", groupName, policyResource, projectName)
+		return true, nil
+	}
+	return false, nil
 }

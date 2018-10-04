@@ -17,6 +17,8 @@ const (
 
 	volumeConfigName = "config"
 	volumeDataName   = "data"
+
+	tag = "v2.3.2"
 )
 
 var (
@@ -27,7 +29,7 @@ var (
 )
 
 // StatefulSet returns the prometheus StatefulSet
-func StatefulSet(data *resources.TemplateData, existing *appsv1.StatefulSet) (*appsv1.StatefulSet, error) {
+func StatefulSet(data resources.StatefulSetDataProvider, existing *appsv1.StatefulSet) (*appsv1.StatefulSet, error) {
 	var set *appsv1.StatefulSet
 	if existing != nil {
 		set = existing
@@ -38,7 +40,7 @@ func StatefulSet(data *resources.TemplateData, existing *appsv1.StatefulSet) (*a
 	set.Name = resources.PrometheusStatefulSetName
 	set.OwnerReferences = []metav1.OwnerReference{data.GetClusterRef()}
 
-	requiredBaseLabels := map[string]string{"cluster": data.Cluster.Name}
+	requiredBaseLabels := map[string]string{"cluster": data.Cluster().Name}
 	set.Labels = resources.BaseAppLabel(name, requiredBaseLabels)
 	set.Spec.Selector = &metav1.LabelSelector{
 		MatchLabels: resources.BaseAppLabel(name, requiredBaseLabels),
@@ -69,7 +71,7 @@ func StatefulSet(data *resources.TemplateData, existing *appsv1.StatefulSet) (*a
 	set.Spec.Template.Spec.Containers = []corev1.Container{
 		{
 			Name:                     name,
-			Image:                    data.ImageRegistry(resources.RegistryQuay) + "/prometheus/prometheus:v2.2.0",
+			Image:                    data.ImageRegistry(resources.RegistryQuay) + "/prometheus/prometheus:" + tag,
 			ImagePullPolicy:          corev1.PullIfNotPresent,
 			TerminationMessagePath:   corev1.TerminationMessagePathDefault,
 			TerminationMessagePolicy: corev1.TerminationMessageReadFile,

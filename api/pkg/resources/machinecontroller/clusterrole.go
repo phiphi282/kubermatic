@@ -7,11 +7,9 @@ import (
 )
 
 // ClusterRole returns a cluster role for the machine controller (user-cluster)
-func ClusterRole(data *resources.TemplateData, existing *rbacv1.ClusterRole) (*rbacv1.ClusterRole, error) {
-	var r *rbacv1.ClusterRole
-	if existing != nil {
-		r = existing
-	} else {
+func ClusterRole(_ resources.ClusterRoleDataProvider, existing *rbacv1.ClusterRole) (*rbacv1.ClusterRole, error) {
+	r := existing
+	if r == nil {
 		r = &rbacv1.ClusterRole{}
 	}
 
@@ -22,7 +20,13 @@ func ClusterRole(data *resources.TemplateData, existing *rbacv1.ClusterRole) (*r
 		{
 			APIGroups: []string{"apiextensions.k8s.io"},
 			Resources: []string{"customresourcedefinitions"},
-			Verbs:     []string{"create"},
+			Verbs:     []string{"get"},
+		},
+		{
+			APIGroups:     []string{"apiextensions.k8s.io"},
+			Resources:     []string{"customresourcedefinitions"},
+			ResourceNames: []string{"machines.machine.k8s.io"},
+			Verbs:         []string{"delete"},
 		},
 		{
 			APIGroups:     []string{"apiextensions.k8s.io"},
@@ -38,6 +42,16 @@ func ClusterRole(data *resources.TemplateData, existing *rbacv1.ClusterRole) (*r
 		{
 			APIGroups: []string{""},
 			Resources: []string{"nodes"},
+			Verbs:     []string{"*"},
+		},
+		{
+			APIGroups: []string{""},
+			Resources: []string{"events"},
+			Verbs:     []string{"create", "patch"},
+		},
+		{
+			APIGroups: []string{"cluster.k8s.io"},
+			Resources: []string{"machines", "machinesets", "machinesets/status", "machinedeployments", "machinedeployments/status", "clusters", "clusters/status"},
 			Verbs:     []string{"*"},
 		},
 	}

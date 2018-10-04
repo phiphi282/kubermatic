@@ -62,7 +62,7 @@ type LegacyGetClusterReq struct {
 type GetClusterReq struct {
 	DCReq
 	// in: path
-	ClusterName string `json:"cluster_name"`
+	ClusterID string `json:"cluster_id"`
 }
 
 func decodeLegacyClusterReq(c context.Context, r *http.Request) (interface{}, error) {
@@ -80,7 +80,12 @@ func decodeLegacyClusterReq(c context.Context, r *http.Request) (interface{}, er
 
 func decodeClusterReq(c context.Context, r *http.Request) (interface{}, error) {
 	var req GetClusterReq
-	req.ClusterName = mux.Vars(r)["cluster"]
+
+	clusterID, err := decodeClusterID(c, r)
+	if err != nil {
+		return nil, err
+	}
+	req.ClusterID = clusterID
 
 	dcr, err := decodeDcReq(c, r)
 	if err != nil {
@@ -188,6 +193,11 @@ func decodeDatacentersReq(c context.Context, r *http.Request) (interface{}, erro
 //DCGetter defines functionality to retrieve a datacenter name
 type DCGetter interface {
 	GetDC() string
+}
+
+// ProjectIDGetter knows how to get project ID from the request
+type ProjectIDGetter interface {
+	GetProjectID() string
 }
 
 // DCReq represent a request for datacenter specific data in a given project

@@ -5,12 +5,16 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/kubermatic/kubermatic/api/pkg/util/informer"
+
 	"github.com/golang/glog"
 	rbaccontroller "github.com/kubermatic/kubermatic/api/pkg/controller/rbac"
 	kubermaticclientset "github.com/kubermatic/kubermatic/api/pkg/crd/client/clientset/versioned"
 	"github.com/kubermatic/kubermatic/api/pkg/crd/client/informers/externalversions"
 	"github.com/kubermatic/kubermatic/api/pkg/signals"
+	"github.com/kubermatic/kubermatic/api/pkg/util/workerlabel"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	kuberinformers "k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
@@ -31,7 +35,7 @@ type controllerContext struct {
 	kubermaticMasterClient          kubermaticclientset.Interface
 	kubermaticMasterInformerFactory externalversions.SharedInformerFactory
 	kubeMasterInformerFactory       kuberinformers.SharedInformerFactory
-	seedClusterProviders            []*rbaccontroller.ClusterProvider
+	allClusterProviders             []*rbaccontroller.ClusterProvider
 }
 
 func main() {
@@ -47,12 +51,18 @@ func main() {
 		glog.Fatal(err)
 	}
 
+	selector, err := workerlabel.LabelSelector(ctrlCtx.runOptions.workerName)
+	if err != nil {
+		glog.Fatal(err)
+	}
+
 	ctrlCtx.stopCh = signals.SetupSignalHandler()
 	ctrlCtx.kubeMasterClient = kubernetes.NewForConfigOrDie(config)
 	ctrlCtx.kubermaticMasterClient = kubermaticclientset.NewForConfigOrDie(config)
-	ctrlCtx.kubermaticMasterInformerFactory = externalversions.NewSharedInformerFactory(ctrlCtx.kubermaticMasterClient, time.Minute*5)
-	ctrlCtx.kubeMasterInformerFactory = kuberinformers.NewSharedInformerFactory(ctrlCtx.kubeMasterClient, time.Minute*5)
-	ctrlCtx.seedClusterProviders = []*rbaccontroller.ClusterProvider{}
+	ctrlCtx.kubermaticMasterInformerFactory = externalversions.NewFilteredSharedInformerFactory(ctrlCtx.kubermaticMasterClient, informer.DefaultInformerResyncPeriod, metav1.NamespaceAll, selector)
+	ctrlCtx.kubeMasterInformerFactory = kuberinformers.NewSharedInformerFactory(ctrlCtx.kubeMasterClient, informer.DefaultInformerResyncPeriod)
+
+	ctrlCtx.allClusterProviders = []*rbaccontroller.ClusterProvider{}
 	{
 		clientcmdConfig, err := clientcmd.LoadFromFile(ctrlCtx.runOptions.kubeconfig)
 		if err != nil {
@@ -70,32 +80,38 @@ func main() {
 			if err != nil {
 				glog.Fatal(err)
 			}
-			if cfg.Host == config.Host && cfg.Username == config.Username && cfg.Password == config.Password {
-				glog.V(2).Infof("Skipping adding %s as a seed cluster. It is exactly the same as existing kubernetes master client", ctxName)
-				continue
-			}
 
-			glog.V(2).Infof("Adding %s as seed cluster", ctxName)
+			clusterPrefix := "unknown"
+			if ctxName == clientcmdConfig.CurrentContext {
+				glog.V(2).Infof("Adding %s as master cluster", ctxName)
+				clusterPrefix = rbaccontroller.MasterProviderPrefix
+			} else {
+				glog.V(2).Infof("Adding %s as seed cluster", ctxName)
+				clusterPrefix = rbaccontroller.SeedProviderPrefix
+			}
 			kubeClient, err := kubernetes.NewForConfig(cfg)
 			if err != nil {
 				glog.Fatal(err)
 			}
+
 			kubeInformerFactory := kuberinformers.NewSharedInformerFactory(kubeClient, time.Minute*5)
-			kubermaticClient := kubermaticclientset.NewForConfigOrDie(config)
-			kubermaticInformerFactory := externalversions.NewSharedInformerFactory(kubermaticClient, time.Minute*5)
-			ctrlCtx.seedClusterProviders = append(ctrlCtx.seedClusterProviders, rbaccontroller.NewClusterProvider(fmt.Sprintf("seed/%s", ctxName), kubeClient, kubeInformerFactory, kubermaticClient, kubermaticInformerFactory))
+			kubermaticClient := kubermaticclientset.NewForConfigOrDie(cfg)
+			kubermaticInformerFactory := externalversions.NewFilteredSharedInformerFactory(kubermaticClient, time.Minute*5, metav1.NamespaceAll, selector)
+			ctrlCtx.allClusterProviders = append(ctrlCtx.allClusterProviders, rbaccontroller.NewClusterProvider(fmt.Sprintf("%s/%s", clusterPrefix, ctxName), kubeClient, kubeInformerFactory, kubermaticClient, kubermaticInformerFactory))
+
+			// special case the current context/master is also a seed cluster
+			// we keep cluster resources also on master
+			if ctxName == clientcmdConfig.CurrentContext {
+				glog.V(2).Infof("Special case adding %s (current context) also as seed cluster", ctxName)
+				clusterPrefix = rbaccontroller.SeedProviderPrefix
+				ctrlCtx.allClusterProviders = append(ctrlCtx.allClusterProviders, rbaccontroller.NewClusterProvider(fmt.Sprintf("%s/%s", clusterPrefix, ctxName), kubeClient, kubeInformerFactory, kubermaticClient, kubermaticInformerFactory))
+			}
 		}
 	}
 
 	ctrl, err := rbaccontroller.New(
 		rbaccontroller.NewMetrics(),
-		ctrlCtx.runOptions.workerName,
-		ctrlCtx.kubermaticMasterClient,
-		ctrlCtx.kubermaticMasterInformerFactory,
-		ctrlCtx.kubeMasterClient,
-		ctrlCtx.kubeMasterInformerFactory.Rbac().V1().ClusterRoles(),
-		ctrlCtx.kubeMasterInformerFactory.Rbac().V1().ClusterRoleBindings(),
-		ctrlCtx.seedClusterProviders)
+		ctrlCtx.allClusterProviders)
 	if err != nil {
 		glog.Fatal(err)
 	}
@@ -106,7 +122,7 @@ func main() {
 	ctrlCtx.kubermaticMasterInformerFactory.WaitForCacheSync(ctrlCtx.stopCh)
 	ctrlCtx.kubeMasterInformerFactory.WaitForCacheSync(ctrlCtx.stopCh)
 
-	for _, seedClusterProvider := range ctrlCtx.seedClusterProviders {
+	for _, seedClusterProvider := range ctrlCtx.allClusterProviders {
 		seedClusterProvider.StartInformers(ctrlCtx.stopCh)
 		if err := seedClusterProvider.WaitForCachesToSync(ctrlCtx.stopCh); err != nil {
 			glog.Fatalf("failed to sync cache: %v", err)

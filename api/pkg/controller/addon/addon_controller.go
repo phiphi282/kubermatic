@@ -73,7 +73,6 @@ type Controller struct {
 	queue          workqueue.RateLimitingInterface
 	metrics        *Metrics
 	addonVariables map[string]interface{}
-	workerName     string
 	addonDir       string
 	registryURI    string
 
@@ -89,7 +88,6 @@ type Controller struct {
 func New(
 	metrics *Metrics,
 	addonCtxVariables map[string]interface{},
-	workerName string,
 	addonDir string,
 	overwriteRegistey string,
 	KubeconfigProvider KubeconfigProvider,
@@ -98,10 +96,9 @@ func New(
 	clusterInformer kubermaticv1informers.ClusterInformer) (*Controller, error) {
 
 	c := &Controller{
-		queue:              workqueue.NewNamedRateLimitingQueue(workqueue.NewItemExponentialFailureRateLimiter(1*time.Second, 5*time.Minute), "Addon"),
+		queue:              workqueue.NewNamedRateLimitingQueue(workqueue.NewItemExponentialFailureRateLimiter(1*time.Second, 5*time.Minute), "addon"),
 		metrics:            metrics,
 		addonVariables:     addonCtxVariables,
-		workerName:         workerName,
 		addonDir:           addonDir,
 		KubeconfigProvider: KubeconfigProvider,
 		client:             client,
@@ -281,11 +278,6 @@ func (c *Controller) sync(key string) error {
 		return fmt.Errorf("failed to get cluster %s: %v", addon.Spec.Cluster.Name, err)
 	}
 	cluster := clusterFromCache.DeepCopy()
-
-	if cluster.Labels[kubermaticv1.WorkerNameLabelKey] != c.workerName {
-		glog.V(8).Infof("skipping cluster %s due to different worker assigned to it", key)
-		return nil
-	}
 
 	// When a cluster gets deleted - we can skip it - not worth the effort
 	if cluster.DeletionTimestamp != nil {
@@ -604,7 +596,7 @@ func (c *Controller) ensureIsInstalled(addon *kubermaticv1.Addon, cluster *kuber
 	out, err := cmd.CombinedOutput()
 	glog.V(8).Infof("executed '%s' for addon %s of cluster %s: \n%s", strings.Join(cmd.Args, " "), addon.Name, cluster.Name, string(out))
 	if err != nil {
-		return fmt.Errorf("failed to execute '%s' for addon %s of cluster %s: \n%s", strings.Join(cmd.Args, " "), addon.Name, cluster.Name, string(out))
+		return fmt.Errorf("failed to execute '%s' for addon %s of cluster %s: %v\n%s", strings.Join(cmd.Args, " "), addon.Name, cluster.Name, err, string(out))
 	}
 	return err
 }
@@ -624,7 +616,7 @@ func (c *Controller) cleanupManifests(addon *kubermaticv1.Addon, cluster *kuberm
 		if isKubectlDeleteAllNotFoundMessage(string(out), manifestFilename) {
 			return nil
 		}
-		return fmt.Errorf("failed to execute '%s' for addon %s of cluster %s: \n%s\n%v", strings.Join(cmd.Args, " "), addon.Name, cluster.Name, string(out), err)
+		return fmt.Errorf("failed to execute '%s' for addon %s of cluster %s: %v\n%s", strings.Join(cmd.Args, " "), addon.Name, cluster.Name, err, string(out))
 	}
 	return nil
 }

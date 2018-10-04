@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/kubermatic/kubermatic/api/pkg/util/informer"
+
 	"github.com/golang/glog"
 	"github.com/oklog/run"
 	"github.com/prometheus/client_golang/prometheus"
@@ -16,17 +18,19 @@ import (
 	"github.com/kubermatic/kubermatic/api/pkg/collectors"
 	backupcontroller "github.com/kubermatic/kubermatic/api/pkg/controller/backup"
 	kubermaticclientset "github.com/kubermatic/kubermatic/api/pkg/crd/client/clientset/versioned"
-	"github.com/kubermatic/kubermatic/api/pkg/crd/client/informers/externalversions"
+	kubermaticinformers "github.com/kubermatic/kubermatic/api/pkg/crd/client/informers/externalversions"
 	kubermaticv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
 	"github.com/kubermatic/kubermatic/api/pkg/leaderelection"
 	"github.com/kubermatic/kubermatic/api/pkg/metrics"
 	"github.com/kubermatic/kubermatic/api/pkg/provider"
 	"github.com/kubermatic/kubermatic/api/pkg/signals"
+	"github.com/kubermatic/kubermatic/api/pkg/util/workerlabel"
 
 	"k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/net"
-	kuberinformers "k8s.io/client-go/informers"
+	kubeinformers "k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
 	corev1 "k8s.io/client-go/kubernetes/typed/core/v1"
@@ -41,24 +45,29 @@ type controllerRunOptions struct {
 	masterURL    string
 	internalAddr string
 
-	masterResources      string
-	externalURL          string
-	dc                   string
-	dcFile               string
-	workerName           string
-	versionsFile         string
-	updatesFile          string
-	workerCount          int
-	overwriteRegistry    string
-	nodePortRange        string
-	nodeAccessNetwork    string
-	addonsPath           string
-	addonsList           string
-	backupContainerFile  string
-	cleanupContainerFile string
-	backupContainerImage string
-	backupInterval       string
-	etcdDiskSize         string
+	masterResources                                  string
+	externalURL                                      string
+	dc                                               string
+	dcFile                                           string
+	workerName                                       string
+	versionsFile                                     string
+	updatesFile                                      string
+	workerCount                                      int
+	overwriteRegistry                                string
+	nodePortRange                                    string
+	nodeAccessNetwork                                string
+	addonsPath                                       string
+	addonsList                                       string
+	backupContainerFile                              string
+	cleanupContainerFile                             string
+	backupContainerImage                             string
+	backupInterval                                   string
+	etcdDiskSize                                     string
+	inClusterPrometheusRulesFile                     string
+	inClusterPrometheusDisableDefaultRules           bool
+	inClusterPrometheusDisableDefaultScrapingConfigs bool
+	inClusterPrometheusScrapingConfigsFile           string
+	dockerPullConfigJSONFile                         string
 }
 
 type controllerContext struct {
@@ -66,8 +75,8 @@ type controllerContext struct {
 	stopCh                    <-chan struct{}
 	kubeClient                kubernetes.Interface
 	kubermaticClient          kubermaticclientset.Interface
-	kubermaticInformerFactory externalversions.SharedInformerFactory
-	kubeInformerFactory       kuberinformers.SharedInformerFactory
+	kubermaticInformerFactory kubermaticinformers.SharedInformerFactory
+	kubeInformerFactory       kubeinformers.SharedInformerFactory
 }
 
 const (
@@ -97,6 +106,11 @@ func main() {
 	flag.StringVar(&runOp.backupContainerImage, "backup-container-init-image", backupcontroller.DefaultBackupContainerImage, "Docker image to use for the init container in the backup job, must be an etcd v3 image. Only set this if your cluster can not use the public quay.io registry")
 	flag.StringVar(&runOp.backupInterval, "backup-interval", backupcontroller.DefaultBackupInterval, "Interval in which the etcd gets backed up")
 	flag.StringVar(&runOp.etcdDiskSize, "etcd-disk-size", "5Gi", "Size for the etcd PV's. Only applies to new clusters.")
+	flag.StringVar(&runOp.inClusterPrometheusRulesFile, "in-cluster-prometheus-rules-file", "", "The file containing the custom alerting rules for the prometheus running in the cluster-foo namespaces.")
+	flag.BoolVar(&runOp.inClusterPrometheusDisableDefaultRules, "in-cluster-prometheus-disable-default-rules", false, "A flag indicating whether the default rules for the prometheus running in the cluster-foo namespaces should be deployed.")
+	flag.StringVar(&runOp.dockerPullConfigJSONFile, "docker-pull-config-json-file", "config.json", "The file containing the docker auth config.")
+	flag.BoolVar(&runOp.inClusterPrometheusDisableDefaultScrapingConfigs, "in-cluster-prometheus-disable-default-scraping-configs", false, "A flag indicating whether the default scraping configs for the prometheus running in the cluster-foo namespaces should be deployed.")
+	flag.StringVar(&runOp.inClusterPrometheusScrapingConfigsFile, "in-cluster-prometheus-scraping-configs-file", "", "The file containing the custom scraping configs for the prometheus running in the cluster-foo namespaces.")
 	flag.Parse()
 
 	if runOp.masterResources == "" {
@@ -113,6 +127,10 @@ func main() {
 
 	if runOp.backupContainerFile == "" {
 		glog.Fatal("backup-container is undefined")
+	}
+
+	if runOp.dockerPullConfigJSONFile == "" {
+		glog.Fatal("docker-pull-config-json-file is undefined")
 	}
 
 	// Validate etcd disk size
@@ -147,9 +165,13 @@ func main() {
 
 	stopCh := signals.SetupSignalHandler()
 	ctx, ctxDone := context.WithCancel(context.Background())
+	defer ctxDone()
 
 	// Create Context
-	ctrlCtx := newControllerContext(runOp, ctx.Done(), kubeClient, kubermaticClient)
+	ctrlCtx, err := newControllerContext(runOp, ctx.Done(), kubeClient, kubermaticClient)
+	if err != nil {
+		glog.Fatal(err)
+	}
 
 	controllers, err := createAllControllers(ctrlCtx)
 	if err != nil {
@@ -199,11 +221,11 @@ func main() {
 			return nil
 		}, func(err error) {
 			glog.Errorf("Stopping internal http server: %v", err)
-			ctx, cancel := context.WithTimeout(ctx, time.Second)
+			timeoutCtx, cancel := context.WithTimeout(ctx, time.Second)
 			defer cancel()
 
 			glog.Info("Shutting down the internal http server")
-			if err := s.Shutdown(ctx); err != nil {
+			if err := s.Shutdown(timeoutCtx); err != nil {
 				glog.Error("failed to shutdown the internal http server gracefully:", err)
 			}
 		})
@@ -218,8 +240,7 @@ func main() {
 			}
 			callbacks := kubeleaderelection.LeaderCallbacks{
 				OnStartedLeading: func(stop <-chan struct{}) {
-					err := runAllControllers(ctrlCtx.runOptions.workerCount, ctrlCtx.stopCh, ctxDone, controllers)
-					if err != nil {
+					if err = runAllControllers(ctrlCtx.runOptions.workerCount, ctrlCtx.stopCh, ctxDone, controllers); err != nil {
 						glog.Error(err)
 						ctxDone()
 					}
@@ -268,7 +289,7 @@ func getEventRecorder(masterKubeClient *kubernetes.Clientset) (record.EventRecor
 	return recorder, nil
 }
 
-func newControllerContext(runOp controllerRunOptions, done <-chan struct{}, kubeClient kubernetes.Interface, kubermaticClient kubermaticclientset.Interface) *controllerContext {
+func newControllerContext(runOp controllerRunOptions, done <-chan struct{}, kubeClient kubernetes.Interface, kubermaticClient kubermaticclientset.Interface) (*controllerContext, error) {
 	ctrlCtx := &controllerContext{
 		runOptions:       runOp,
 		stopCh:           done,
@@ -276,10 +297,15 @@ func newControllerContext(runOp controllerRunOptions, done <-chan struct{}, kube
 		kubermaticClient: kubermaticClient,
 	}
 
-	ctrlCtx.kubermaticInformerFactory = externalversions.NewSharedInformerFactory(ctrlCtx.kubermaticClient, time.Minute*5)
-	ctrlCtx.kubeInformerFactory = kuberinformers.NewSharedInformerFactory(ctrlCtx.kubeClient, time.Minute*5)
+	selector, err := workerlabel.LabelSelector(runOp.workerName)
+	if err != nil {
+		return nil, err
+	}
 
-	return ctrlCtx
+	ctrlCtx.kubermaticInformerFactory = kubermaticinformers.NewFilteredSharedInformerFactory(ctrlCtx.kubermaticClient, informer.DefaultInformerResyncPeriod, metav1.NamespaceAll, selector)
+	ctrlCtx.kubeInformerFactory = kubeinformers.NewSharedInformerFactory(ctrlCtx.kubeClient, informer.DefaultInformerResyncPeriod)
+
+	return ctrlCtx, nil
 }
 
 func (ctx *controllerContext) Start() {

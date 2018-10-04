@@ -39,6 +39,7 @@ const (
 
 const (
 	WorkerNameLabelKey = "worker-name"
+	ProjectIDLabelKey  = "project-id"
 )
 
 //+genclient
@@ -67,8 +68,9 @@ type ClusterList struct {
 
 // ClusterSpec specifies the data for a new cluster.
 type ClusterSpec struct {
-	Cloud          CloudSpec               `json:"cloud"`
-	ClusterNetwork ClusterNetworkingConfig `json:"clusterNetwork"`
+	Cloud           CloudSpec                 `json:"cloud"`
+	ClusterNetwork  ClusterNetworkingConfig   `json:"clusterNetwork"`
+	MachineNetworks []MachineNetworkingConfig `json:"machineNetworks,omitempty"`
 
 	// Version defines the wanted version of the control plane
 	Version string `json:"version"`
@@ -115,6 +117,13 @@ type ClusterNetworkingConfig struct {
 
 	// Domain name for services.
 	DNSDomain string `json:"dnsDomain"`
+}
+
+// MachineNetworkingConfig specifies the networking parameters used for IPAM.
+type MachineNetworkingConfig struct {
+	CIDR       string   `json:"cidr"`
+	Gateway    string   `json:"gateway"`
+	DNSServers []string `json:"dnsServers"`
 }
 
 // NetworkRanges represents ranges of network addresses.
@@ -267,6 +276,8 @@ func RemoveSensitiveDataFromCloudSpec(spec CloudSpec) CloudSpec {
 	if spec.VSphere != nil {
 		spec.VSphere.Username = ""
 		spec.VSphere.Password = ""
+		spec.VSphere.InfraManagementUser.Username = ""
+		spec.VSphere.InfraManagementUser.Password = ""
 	}
 
 	return spec
@@ -375,6 +386,7 @@ type ClusterHealthStatus struct {
 	Controller        bool `json:"controller"`
 	MachineController bool `json:"machineController"`
 	Etcd              bool `json:"etcd"`
+	OpenVPN           bool `json:"openvpn"`
 }
 
 // AllHealthy returns if all components are healthy

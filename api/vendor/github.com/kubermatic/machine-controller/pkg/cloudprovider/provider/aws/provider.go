@@ -8,10 +8,8 @@ import (
 	"github.com/kubermatic/machine-controller/pkg/cloudprovider/cloud"
 	cloudprovidererrors "github.com/kubermatic/machine-controller/pkg/cloudprovider/errors"
 	"github.com/kubermatic/machine-controller/pkg/cloudprovider/instance"
-	"github.com/kubermatic/machine-controller/pkg/machines/v1alpha1"
 	"github.com/kubermatic/machine-controller/pkg/providerconfig"
 
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
 
 	"github.com/aws/aws-sdk-go/aws"
@@ -21,6 +19,9 @@ import (
 	"github.com/aws/aws-sdk-go/service/ec2"
 	"github.com/aws/aws-sdk-go/service/iam"
 	"github.com/golang/glog"
+
+	common "sigs.k8s.io/cluster-api/pkg/apis/cluster/common"
+	"sigs.k8s.io/cluster-api/pkg/apis/cluster/v1alpha1"
 )
 
 type provider struct {
@@ -87,25 +88,26 @@ var (
 			"us-west-1":      "ami-7d81bb1d",
 			"us-west-2":      "ami-c167bdb9",
 		},
+		// for region in $(aws ec2 describe-regions  | jq '.Regions[].RegionName' --raw-output); do
+		//   IMAGE="$(aws ec2 --region "$region" describe-images --filters Name=name,Values=ubuntu/images/hvm-ssd/ubuntu-bionic-18.04-amd64-server* --output json | jq '.Images | sort_by(.CreationDate) | reverse | .[0].ImageId' --raw-output)"
+		//   echo "\"$region\": \"$IMAGE\","
+		// done
 		providerconfig.OperatingSystemUbuntu: {
-			"ap-northeast-1": "ami-42ca4724",
-			"ap-south-1":     "ami-84dc94eb",
-			"ap-southeast-1": "ami-29aece55",
-			"ca-central-1":   "ami-b0c67cd4",
-			"eu-central-1":   "ami-13b8337c",
-			"eu-west-1":      "ami-63b0341a",
-			"sa-east-1":      "ami-8181c7ed",
-			"us-east-1":      "ami-3dec9947",
-			"us-west-1":      "ami-1a17137a",
-			"cn-north-1":     "ami-fc25f791",
-			"cn-northwest-1": "ami-e5b0a587",
-			"us-gov-west-1":  "ami-6261ee03",
-			"ap-northeast-2": "ami-5027813e",
-			"ap-southeast-2": "ami-9b8076f9",
-			"eu-west-2":      "ami-22415846",
-			"us-east-2":      "ami-597d553c",
-			"us-west-2":      "ami-a2e544da",
-			"eu-west-3":      "ami-794bfc04",
+			"ap-south-1":     "ami-004ae4f94341b595d",
+			"eu-west-3":      "ami-0f230b076c11618ab",
+			"eu-west-2":      "ami-54d12433",
+			"eu-west-1":      "ami-0bd5ae06b6779872a",
+			"ap-northeast-2": "ami-0cffb4e3f8f2c7ca2",
+			"ap-northeast-1": "ami-18a8d1f5",
+			"sa-east-1":      "ami-0ba619c9d7a85181f",
+			"ca-central-1":   "ami-4875f82c",
+			"ap-southeast-1": "ami-02717f13071669929",
+			"ap-southeast-2": "ami-3b288859",
+			"eu-central-1":   "ami-f3bcb218",
+			"us-east-1":      "ami-920b10ed",
+			"us-east-2":      "ami-03bd56e7bb2f24c5d",
+			"us-west-1":      "ami-f36b8490",
+			"us-west-2":      "ami-349fb84c",
 		},
 		providerconfig.OperatingSystemCentOS: {
 			"ap-northeast-1": "ami-25bd2743",
@@ -192,9 +194,12 @@ func getDefaultRootDevicePath(os providerconfig.OperatingSystem) (string, error)
 	return "", fmt.Errorf("no default root path found for %s operating system", os)
 }
 
-func (p *provider) getConfig(s runtime.RawExtension) (*Config, *providerconfig.Config, error) {
+func (p *provider) getConfig(s v1alpha1.ProviderConfig) (*Config, *providerconfig.Config, error) {
+	if s.Value == nil {
+		return nil, nil, fmt.Errorf("machine.spec.providerconfig.value is nil")
+	}
 	pconfig := providerconfig.Config{}
-	err := json.Unmarshal(s.Raw, &pconfig)
+	err := json.Unmarshal(s.Value.Raw, &pconfig)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -507,7 +512,7 @@ func (p *provider) Create(machine *v1alpha1.Machine, update cloud.MachineUpdater
 	config, pc, err := p.getConfig(machine.Spec.ProviderConfig)
 	if err != nil {
 		return nil, cloudprovidererrors.TerminalError{
-			Reason:  v1alpha1.InvalidConfigurationMachineError,
+			Reason:  common.InvalidConfigurationMachineError,
 			Message: fmt.Sprintf("Failed to parse MachineSpec, due to %v", err),
 		}
 	}
@@ -555,7 +560,7 @@ func (p *provider) Create(machine *v1alpha1.Machine, update cloud.MachineUpdater
 		if amiID, err = getDefaultAMIID(pc.OperatingSystem, config.Region); err != nil {
 			if err != nil {
 				return nil, cloudprovidererrors.TerminalError{
-					Reason:  v1alpha1.InvalidConfigurationMachineError,
+					Reason:  common.InvalidConfigurationMachineError,
 					Message: fmt.Sprintf("Invalid Region and Operating System configuration: %v", err),
 				}
 			}
@@ -652,7 +657,7 @@ func (p *provider) Delete(machine *v1alpha1.Machine, _ cloud.MachineUpdater) err
 	config, _, err := p.getConfig(machine.Spec.ProviderConfig)
 	if err != nil {
 		return cloudprovidererrors.TerminalError{
-			Reason:  v1alpha1.InvalidConfigurationMachineError,
+			Reason:  common.InvalidConfigurationMachineError,
 			Message: fmt.Sprintf("Failed to parse MachineSpec, due to %v", err),
 		}
 	}
@@ -680,7 +685,7 @@ func (p *provider) Get(machine *v1alpha1.Machine) (instance.Instance, error) {
 	config, _, err := p.getConfig(machine.Spec.ProviderConfig)
 	if err != nil {
 		return nil, cloudprovidererrors.TerminalError{
-			Reason:  v1alpha1.InvalidConfigurationMachineError,
+			Reason:  common.InvalidConfigurationMachineError,
 			Message: fmt.Sprintf("Failed to parse MachineSpec, due to %v", err),
 		}
 	}
@@ -792,14 +797,14 @@ func awsErrorToTerminalError(err error, msg string) error {
 		switch aerr.Code() {
 		case "InstanceLimitExceeded":
 			return cloudprovidererrors.TerminalError{
-				Reason:  v1alpha1.InsufficientResourcesMachineError,
+				Reason:  common.InsufficientResourcesMachineError,
 				Message: "You've reached the AWS quota for number of instances of this type",
 			}
 		case "AuthFailure":
 			// authorization primitives come from MachineSpec
 			// thus we are setting InvalidConfigurationMachineError
 			return cloudprovidererrors.TerminalError{
-				Reason:  v1alpha1.InvalidConfigurationMachineError,
+				Reason:  common.InvalidConfigurationMachineError,
 				Message: "A request has been rejected due to invalid credentials which were taken from the MachineSpec",
 			}
 		default:

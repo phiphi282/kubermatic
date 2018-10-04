@@ -41,26 +41,6 @@
             "version": "e6fe81715dd802b4c9d9c64f2c44ba6ee56d2000"
         },
         {
-            "name": "grafonnet",
-            "source": {
-                "git": {
-                    "remote": "https://github.com/grafana/grafonnet-lib",
-                    "subdir": "grafonnet"
-                }
-            },
-            "version": "0fdef020a6360415d2c8fdc82b29122583e4df05"
-        },
-        {
-            "name": "grafana-builder",
-            "source": {
-                "git": {
-                    "remote": "https://github.com/kausalco/public",
-                    "subdir": "grafana-builder"
-                }
-            },
-            "version": "a17504d81e2ab5b29d97c77faf72b8d7644bbabf"
-        },
-        {
             "name": "etcd-mixin",
             "source": {
                 "git": {

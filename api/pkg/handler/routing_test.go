@@ -1,12 +1,14 @@
 package handler
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
+	"github.com/go-test/deep"
+	"io"
 	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -23,11 +25,10 @@ import (
 	"github.com/kubermatic/kubermatic/api/pkg/provider/cloud"
 	"github.com/kubermatic/kubermatic/api/pkg/provider/kubernetes"
 	"github.com/kubermatic/kubermatic/api/pkg/version"
-	machineclientset "github.com/kubermatic/machine-controller/pkg/client/clientset/versioned"
-	fakemachineclientset "github.com/kubermatic/machine-controller/pkg/client/clientset/versioned/fake"
 
 	prometheusapi "github.com/prometheus/client_golang/api"
 	"k8s.io/apimachinery/pkg/api/equality"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/diff"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -35,6 +36,9 @@ import (
 	kubernetesclient "k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/fake"
 	restclient "k8s.io/client-go/rest"
+
+	clusterclientset "sigs.k8s.io/cluster-api/pkg/client/clientset_generated/clientset"
+	fakeclusterclientset "sigs.k8s.io/cluster-api/pkg/client/clientset_generated/clientset/fake"
 )
 
 func createTestEndpointAndGetClients(user apiv1.User, dc map[string]provider.DatacenterMeta, kubeObjects, machineObjects, kubermaticObjects []runtime.Object, versions []*version.MasterVersion, updates []*version.MasterUpdate) (http.Handler, *clientsSets, error) {
@@ -59,6 +63,7 @@ func createTestEndpointAndGetClients(user apiv1.User, dc map[string]provider.Dat
 	sshKeyProvider := kubernetes.NewSSHKeyProvider(kubermaticClient, kubermaticInformerFactory.Kubermatic().V1().UserSSHKeies().Lister(), IsAdmin)
 	newSSHKeyProvider := kubernetes.NewRBACCompliantSSHKeyProvider(fakeImpersonationClient, kubermaticInformerFactory.Kubermatic().V1().UserSSHKeies().Lister())
 	userProvider := kubernetes.NewUserProvider(kubermaticClient, kubermaticInformerFactory.Kubermatic().V1().Users().Lister())
+	projectMemberProvider := kubernetes.NewProjectMemberProvider(fakeImpersonationClient, kubermaticInformerFactory.Kubermatic().V1().UserProjectBindings().Lister())
 	projectProvider, err := kubernetes.NewProjectProvider(fakeImpersonationClient, kubermaticInformerFactory.Kubermatic().V1().Projects().Lister())
 	if err != nil {
 		return nil, nil, err
@@ -72,7 +77,7 @@ func createTestEndpointAndGetClients(user apiv1.User, dc map[string]provider.Dat
 		IsAdmin,
 	)
 	clusterProviders := map[string]provider.ClusterProvider{"us-central1": clusterProvider}
-	fakeMachineClient := fakemachineclientset.NewSimpleClientset(machineObjects...)
+	fakeMachineClient := fakeclusterclientset.NewSimpleClientset(machineObjects...)
 	fUserClusterConnection := &fakeUserClusterConnection{fakeMachineClient, kubeClient}
 
 	newClusterProvider := kubernetes.NewRBACCompliantClusterProvider(
@@ -106,6 +111,8 @@ func createTestEndpointAndGetClients(user apiv1.User, dc map[string]provider.Dat
 		authenticator,
 		updateManager,
 		prometheusClient,
+		projectMemberProvider,
+		projectMemberProvider, /*satisfies also a different interface*/
 	)
 	mainRouter := mux.NewRouter()
 	v1Router := mainRouter.PathPrefix("/api/v1").Subrouter()
@@ -155,21 +162,6 @@ func buildDatacenterMeta() map[string]provider.DatacenterMeta {
 				},
 			},
 		},
-		"moon-1": {
-			Location: "Dark Side",
-			Seed:     "us-central1",
-			Country:  "Moon States",
-			Spec: provider.DatacenterSpec{
-				VSphere: &provider.VSphereSpec{
-					Endpoint:      "http://127.0.0.1:8989",
-					AllowInsecure: true,
-					Datastore:     "LocalDS_0",
-					Datacenter:    "ha-datacenter",
-					Cluster:       "localhost.localdomain",
-					RootPath:      "/ha-datacenter/vm/",
-				},
-			},
-		},
 	}
 }
 
@@ -211,33 +203,17 @@ func compareJSON(t *testing.T, res *httptest.ResponseRecorder, expectedResponseS
 	}
 }
 
-// areEqualOrDie checks if binary representation of actual and expected is equal.
-//
-// note that:
-// this function fails when conversion is not possible
-func areEqualOrDie(t *testing.T, actual, expected interface{}) bool {
-	t.Helper()
-	actualBytes, err := json.Marshal(actual)
-	if err != nil {
-		t.Fatalf("failed to marshal actual: %v", err)
-	}
-
-	expectedBytes, err := json.Marshal(expected)
-	if err != nil {
-		t.Fatalf("failed to marshal expected: %v", err)
-	}
-	return bytes.Equal(actualBytes, expectedBytes)
-}
-
 const (
-	testUserID   = "1233"
-	testUserName = "user1"
-	testEmail    = "john@acme.com"
+	testUserID    = "1233"
+	testUserName  = "user1"
+	testUserEmail = "john@acme.com"
 )
 
-func getUser(name string, admin bool) apiv1.User {
+func getUser(email, id, name string, admin bool) apiv1.User {
 	u := apiv1.User{
-		ID: name,
+		ID:    id,
+		Name:  name,
+		Email: email,
 		Roles: map[string]struct{}{
 			"user": {},
 		},
@@ -246,6 +222,17 @@ func getUser(name string, admin bool) apiv1.User {
 		u.Roles[AdminRoleKey] = struct{}{}
 	}
 	return u
+}
+
+func apiUserToKubermaticUser(user apiv1.User) *kubermaticapiv1.User {
+	return &kubermaticapiv1.User{
+		ObjectMeta: metav1.ObjectMeta{},
+		Spec: kubermaticapiv1.UserSpec{
+			Name:  user.Name,
+			Email: user.Email,
+			ID:    user.ID,
+		},
+	}
 }
 
 func checkStatusCode(wantStatusCode int, recorder *httptest.ResponseRecorder, t *testing.T) {
@@ -261,7 +248,7 @@ func TestUpRoute(t *testing.T) {
 	t.Parallel()
 	req := httptest.NewRequest("GET", "/api/v1/healthz", nil)
 	res := httptest.NewRecorder()
-	ep, err := createTestEndpoint(getUser(testUserName, false), []runtime.Object{}, []runtime.Object{}, nil, nil)
+	ep, err := createTestEndpoint(getUser(testUserEmail, testUserID, testUserName, false), []runtime.Object{}, []runtime.Object{}, nil, nil)
 	if err != nil {
 		t.Fatalf("failed to create test endpoint due to %v", err)
 	}
@@ -270,7 +257,7 @@ func TestUpRoute(t *testing.T) {
 }
 
 type fakeUserClusterConnection struct {
-	fakeMachineClient    machineclientset.Interface
+	fakeMachineClient    clusterclientset.Interface
 	fakeKubernetesClient kubernetesclient.Interface
 }
 
@@ -278,7 +265,7 @@ func (f *fakeUserClusterConnection) GetAdminKubeconfig(c *kubermaticapiv1.Cluste
 	return []byte{}, errors.New("not yet implemented")
 }
 
-func (f *fakeUserClusterConnection) GetMachineClient(c *kubermaticapiv1.Cluster) (machineclientset.Interface, error) {
+func (f *fakeUserClusterConnection) GetMachineClient(c *kubermaticapiv1.Cluster) (clusterclientset.Interface, error) {
 	return f.fakeMachineClient, nil
 }
 
@@ -288,5 +275,155 @@ func (f *fakeUserClusterConnection) GetClient(c *kubermaticapiv1.Cluster) (kuber
 
 type clientsSets struct {
 	fakeKubermaticClient *kubermaticfakeclentset.Clientset
-	fakeMachineClient    *fakemachineclientset.Clientset
+	fakeMachineClient    *fakeclusterclientset.Clientset
+}
+
+// new>SSHKeyV1SliceWrapper wraps []apiv1.NewSSHKey
+// to provide convenient methods for tests
+type newSSHKeyV1SliceWrapper []apiv1.NewSSHKey
+
+// Sort sorts the collection by CreationTimestamp
+func (k newSSHKeyV1SliceWrapper) Sort() {
+	sort.Slice(k, func(i, j int) bool {
+		return k[i].CreationTimestamp.Before(k[j].CreationTimestamp)
+	})
+}
+
+// DecodeOrDie reads and decodes json data from the reader
+func (k *newSSHKeyV1SliceWrapper) DecodeOrDie(r io.Reader, t *testing.T) *newSSHKeyV1SliceWrapper {
+	t.Helper()
+	dec := json.NewDecoder(r)
+	err := dec.Decode(k)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return k
+}
+
+// EqualOrDie compares whether expected collection is equal to the actual one
+func (k newSSHKeyV1SliceWrapper) EqualOrDie(expected newSSHKeyV1SliceWrapper, t *testing.T) {
+	t.Helper()
+	if diff := deep.Equal(k, expected); diff != nil {
+		t.Errorf("actual slice is different that the expected one. Diff: %v", diff)
+	}
+}
+
+// newClusterV1SliceWrapper wraps []apiv1.NewCluster
+// to provide convenient methods for tests
+type newClusterV1SliceWrapper []apiv1.NewCluster
+
+// Sort sorts the collection by CreationTimestamp
+func (k newClusterV1SliceWrapper) Sort() {
+	sort.Slice(k, func(i, j int) bool {
+		return k[i].CreationTimestamp.Before(k[j].CreationTimestamp)
+	})
+}
+
+// DecodeOrDie reads and decodes json data from the reader
+func (k *newClusterV1SliceWrapper) DecodeOrDie(r io.Reader, t *testing.T) *newClusterV1SliceWrapper {
+	t.Helper()
+	dec := json.NewDecoder(r)
+	err := dec.Decode(k)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return k
+}
+
+// EqualOrDie compares whether expected collection is equal to the actual one
+func (k newClusterV1SliceWrapper) EqualOrDie(expected newClusterV1SliceWrapper, t *testing.T) {
+	t.Helper()
+	if diff := deep.Equal(k, expected); diff != nil {
+		t.Errorf("actual slice is different that the expected one. Diff: %v", diff)
+	}
+}
+
+// nodeV1SliceWrapper wraps []apiv1.Node
+// to provide convenient methods for tests
+type nodeV1SliceWrapper []apiv1.Node
+
+// Sort sorts the collection by CreationTimestamp
+func (k nodeV1SliceWrapper) Sort() {
+	sort.Slice(k, func(i, j int) bool {
+		return k[i].CreationTimestamp.Before(k[j].CreationTimestamp)
+	})
+}
+
+// DecodeOrDie reads and decodes json data from the reader
+func (k *nodeV1SliceWrapper) DecodeOrDie(r io.Reader, t *testing.T) *nodeV1SliceWrapper {
+	t.Helper()
+	dec := json.NewDecoder(r)
+	err := dec.Decode(k)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return k
+}
+
+// EqualOrDie compares whether expected collection is equal to the actual one
+func (k nodeV1SliceWrapper) EqualOrDie(expected nodeV1SliceWrapper, t *testing.T) {
+	t.Helper()
+	if diff := deep.Equal(k, expected); diff != nil {
+		t.Errorf("actual slice is different that the expected one. Diff: %v", diff)
+	}
+}
+
+// projectV1SliceWrapper wraps []apiv1.Project
+// to provide convenient methods for tests
+type projectV1SliceWrapper []apiv1.Project
+
+// Sort sorts the collection by CreationTimestamp
+func (k projectV1SliceWrapper) Sort() {
+	sort.Slice(k, func(i, j int) bool {
+		return k[i].CreationTimestamp.Before(k[j].CreationTimestamp)
+	})
+}
+
+// DecodeOrDie reads and decodes json data from the reader
+func (k *projectV1SliceWrapper) DecodeOrDie(r io.Reader, t *testing.T) *projectV1SliceWrapper {
+	t.Helper()
+	dec := json.NewDecoder(r)
+	err := dec.Decode(k)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return k
+}
+
+// EqualOrDie compares whether expected collection is equal to the actual one
+func (k projectV1SliceWrapper) EqualOrDie(expected projectV1SliceWrapper, t *testing.T) {
+	t.Helper()
+	if diff := deep.Equal(k, expected); diff != nil {
+		t.Errorf("actual slice is different that the expected one. Diff: %v", diff)
+	}
+}
+
+// newUserV1SliceWrapper wraps []apiv1.NewUser
+// to provide convenient methods for tests
+type newUserV1SliceWrapper []apiv1.NewUser
+
+// Sort sorts the collection by CreationTimestamp
+func (k newUserV1SliceWrapper) Sort() {
+	sort.Slice(k, func(i, j int) bool {
+		return k[i].CreationTimestamp.Before(k[j].CreationTimestamp)
+	})
+}
+
+// DecodeOrDie reads and decodes json data from the reader
+func (k *newUserV1SliceWrapper) DecodeOrDie(r io.Reader, t *testing.T) *newUserV1SliceWrapper {
+	t.Helper()
+	dec := json.NewDecoder(r)
+	err := dec.Decode(k)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return k
+}
+
+// EqualOrDie compares whether expected collection is equal to the actual one
+func (k newUserV1SliceWrapper) EqualOrDie(expected newUserV1SliceWrapper, t *testing.T) {
+	t.Helper()
+	if diff := deep.Equal(k, expected); diff != nil {
+		t.Errorf("actual slice is different that the expected one. Diff: %v", diff)
+	}
 }

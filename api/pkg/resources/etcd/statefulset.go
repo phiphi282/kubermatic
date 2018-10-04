@@ -6,6 +6,7 @@ import (
 	"text/template"
 
 	"github.com/Masterminds/sprig"
+	kubermaticv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
 	"github.com/kubermatic/kubermatic/api/pkg/resources"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -31,14 +32,14 @@ var (
 const (
 	name    = "etcd"
 	dataDir = "/var/run/etcd/pod_${POD_NAME}/"
+	// ImageTag defines the image tag to use for the etcd image
+	ImageTag = "v3.3.9"
 )
 
 // StatefulSet returns the etcd StatefulSet
-func StatefulSet(data *resources.TemplateData, existing *appsv1.StatefulSet) (*appsv1.StatefulSet, error) {
-	var set *appsv1.StatefulSet
-	if existing != nil {
-		set = existing
-	} else {
+func StatefulSet(data resources.StatefulSetDataProvider, existing *appsv1.StatefulSet) (*appsv1.StatefulSet, error) {
+	set := existing
+	if set == nil {
 		set = &appsv1.StatefulSet{}
 	}
 
@@ -50,7 +51,7 @@ func StatefulSet(data *resources.TemplateData, existing *appsv1.StatefulSet) (*a
 	set.Spec.PodManagementPolicy = appsv1.ParallelPodManagement
 	set.Spec.ServiceName = resources.EtcdServiceName
 
-	baseLabels := getBasePodLabels(data)
+	baseLabels := getBasePodLabels(data.Cluster())
 	set.Spec.Selector = &metav1.LabelSelector{
 		MatchLabels: baseLabels,
 	}
@@ -69,7 +70,7 @@ func StatefulSet(data *resources.TemplateData, existing *appsv1.StatefulSet) (*a
 	// For migration purpose.
 	// We switched from the etcd-operator to a simple etcd-StatefulSet. Therefore we need to migrate the data.
 	var migrate bool
-	if _, err := data.ServiceLister.Services(data.Cluster.Status.NamespaceName).Get("etcd-cluster-client"); err != nil {
+	if _, err := data.ServiceLister().Services(data.Cluster().Status.NamespaceName).Get("etcd-cluster-client"); err != nil {
 		if !errors.IsNotFound(err) {
 			return nil, err
 		}
@@ -77,18 +78,18 @@ func StatefulSet(data *resources.TemplateData, existing *appsv1.StatefulSet) (*a
 		migrate = true
 	}
 
-	etcdStartCmd, err := getEtcdCommand(data.Cluster.Name, data.Cluster.Status.NamespaceName, migrate)
+	etcdStartCmd, err := getEtcdCommand(data.Cluster().Name, data.Cluster().Status.NamespaceName, migrate)
 	if err != nil {
 		return nil, err
 	}
 	resourceRequirements := defaultResourceRequirements
-	if data.Cluster.Spec.ComponentsOverride.Etcd.Resources != nil {
-		resourceRequirements = *data.Cluster.Spec.ComponentsOverride.Etcd.Resources
+	if data.Cluster().Spec.ComponentsOverride.Etcd.Resources != nil {
+		resourceRequirements = *data.Cluster().Spec.ComponentsOverride.Etcd.Resources
 	}
 	set.Spec.Template.Spec.Containers = []corev1.Container{
 		{
 			Name:                     name,
-			Image:                    "quay.io/coreos/etcd:v3.2.20",
+			Image:                    data.ImageRegistry(resources.RegistryGCR) + "/etcd-development/etcd:" + ImageTag,
 			ImagePullPolicy:          corev1.PullIfNotPresent,
 			Command:                  etcdStartCmd,
 			TerminationMessagePath:   corev1.TerminationMessagePathDefault,
@@ -142,7 +143,7 @@ func StatefulSet(data *resources.TemplateData, existing *appsv1.StatefulSet) (*a
 							"--cacert", "/etc/etcd/pki/ca/ca.crt",
 							"--cert", "/etc/etcd/pki/client/apiserver-etcd-client.crt",
 							"--key", "/etc/etcd/pki/client/apiserver-etcd-client.key",
-							"--endpoints", "https://localhost:2379", "endpoint", "health",
+							"--endpoints", "https://127.0.0.1:2379", "endpoint", "health",
 						},
 					},
 				},
@@ -169,27 +170,13 @@ func StatefulSet(data *resources.TemplateData, existing *appsv1.StatefulSet) (*a
 		},
 	}
 
-	set.Spec.Template.Spec.Affinity = &corev1.Affinity{
-		PodAntiAffinity: &corev1.PodAntiAffinity{
-			PreferredDuringSchedulingIgnoredDuringExecution: []corev1.WeightedPodAffinityTerm{
-				{
-					Weight: 100,
-					PodAffinityTerm: corev1.PodAffinityTerm{
-						LabelSelector: &metav1.LabelSelector{
-							MatchLabels: baseLabels,
-						},
-						TopologyKey: "kubernetes.io/hostname",
-					},
-				},
-			},
-		},
-	}
+	set.Spec.Template.Spec.Affinity = resources.HostnameAntiAffinity(baseLabels)
 
 	set.Spec.Template.Spec.Volumes = volumes
 
 	// Make sure, we don't change size of existing pvc's
 	// Phase needs to be taken from an existing
-	diskSize := data.EtcdDiskSize
+	diskSize := data.EtcdDiskSize()
 	if len(set.Spec.VolumeClaimTemplates) == 0 {
 		set.Spec.VolumeClaimTemplates = []corev1.PersistentVolumeClaim{
 			{
@@ -249,9 +236,9 @@ func getVolumes() []corev1.Volume {
 	}
 }
 
-func getBasePodLabels(data *resources.TemplateData) map[string]string {
+func getBasePodLabels(cluster *kubermaticv1.Cluster) map[string]string {
 	additionalLabels := map[string]string{
-		"cluster": data.Cluster.Name,
+		"cluster": cluster.Name,
 	}
 	return resources.BaseAppLabel(resources.EtcdStatefulSetName, additionalLabels)
 }
@@ -351,8 +338,6 @@ echo "initial-cluster: ${INITIAL_CLUSTER}"
 exec /usr/local/bin/etcd \
     --name=${POD_NAME} \
     --data-dir="{{ .DataDir }}" \
-    --heartbeat-interval=500 \
-    --election-timeout=5000 \
     --initial-cluster=${INITIAL_CLUSTER} \
     --initial-cluster-token="{{ .Token }}" \
     --initial-cluster-state=${INITIAL_STATE} \
@@ -363,6 +348,7 @@ exec /usr/local/bin/etcd \
     --trusted-ca-file /etc/etcd/pki/ca/ca.crt \
     --client-cert-auth \
     --cert-file /etc/etcd/pki/tls/etcd-tls.crt \
-    --key-file /etc/etcd/pki/tls/etcd-tls.key
+    --key-file /etc/etcd/pki/tls/etcd-tls.key \
+    --auto-compaction-retention=8
 `
 )

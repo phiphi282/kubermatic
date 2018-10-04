@@ -6,12 +6,11 @@ data:
             user = "vs-username"
             password = "vs-password"
             server = "vs-endpoint.io"
-            port = 443
-            insecure-flag = 0
+            port = "443"
+            insecure-flag = "0"
             datacenter = "vs-datacenter"
             datastore = "vs-datastore"
             working-dir = "de-test-01"
-            vm-uuid = "vm-uuid"
     [Disk]
         scsicontrollertype = pvscsi
   fakeVmwareUUID: VMware-42 00 00 00 00 00 00 00-00 00 00 00 00 00 00 00

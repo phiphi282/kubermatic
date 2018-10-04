@@ -13,7 +13,6 @@ import (
 
 	apiv1 "github.com/kubermatic/kubermatic/api/pkg/api/v1"
 	apiv2 "github.com/kubermatic/kubermatic/api/pkg/api/v2"
-	kubermaticapiv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
 	"github.com/kubermatic/kubermatic/api/pkg/provider"
 	machineresource "github.com/kubermatic/kubermatic/api/pkg/resources/machine"
 	apierrors "github.com/kubermatic/kubermatic/api/pkg/util/errors"
@@ -29,15 +28,15 @@ import (
 func newDeleteNodeForCluster(projectProvider provider.ProjectProvider) endpoint.Endpoint {
 	return func(ctx context.Context, request interface{}) (interface{}, error) {
 		req := request.(NewDeleteNodeForClusterReq)
-		user := ctx.Value(userCRContextKey).(*kubermaticapiv1.User)
 		clusterProvider := ctx.Value(newClusterProviderContextKey).(provider.NewClusterProvider)
+		userInfo := ctx.Value(userInfoContextKey).(*provider.UserInfo)
 
-		project, err := projectProvider.Get(user, req.ProjectID)
+		_, err := projectProvider.Get(userInfo, req.ProjectID, &provider.ProjectGetOptions{})
 		if err != nil {
 			return nil, kubernetesErrorToHTTPError(err)
 		}
 
-		cluster, err := clusterProvider.Get(user, project, req.ClusterName)
+		cluster, err := clusterProvider.Get(userInfo, req.ClusterID, &provider.ClusterGetOptions{})
 		if err != nil {
 			return nil, kubernetesErrorToHTTPError(err)
 		}
@@ -56,16 +55,16 @@ func newDeleteNodeForCluster(projectProvider provider.ProjectProvider) endpoint.
 			return nil, fmt.Errorf("failed to create a kubernetes client: %v", err)
 		}
 
-		machine, node, err := tryToFindMachineAndNode(req.NodeName, machineClient, kubeClient)
+		machine, node, err := tryToFindMachineAndNode(req.NodeID, machineClient, kubeClient)
 		if err != nil {
 			return nil, err
 		}
 		if machine == nil && node == nil {
-			return nil, k8cerrors.NewNotFound("Node", req.NodeName)
+			return nil, k8cerrors.NewNotFound("Node", req.NodeID)
 		}
 
 		if machine != nil {
-			return nil, kubernetesErrorToHTTPError(machineClient.MachineV1alpha1().Machines().Delete(machine.Name, nil))
+			return nil, kubernetesErrorToHTTPError(machineClient.ClusterV1alpha1().Machines(machine.Namespace).Delete(machine.Name, nil))
 		} else if node != nil {
 			return nil, kubernetesErrorToHTTPError(kubeClient.CoreV1().Nodes().Delete(node.Name, nil))
 		}
@@ -76,15 +75,15 @@ func newDeleteNodeForCluster(projectProvider provider.ProjectProvider) endpoint.
 func newListNodesForCluster(projectProvider provider.ProjectProvider) endpoint.Endpoint {
 	return func(ctx context.Context, request interface{}) (interface{}, error) {
 		req := request.(NewListNodesForClusterReq)
-		user := ctx.Value(userCRContextKey).(*kubermaticapiv1.User)
 		clusterProvider := ctx.Value(newClusterProviderContextKey).(provider.NewClusterProvider)
+		userInfo := ctx.Value(userInfoContextKey).(*provider.UserInfo)
 
-		project, err := projectProvider.Get(user, req.ProjectID)
+		_, err := projectProvider.Get(userInfo, req.ProjectID, &provider.ProjectGetOptions{})
 		if err != nil {
 			return nil, kubernetesErrorToHTTPError(err)
 		}
 
-		cluster, err := clusterProvider.Get(user, project, req.ClusterName)
+		cluster, err := clusterProvider.Get(userInfo, req.ClusterID, &provider.ClusterGetOptions{})
 		if err != nil {
 			return nil, kubernetesErrorToHTTPError(err)
 		}
@@ -104,7 +103,7 @@ func newListNodesForCluster(projectProvider provider.ProjectProvider) endpoint.E
 			return nil, kubernetesErrorToHTTPError(err)
 		}
 
-		machineList, err := machineClient.MachineV1alpha1().Machines().List(metav1.ListOptions{})
+		machineList, err := machineClient.ClusterV1alpha1().Machines(metav1.NamespaceSystem).List(metav1.ListOptions{})
 		if err != nil {
 			return nil, fmt.Errorf("failed to load machines from cluster: %v", err)
 		}
@@ -144,15 +143,15 @@ func newListNodesForCluster(projectProvider provider.ProjectProvider) endpoint.E
 func newGetNodeForCluster(projectProvider provider.ProjectProvider) endpoint.Endpoint {
 	return func(ctx context.Context, request interface{}) (interface{}, error) {
 		req := request.(NewNodeReq)
-		user := ctx.Value(userCRContextKey).(*kubermaticapiv1.User)
 		clusterProvider := ctx.Value(newClusterProviderContextKey).(provider.NewClusterProvider)
+		userInfo := ctx.Value(userInfoContextKey).(*provider.UserInfo)
 
-		project, err := projectProvider.Get(user, req.ProjectID)
+		_, err := projectProvider.Get(userInfo, req.ProjectID, &provider.ProjectGetOptions{})
 		if err != nil {
 			return nil, kubernetesErrorToHTTPError(err)
 		}
 
-		cluster, err := clusterProvider.Get(user, project, req.ClusterName)
+		cluster, err := clusterProvider.Get(userInfo, req.ClusterID, &provider.ClusterGetOptions{})
 		if err != nil {
 			return nil, kubernetesErrorToHTTPError(err)
 		}
@@ -172,12 +171,12 @@ func newGetNodeForCluster(projectProvider provider.ProjectProvider) endpoint.End
 			return nil, kubernetesErrorToHTTPError(err)
 		}
 
-		machine, node, err := tryToFindMachineAndNode(req.NodeName, machineClient, kubeClient)
+		machine, node, err := tryToFindMachineAndNode(req.NodeID, machineClient, kubeClient)
 		if err != nil {
 			return nil, err
 		}
 		if machine == nil && node == nil {
-			return nil, apierrors.NewNotFound("Node", req.NodeName)
+			return nil, apierrors.NewNotFound("Node", req.NodeID)
 		}
 
 		if machine == nil {
@@ -195,20 +194,20 @@ func newGetNodeForCluster(projectProvider provider.ProjectProvider) endpoint.End
 func newCreateNodeForCluster(sshKeyProvider provider.NewSSHKeyProvider, projectProvider provider.ProjectProvider, dcs map[string]provider.DatacenterMeta) endpoint.Endpoint {
 	return func(ctx context.Context, request interface{}) (interface{}, error) {
 		req := request.(NewCreateNodeReq)
-		user := ctx.Value(userCRContextKey).(*kubermaticapiv1.User)
 		clusterProvider := ctx.Value(newClusterProviderContextKey).(provider.NewClusterProvider)
+		userInfo := ctx.Value(userInfoContextKey).(*provider.UserInfo)
 
-		project, err := projectProvider.Get(user, req.ProjectID)
+		project, err := projectProvider.Get(userInfo, req.ProjectID, &provider.ProjectGetOptions{})
 		if err != nil {
 			return nil, kubernetesErrorToHTTPError(err)
 		}
 
-		cluster, err := clusterProvider.Get(user, project, req.ClusterName)
+		cluster, err := clusterProvider.Get(userInfo, req.ClusterID, &provider.ClusterGetOptions{CheckInitStatus: true})
 		if err != nil {
 			return nil, kubernetesErrorToHTTPError(err)
 		}
 
-		keys, err := sshKeyProvider.List(user, project, &provider.SSHKeyListOptions{ClusterName: req.ClusterName})
+		keys, err := sshKeyProvider.List(project, &provider.SSHKeyListOptions{ClusterName: req.ClusterID})
 		if err != nil {
 			return nil, kubernetesErrorToHTTPError(err)
 		}
@@ -281,7 +280,7 @@ func newCreateNodeForCluster(sshKeyProvider provider.NewSSHKeyProvider, projectP
 		}
 
 		// Send machine resource to k8s
-		machine, err = machineClient.MachineV1alpha1().Machines().Create(machine)
+		machine, err = machineClient.ClusterV1alpha1().Machines(machine.Namespace).Create(machine)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create machine: %v", err)
 		}
@@ -334,18 +333,18 @@ func convertNodesV2ToNodesV1(nodesV2 []*apiv2.Node) []*apiv1.Node {
 type NewDeleteNodeForClusterReq struct {
 	NewGetClusterReq
 	// in: path
-	NodeName string `json:"node_name"`
+	NodeID string `json:"node_id"`
 }
 
 func decodeDeleteNodeForCluster(c context.Context, r *http.Request) (interface{}, error) {
 	var req NewDeleteNodeForClusterReq
 
-	nodeName := mux.Vars(r)["node_name"]
-	if nodeName == "" {
-		return "", fmt.Errorf("'node_name' parameter is required but was not provided")
+	nodeID := mux.Vars(r)["node_id"]
+	if nodeID == "" {
+		return "", fmt.Errorf("'node_id' parameter is required but was not provided")
 	}
 
-	clusterName, err := decodeClusterName(c, r)
+	clusterID, err := decodeClusterID(c, r)
 	if err != nil {
 		return nil, err
 	}
@@ -355,8 +354,8 @@ func decodeDeleteNodeForCluster(c context.Context, r *http.Request) (interface{}
 		return nil, err
 	}
 
-	req.ClusterName = clusterName
-	req.NodeName = nodeName
+	req.ClusterID = clusterID
+	req.NodeID = nodeID
 	req.DCReq = dcr.(DCReq)
 
 	return req, nil
@@ -373,7 +372,7 @@ type NewListNodesForClusterReq struct {
 func decodeListNodesForCluster(c context.Context, r *http.Request) (interface{}, error) {
 	var req NewListNodesForClusterReq
 
-	clusterName, err := decodeClusterName(c, r)
+	clusterID, err := decodeClusterID(c, r)
 	if err != nil {
 		return nil, err
 	}
@@ -384,7 +383,7 @@ func decodeListNodesForCluster(c context.Context, r *http.Request) (interface{},
 	}
 
 	req.HideInitialConditions, _ = strconv.ParseBool(r.URL.Query().Get("hideInitialConditions"))
-	req.ClusterName = clusterName
+	req.ClusterID = clusterID
 	req.DCReq = dcr.(DCReq)
 
 	return req, nil
@@ -401,7 +400,7 @@ type NewCreateNodeReq struct {
 func decodeCreateNodeForCluster(c context.Context, r *http.Request) (interface{}, error) {
 	var req NewCreateNodeReq
 
-	clusterName, err := decodeClusterName(c, r)
+	clusterID, err := decodeClusterID(c, r)
 	if err != nil {
 		return nil, err
 	}
@@ -410,7 +409,7 @@ func decodeCreateNodeForCluster(c context.Context, r *http.Request) (interface{}
 		return nil, err
 	}
 
-	req.ClusterName = clusterName
+	req.ClusterID = clusterID
 	req.DCReq = dcr.(DCReq)
 
 	if err = json.NewDecoder(r.Body).Decode(&req.Body); err != nil {
@@ -425,7 +424,7 @@ func decodeCreateNodeForCluster(c context.Context, r *http.Request) (interface{}
 type NewNodeReq struct {
 	NewGetClusterReq
 	// in: path
-	NodeName string `json:"node_name"`
+	NodeID string `json:"node_id"`
 	// in: query
 	HideInitialConditions bool `json:"hideInitialConditions"`
 }
@@ -433,13 +432,13 @@ type NewNodeReq struct {
 func decodeGetNodeForCluster(c context.Context, r *http.Request) (interface{}, error) {
 	var req NewNodeReq
 
-	clusterName, err := decodeClusterName(c, r)
+	clusterID, err := decodeClusterID(c, r)
 	if err != nil {
 		return nil, err
 	}
-	nodeName := mux.Vars(r)["node_name"]
-	if nodeName == "" {
-		return nil, fmt.Errorf("'node_name' parameter is required but was not provided")
+	nodeID := mux.Vars(r)["node_id"]
+	if nodeID == "" {
+		return nil, fmt.Errorf("'node_id' parameter is required but was not provided")
 	}
 
 	dcr, err := decodeDcReq(c, r)
@@ -447,8 +446,8 @@ func decodeGetNodeForCluster(c context.Context, r *http.Request) (interface{}, e
 		return nil, err
 	}
 
-	req.ClusterName = clusterName
-	req.NodeName = nodeName
+	req.ClusterID = clusterID
+	req.NodeID = nodeID
 	req.DCReq = dcr.(DCReq)
 
 	return req, nil

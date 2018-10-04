@@ -11,20 +11,22 @@ import (
 	kubermaticv1lister "github.com/kubermatic/kubermatic/api/pkg/crd/client/listers/kubermatic/v1"
 	kubermaticv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
 	"github.com/kubermatic/kubermatic/api/pkg/provider"
-	machineclientset "github.com/kubermatic/machine-controller/pkg/client/clientset/versioned"
 
+	apiextensionsclientset "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
 	kubeapierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
 	appsv1informer "k8s.io/client-go/informers/apps/v1"
+	batchv1beta1informer "k8s.io/client-go/informers/batch/v1beta1"
 	corev1informers "k8s.io/client-go/informers/core/v1"
 	extensionsv1beta1informers "k8s.io/client-go/informers/extensions/v1beta1"
 	policyv1beta1informers "k8s.io/client-go/informers/policy/v1beta1"
 	rbacv1informer "k8s.io/client-go/informers/rbac/v1"
 	"k8s.io/client-go/kubernetes"
 	appsv1lister "k8s.io/client-go/listers/apps/v1"
+	batchv1beta1lister "k8s.io/client-go/listers/batch/v1beta1"
 	corev1lister "k8s.io/client-go/listers/core/v1"
 	extensionsv1beta1lister "k8s.io/client-go/listers/extensions/v1beta1"
 	policyv1beta1lister "k8s.io/client-go/listers/policy/v1beta1"
@@ -32,12 +34,15 @@ import (
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/util/retry"
 	"k8s.io/client-go/util/workqueue"
+
+	clusterv1alpha1clientset "sigs.k8s.io/cluster-api/pkg/client/clientset_generated/clientset"
 )
 
 // UserClusterConnectionProvider offers functions to retrieve clients for the given user clusters
 type UserClusterConnectionProvider interface {
 	GetClient(*kubermaticv1.Cluster) (kubernetes.Interface, error)
-	GetMachineClient(*kubermaticv1.Cluster) (machineclientset.Interface, error)
+	GetMachineClient(*kubermaticv1.Cluster) (clusterv1alpha1clientset.Interface, error)
+	GetApiextensionsClient(*kubermaticv1.Cluster) (apiextensionsclientset.Interface, error)
 }
 
 // Controller is a controller which is responsible for managing clusters
@@ -51,13 +56,17 @@ type Controller struct {
 	dc          string
 	cps         map[string]provider.CloudProvider
 
-	queue      workqueue.RateLimitingInterface
-	workerName string
+	queue workqueue.RateLimitingInterface
 
-	overwriteRegistry string
-	nodePortRange     string
-	nodeAccessNetwork string
-	etcdDiskSize      resource.Quantity
+	overwriteRegistry                                string
+	nodePortRange                                    string
+	nodeAccessNetwork                                string
+	etcdDiskSize                                     resource.Quantity
+	inClusterPrometheusRulesFile                     string
+	inClusterPrometheusDisableDefaultRules           bool
+	inClusterPrometheusDisableDefaultScrapingConfigs bool
+	inClusterPrometheusScrapingConfigsFile           string
+	dockerPullConfigJSON                             []byte
 
 	clusterLister             kubermaticv1lister.ClusterLister
 	namespaceLister           corev1lister.NamespaceLister
@@ -68,6 +77,7 @@ type Controller struct {
 	serviceAccountLister      corev1lister.ServiceAccountLister
 	deploymentLister          appsv1lister.DeploymentLister
 	statefulSetLister         appsv1lister.StatefulSetLister
+	cronJobLister             batchv1beta1lister.CronJobLister
 	ingressLister             extensionsv1beta1lister.IngressLister
 	roleLister                rbacb1lister.RoleLister
 	roleBindingLister         rbacb1lister.RoleBindingLister
@@ -80,7 +90,6 @@ func NewController(
 	kubeClient kubernetes.Interface,
 	kubermaticClient kubermaticclientset.Interface,
 	externalURL string,
-	workerName string,
 	dc string,
 	dcs map[string]provider.DatacenterMeta,
 	cps map[string]provider.CloudProvider,
@@ -89,6 +98,11 @@ func NewController(
 	nodePortRange string,
 	nodeAccessNetwork string,
 	etcdDiskSize string,
+	inClusterPrometheusRulesFile string,
+	inClusterPrometheusDisableDefaultRules bool,
+	inClusterPrometheusDisableDefaultScrapingConfigs bool,
+	inClusterPrometheusScrapingConfigsFile string,
+	dockerPullConfigJSON []byte,
 
 	clusterInformer kubermaticv1informers.ClusterInformer,
 	namespaceInformer corev1informers.NamespaceInformer,
@@ -99,6 +113,7 @@ func NewController(
 	serviceAccountInformer corev1informers.ServiceAccountInformer,
 	deploymentInformer appsv1informer.DeploymentInformer,
 	statefulSetInformer appsv1informer.StatefulSetInformer,
+	cronJobInformer batchv1beta1informer.CronJobInformer,
 	ingressInformer extensionsv1beta1informers.IngressInformer,
 	roleInformer rbacv1informer.RoleInformer,
 	roleBindingInformer rbacv1informer.RoleBindingInformer,
@@ -109,15 +124,19 @@ func NewController(
 		kubeClient:              kubeClient,
 		userClusterConnProvider: userClusterConnProvider,
 
-		queue: workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "cluster"),
+		queue: workqueue.NewNamedRateLimitingQueue(workqueue.NewItemExponentialFailureRateLimiter(1*time.Second, 5*time.Minute), "cluster"),
 
-		overwriteRegistry: overwriteRegistry,
-		nodePortRange:     nodePortRange,
-		nodeAccessNetwork: nodeAccessNetwork,
-		etcdDiskSize:      resource.MustParse(etcdDiskSize),
+		overwriteRegistry:                      overwriteRegistry,
+		nodePortRange:                          nodePortRange,
+		nodeAccessNetwork:                      nodeAccessNetwork,
+		etcdDiskSize:                           resource.MustParse(etcdDiskSize),
+		inClusterPrometheusRulesFile:           inClusterPrometheusRulesFile,
+		inClusterPrometheusDisableDefaultRules: inClusterPrometheusDisableDefaultRules,
+		inClusterPrometheusDisableDefaultScrapingConfigs: inClusterPrometheusDisableDefaultScrapingConfigs,
+		inClusterPrometheusScrapingConfigsFile:           inClusterPrometheusScrapingConfigsFile,
+		dockerPullConfigJSON:                             dockerPullConfigJSON,
 
 		externalURL: externalURL,
-		workerName:  workerName,
 		dc:          dc,
 		dcs:         dcs,
 		cps:         cps,
@@ -209,6 +228,11 @@ func NewController(
 		UpdateFunc: func(old, cur interface{}) { cc.handleChildObject(cur) },
 		DeleteFunc: func(obj interface{}) { cc.handleChildObject(obj) },
 	})
+	cronJobInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
+		AddFunc:    func(obj interface{}) { cc.handleChildObject(obj) },
+		UpdateFunc: func(old, cur interface{}) { cc.handleChildObject(cur) },
+		DeleteFunc: func(obj interface{}) { cc.handleChildObject(obj) },
+	})
 
 	cc.clusterLister = clusterInformer.Lister()
 	cc.namespaceLister = namespaceInformer.Lister()
@@ -219,6 +243,7 @@ func NewController(
 	cc.serviceAccountLister = serviceAccountInformer.Lister()
 	cc.deploymentLister = deploymentInformer.Lister()
 	cc.statefulSetLister = statefulSetInformer.Lister()
+	cc.cronJobLister = cronJobInformer.Lister()
 	cc.ingressLister = ingressInformer.Lister()
 	cc.roleLister = roleInformer.Lister()
 	cc.roleBindingLister = roleBindingInformer.Lister()
@@ -265,6 +290,9 @@ func (cc *Controller) updateCluster(name string, modify func(*kubermaticv1.Clust
 			modify(currentCluster)
 			// Update the cluster
 			updatedCluster, err = cc.kubermaticClient.KubermaticV1().Clusters().Update(currentCluster)
+			if err != nil {
+				return err
+			}
 		}
 
 		return err
@@ -316,11 +344,6 @@ func (cc *Controller) syncCluster(key string) error {
 
 	if cluster.Spec.Pause {
 		glog.V(6).Infof("skipping paused cluster %s", key)
-		return nil
-	}
-
-	if cluster.Labels[kubermaticv1.WorkerNameLabelKey] != cc.workerName {
-		glog.V(8).Infof("skipping cluster %s due to different worker assigned to it", key)
 		return nil
 	}
 
@@ -406,20 +429,12 @@ func (cc *Controller) handleErr(err error, key interface{}) {
 		return
 	}
 
-	// This controller retries 5 times if something goes wrong. After that, it stops trying.
-	if cc.queue.NumRequeues(key) < 5 {
-		glog.V(0).Infof("Error syncing cluster %v: %v", key, err)
+	glog.V(0).Infof("Error syncing cluster %v: %v", key, err)
 
-		// Re-enqueue the key rate limited. Based on the rate limiter on the
-		// queue and the re-enqueue history, the key will be processed later again.
-		cc.queue.AddRateLimited(key)
-		return
-	}
-
-	cc.queue.Forget(key)
-	// Report to an external entity that, even after several retries, we could not successfully process this key
+	// Re-enqueue the key rate limited. Based on the rate limiter on the
+	// queue and the re-enqueue history, the key will be processed later again.
+	cc.queue.AddRateLimited(key)
 	runtime.HandleError(err)
-	glog.V(0).Infof("Dropping cluster %q out of the queue: %v", key, err)
 }
 
 // Run starts the controller's worker routines. This method is blocking and ends when stopCh gets closed

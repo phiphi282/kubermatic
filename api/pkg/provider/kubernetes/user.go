@@ -1,12 +1,11 @@
 package kubernetes
 
 import (
-	"strings"
-
 	kubermaticclientset "github.com/kubermatic/kubermatic/api/pkg/crd/client/clientset/versioned"
 	kubermaticv1lister "github.com/kubermatic/kubermatic/api/pkg/crd/client/listers/kubermatic/v1"
 	kubermaticv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
 	"github.com/kubermatic/kubermatic/api/pkg/provider"
+	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 )
@@ -30,6 +29,31 @@ type UserProvider struct {
 	userLister kubermaticv1lister.UserLister
 }
 
+// UserByID returns a user by the given ID
+func (p *UserProvider) UserByID(id string) (*kubermaticv1.User, error) {
+	return p.client.KubermaticV1().Users().Get(id, v1.GetOptions{})
+}
+
+// ListByProject returns a list of users by the given project name
+func (p *UserProvider) ListByProject(projectName string) ([]*kubermaticv1.User, error) {
+	userList, err := p.userLister.List(labels.Everything())
+	if err != nil {
+		return nil, err
+	}
+
+	projectUsers := []*kubermaticv1.User{}
+	for _, user := range userList {
+		for _, project := range user.Spec.Projects {
+			if project.Name == projectName {
+				projectUsers = append(projectUsers, user.DeepCopy())
+				break
+			}
+		}
+	}
+
+	return projectUsers, nil
+}
+
 // UserByEmail returns a user by the given email
 func (p *UserProvider) UserByEmail(email string) (*kubermaticv1.User, error) {
 	users, err := p.userLister.List(labels.Everything())
@@ -38,7 +62,7 @@ func (p *UserProvider) UserByEmail(email string) (*kubermaticv1.User, error) {
 	}
 
 	for _, user := range users {
-		if strings.ToLower(user.Spec.Email) == strings.ToLower(email) {
+		if user.Spec.Email == email {
 			return user.DeepCopy(), nil
 		}
 	}
@@ -51,7 +75,7 @@ func (p *UserProvider) UserByEmail(email string) (*kubermaticv1.User, error) {
 		return nil, err
 	}
 	for _, user := range userList.Items {
-		if strings.ToLower(user.Spec.Email) == strings.ToLower(email) {
+		if user.Spec.Email == email {
 			return user.DeepCopy(), nil
 		}
 	}
@@ -61,6 +85,10 @@ func (p *UserProvider) UserByEmail(email string) (*kubermaticv1.User, error) {
 
 // CreateUser creates a user
 func (p *UserProvider) CreateUser(id, name, email string) (*kubermaticv1.User, error) {
+	if len(id) == 0 || len(name) == 0 || len(email) == 0 {
+		return nil, kerrors.NewBadRequest("Email, ID and Name cannot be empty when creating a new user resource")
+	}
+
 	user := kubermaticv1.User{}
 	user.GenerateName = "user-"
 	user.Spec.Email = email
@@ -69,9 +97,4 @@ func (p *UserProvider) CreateUser(id, name, email string) (*kubermaticv1.User, e
 	user.Spec.Projects = []kubermaticv1.ProjectGroup{}
 
 	return p.client.KubermaticV1().Users().Create(&user)
-}
-
-// Update updates the given user
-func (p *UserProvider) Update(user *kubermaticv1.User) (*kubermaticv1.User, error) {
-	return p.client.KubermaticV1().Users().Update(user)
 }

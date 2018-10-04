@@ -2,8 +2,12 @@ package apiserver
 
 import (
 	"fmt"
+	"strings"
 
+	kubermaticv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
 	"github.com/kubermatic/kubermatic/api/pkg/resources"
+	"github.com/kubermatic/kubermatic/api/pkg/resources/etcd"
+	"github.com/kubermatic/kubermatic/api/pkg/resources/vpnsidecar"
 
 	"github.com/Masterminds/semver"
 
@@ -34,7 +38,7 @@ const (
 )
 
 // Deployment returns the kubernetes Apiserver Deployment
-func Deployment(data *resources.TemplateData, existing *appsv1.Deployment) (*appsv1.Deployment, error) {
+func Deployment(data resources.DeploymentDataProvider, existing *appsv1.Deployment) (*appsv1.Deployment, error) {
 	var dep *appsv1.Deployment
 	if existing != nil {
 		dep = existing
@@ -47,8 +51,8 @@ func Deployment(data *resources.TemplateData, existing *appsv1.Deployment) (*app
 	dep.Labels = resources.BaseAppLabel(name, nil)
 
 	dep.Spec.Replicas = resources.Int32(1)
-	if data.Cluster.Spec.ComponentsOverride.Apiserver.Replicas != nil {
-		dep.Spec.Replicas = data.Cluster.Spec.ComponentsOverride.Apiserver.Replicas
+	if data.Cluster().Spec.ComponentsOverride.Apiserver.Replicas != nil {
+		dep.Spec.Replicas = data.Cluster().Spec.ComponentsOverride.Apiserver.Replicas
 	}
 
 	dep.Spec.Selector = &metav1.LabelSelector{
@@ -86,11 +90,13 @@ func Deployment(data *resources.TemplateData, existing *appsv1.Deployment) (*app
 		},
 	}
 
-	etcdClientServiceIP, err := data.ClusterIPByServiceName(resources.EtcdClientServiceName)
-	if err != nil {
-		return nil, err
+	etcdEndpoints := etcd.GetClientEndpoints(data.Cluster().Status.NamespaceName)
+
+	dep.Spec.Template.Spec.ImagePullSecrets = []corev1.LocalObjectReference{
+		{
+			Name: resources.ImagePullSecretName,
+		},
 	}
-	etcd := fmt.Sprintf("https://%s:2379", etcdClientServiceIP)
 
 	// Configure user cluster DNS resolver for this pod.
 	dep.Spec.Template.Spec.DNSPolicy, dep.Spec.Template.Spec.DNSConfig, err = resources.UserClusterDNSPolicyAndConfig(data)
@@ -101,12 +107,12 @@ func Deployment(data *resources.TemplateData, existing *appsv1.Deployment) (*app
 	dep.Spec.Template.Spec.InitContainers = []corev1.Container{
 		{
 			Name:            "etcd-running",
-			Image:           data.ImageRegistry(resources.RegistryQuay) + "/coreos/etcd:v3.2.7",
+			Image:           data.ImageRegistry(resources.RegistryGCR) + "/etcd-development/etcd:" + etcd.ImageTag,
 			ImagePullPolicy: corev1.PullIfNotPresent,
 			Command: []string{
 				"/bin/sh",
 				"-ec",
-				fmt.Sprintf("until ETCDCTL_API=3 /usr/local/bin/etcdctl --cacert=/etc/etcd/pki/client/ca.crt --cert=/etc/etcd/pki/client/apiserver-etcd-client.crt --key=/etc/etcd/pki/client/apiserver-etcd-client.key --dial-timeout=2s --endpoints=[%s] get foo; do echo waiting for etcd; sleep 2; done;", etcd),
+				fmt.Sprintf("until ETCDCTL_API=3 /usr/local/bin/etcdctl --cacert=/etc/etcd/pki/client/ca.crt --cert=/etc/etcd/pki/client/apiserver-etcd-client.crt --key=/etc/etcd/pki/client/apiserver-etcd-client.key --dial-timeout=2s --endpoints='%s' endpoint health; do echo waiting for etcd; sleep 2; done;", strings.Join(etcdEndpoints, ",")),
 			},
 			TerminationMessagePath:   corev1.TerminationMessagePathDefault,
 			TerminationMessagePolicy: corev1.TerminationMessageReadFile,
@@ -120,24 +126,36 @@ func Deployment(data *resources.TemplateData, existing *appsv1.Deployment) (*app
 		},
 	}
 
-	openvpnSidecar, err := resources.OpenVPNSidecarContainer(data, "openvpn-client")
+	openvpnSidecar, err := vpnsidecar.OpenVPNSidecarContainer(data, "openvpn-client")
 	if err != nil {
-		return nil, fmt.Errorf("failed to get openvpn sidecar: %v", err)
+		return nil, fmt.Errorf("failed to get openvpn-client sidecar: %v", err)
+	}
+
+	dnatControllerSidecar, err := vpnsidecar.DnatControllerContainer(data, "dnat-controller")
+	if err != nil {
+		return nil, fmt.Errorf("failed to get dnat-controller sidecar: %v", err)
+	}
+
+	flags, err := getApiserverFlags(data, externalNodePort, etcdEndpoints)
+	if err != nil {
+		return nil, err
 	}
 
 	resourceRequirements := defaultResourceRequirements
-	if data.Cluster.Spec.ComponentsOverride.Apiserver.Resources != nil {
-		resourceRequirements = *data.Cluster.Spec.ComponentsOverride.Apiserver.Resources
+	if data.Cluster().Spec.ComponentsOverride.Apiserver.Resources != nil {
+		resourceRequirements = *data.Cluster().Spec.ComponentsOverride.Apiserver.Resources
 	}
+
 	dep.Spec.Template.Spec.Containers = []corev1.Container{
 		*openvpnSidecar,
+		*dnatControllerSidecar,
 		{
-			Name:            name,
-			Image:           data.ImageRegistry(resources.RegistryKubernetesGCR) + "/google_containers/hyperkube-amd64:v" + data.Cluster.Spec.Version,
-			ImagePullPolicy: corev1.PullIfNotPresent,
-			Command:         []string{"/hyperkube", "apiserver"},
-			Env:             getEnvVars(data),
-			Args:            getApiserverFlags(data, externalNodePort, etcd),
+			Name:                     name,
+			Image:                    data.ImageRegistry(resources.RegistryGCR) + "/google_containers/hyperkube-amd64:v" + data.Cluster().Spec.Version,
+			ImagePullPolicy:          corev1.PullIfNotPresent,
+			Command:                  []string{"/hyperkube", "apiserver"},
+			Env:                      getEnvVars(data.Cluster()),
+			Args:                     flags,
 			TerminationMessagePath:   corev1.TerminationMessagePathDefault,
 			TerminationMessagePolicy: corev1.TerminationMessageReadFile,
 			Resources:                resourceRequirements,
@@ -226,36 +244,43 @@ func Deployment(data *resources.TemplateData, existing *appsv1.Deployment) (*app
 		},
 	}
 
+	dep.Spec.Template.Spec.Affinity = resources.HostnameAntiAffinity(resources.AppClusterLabel(name, data.Cluster().Name, nil))
+
 	return dep, nil
 }
 
-func getApiserverFlags(data *resources.TemplateData, externalNodePort int32, etcd string) []string {
-	nodePortRange := data.NodePortRange
+func getApiserverFlags(data resources.DeploymentDataProvider, externalNodePort int32, etcdEndpoints []string) ([]string, error) {
+	nodePortRange := data.NodePortRange()
 	if nodePortRange == "" {
 		nodePortRange = defaultNodePortRange
+	}
+
+	clusterVersionSemVer, err := semver.NewVersion(data.Cluster().Spec.Version)
+	if err != nil {
+		return nil, err
 	}
 
 	admissionControlFlagName, admissionControlFlagValue := getAdmissionControlFlags(data)
 
 	flags := []string{
-		"--advertise-address", data.Cluster.Address.IP,
+		"--advertise-address", data.Cluster().Address.IP,
 		"--secure-port", fmt.Sprintf("%d", externalNodePort),
 		"--kubernetes-service-node-port", fmt.Sprintf("%d", externalNodePort),
 		"--insecure-bind-address", "0.0.0.0",
 		"--insecure-port", "8080",
-		"--etcd-servers", etcd,
+		"--etcd-servers", strings.Join(etcdEndpoints, ","),
 		"--etcd-cafile", "/etc/etcd/pki/client/ca.crt",
 		"--etcd-certfile", "/etc/etcd/pki/client/apiserver-etcd-client.crt",
 		"--etcd-keyfile", "/etc/etcd/pki/client/apiserver-etcd-client.key",
 		"--storage-backend", "etcd3",
 		admissionControlFlagName, admissionControlFlagValue,
 		"--authorization-mode", "Node,RBAC",
-		"--external-hostname", data.Cluster.Address.ExternalName,
+		"--external-hostname", data.Cluster().Address.ExternalName,
 		"--token-auth-file", "/etc/kubernetes/tokens/tokens.csv",
 		"--enable-bootstrap-token-auth", "true",
 		"--service-account-key-file", "/etc/kubernetes/service-account-key/sa.key",
 		// There are efforts upstream adding support for multiple cidr's. Until that has landed, we'll take the first entry
-		"--service-cluster-ip-range", data.Cluster.Spec.ClusterNetwork.Services.CIDRBlocks[0],
+		"--service-cluster-ip-range", data.Cluster().Spec.ClusterNetwork.Services.CIDRBlocks[0],
 		"--service-node-port-range", nodePortRange,
 		"--allow-privileged",
 		"--audit-log-maxage", "30",
@@ -275,45 +300,55 @@ func getApiserverFlags(data *resources.TemplateData, externalNodePort int32, etc
 		"--requestheader-extra-headers-prefix", "X-Remote-Extra-",
 		"--requestheader-group-headers", "X-Remote-Group",
 		"--requestheader-username-headers", "X-Remote-User",
+		"--kubelet-preferred-address-types", "ExternalIP,InternalIP",
 	}
-	if data.Cluster.Spec.Cloud.AWS != nil {
+	var featureGates []string
+
+	if clusterVersionSemVer.Minor() >= 9 {
+		featureGates = append(featureGates, "Initializers=true")
+		flags = append(flags, "--runtime-config", "admissionregistration.k8s.io/v1alpha1")
+	}
+	if clusterVersionSemVer.Minor() == 10 {
+		featureGates = append(featureGates, "CustomResourceSubresources=true")
+	}
+	if len(featureGates) > 0 {
+		flags = append(flags, "--feature-gates")
+		flags = append(flags, strings.Join(featureGates, ","))
+	}
+
+	if data.Cluster().Spec.Cloud.AWS != nil {
 		flags = append(flags, "--cloud-provider", "aws")
 		flags = append(flags, "--cloud-config", "/etc/kubernetes/cloud/config")
 	}
-	if data.Cluster.Spec.Cloud.Openstack != nil {
+	if data.Cluster().Spec.Cloud.Openstack != nil {
 		flags = append(flags, "--cloud-provider", "openstack")
 		flags = append(flags, "--cloud-config", "/etc/kubernetes/cloud/config")
 	}
-	if data.Cluster.Spec.Cloud.VSphere != nil {
+	if data.Cluster().Spec.Cloud.VSphere != nil {
 		flags = append(flags, "--cloud-provider", "vsphere")
 		flags = append(flags, "--cloud-config", "/etc/kubernetes/cloud/config")
 	}
-	if data.Cluster.Spec.Cloud.Azure != nil {
+	if data.Cluster().Spec.Cloud.Azure != nil {
 		flags = append(flags, "--cloud-provider", "azure")
 		flags = append(flags, "--cloud-config", "/etc/kubernetes/cloud/config")
 	}
 
-	if data.Cluster.Spec.Cloud.BringYourOwn != nil {
-		flags = append(flags, "--kubelet-preferred-address-types", "Hostname,InternalIP,ExternalIP")
-	} else {
-		flags = append(flags, "--kubelet-preferred-address-types", "ExternalIP,InternalIP")
-	}
-	return flags
+	return flags, nil
 }
 
-func getAdmissionControlFlags(data *resources.TemplateData) (string, string) {
+func getAdmissionControlFlags(data resources.DeploymentDataProvider) (string, string) {
 	// We use these as default in case semver parsing fails
 	admissionControlFlagValue := "NamespaceLifecycle,LimitRanger,ServiceAccount,DefaultStorageClass,DefaultTolerationSeconds,NodeRestriction"
 	admissionControlFlagName := "--admission-control"
 
-	clusterVersionSemVer, err := semver.NewVersion(data.Cluster.Spec.Version)
+	clusterVersionSemVer, err := semver.NewVersion(data.Cluster().Spec.Version)
 	if err != nil {
 		return admissionControlFlagName, admissionControlFlagValue
 	}
 
 	// Enable {Mutating,Validating}AdmissionWebhook for 1.9+
 	if clusterVersionSemVer.Minor() >= 9 {
-		admissionControlFlagValue += ",MutatingAdmissionWebhook,ValidatingAdmissionWebhook"
+		admissionControlFlagValue += ",Initializers,MutatingAdmissionWebhook,ValidatingAdmissionWebhook"
 	}
 
 	// Use the newer "--enable-admission-plugins" which doesn't care about order for 1.10+
@@ -428,16 +463,25 @@ func getVolumes() []corev1.Volume {
 				},
 			},
 		},
+		{
+			Name: resources.KubeletDnatControllerKubeconfigSecretName,
+			VolumeSource: corev1.VolumeSource{
+				Secret: &corev1.SecretVolumeSource{
+					SecretName:  resources.KubeletDnatControllerKubeconfigSecretName,
+					DefaultMode: resources.Int32(resources.DefaultOwnerReadOnlyMode),
+				},
+			},
+		},
 	}
 }
 
-func getEnvVars(data *resources.TemplateData) []corev1.EnvVar {
+func getEnvVars(cluster *kubermaticv1.Cluster) []corev1.EnvVar {
 	var vars []corev1.EnvVar
-	if data.Cluster.Spec.Cloud.AWS != nil {
-		vars = append(vars, corev1.EnvVar{Name: "AWS_ACCESS_KEY_ID", Value: data.Cluster.Spec.Cloud.AWS.AccessKeyID})
-		vars = append(vars, corev1.EnvVar{Name: "AWS_SECRET_ACCESS_KEY", Value: data.Cluster.Spec.Cloud.AWS.SecretAccessKey})
-		vars = append(vars, corev1.EnvVar{Name: "AWS_VPC_ID", Value: data.Cluster.Spec.Cloud.AWS.VPCID})
-		vars = append(vars, corev1.EnvVar{Name: "AWS_AVAILABILITY_ZONE", Value: data.Cluster.Spec.Cloud.AWS.AvailabilityZone})
+	if cluster.Spec.Cloud.AWS != nil {
+		vars = append(vars, corev1.EnvVar{Name: "AWS_ACCESS_KEY_ID", Value: cluster.Spec.Cloud.AWS.AccessKeyID})
+		vars = append(vars, corev1.EnvVar{Name: "AWS_SECRET_ACCESS_KEY", Value: cluster.Spec.Cloud.AWS.SecretAccessKey})
+		vars = append(vars, corev1.EnvVar{Name: "AWS_VPC_ID", Value: cluster.Spec.Cloud.AWS.VPCID})
+		vars = append(vars, corev1.EnvVar{Name: "AWS_AVAILABILITY_ZONE", Value: cluster.Spec.Cloud.AWS.AvailabilityZone})
 	}
 	return vars
 }

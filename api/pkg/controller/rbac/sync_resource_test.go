@@ -47,13 +47,8 @@ func TestEnsureDependantsRBACRole(t *testing.T) {
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "abcd",
 						UID:  types.UID("abcdID"),
-						OwnerReferences: []metav1.OwnerReference{
-							{
-								APIVersion: kubermaticv1.SchemeGroupVersion.String(),
-								Kind:       kubermaticv1.ProjectKindName,
-								Name:       "thunderball",
-								UID:        "thunderballID",
-							},
+						Labels: map[string]string{
+							kubermaticv1.ProjectIDLabelKey: "thunderball",
 						},
 					},
 					Spec:    kubermaticv1.ClusterSpec{},
@@ -213,13 +208,273 @@ func TestEnsureDependantsRBACRole(t *testing.T) {
 		},
 
 		// scenario 2
-		//
-		// TODO: uncomment this when existing object are migrated to projects
-		//       see: https://github.com/kubermatic/kubermatic/issues/1219
-		//
-		//
-		/*{
-			name:            "scenario 2 no-op for a cluster that doesn't belong to a project",
+		{
+			name:            "scenario 2: a proper set of RBAC Role/Binding is generated for an ssh key",
+			expectedActions: []string{"create", "create", "create", "create", "create", "create"},
+			existingProject: createProject("thunderball", createUser("James Bond")),
+
+			dependantToSync: &projectResourceQueueItem{
+				gvr: schema.GroupVersionResource{
+					Group:    kubermaticv1.SchemeGroupVersion.Group,
+					Version:  kubermaticv1.SchemeGroupVersion.Version,
+					Resource: kubermaticv1.SSHKeyResourceName,
+				},
+				kind: kubermaticv1.SSHKeyKind,
+				metaObject: &kubermaticv1.UserSSHKey{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "abcd",
+						UID:  types.UID("abcdID"),
+						OwnerReferences: []metav1.OwnerReference{
+							{
+								APIVersion: kubermaticv1.SchemeGroupVersion.String(),
+								Kind:       kubermaticv1.ProjectKindName,
+								Name:       "thunderball",
+								UID:        "thunderballID",
+							},
+						},
+					},
+					Spec: kubermaticv1.SSHKeySpec{},
+				},
+			},
+
+			expectedClusterRoles: []*rbacv1.ClusterRole{
+				&rbacv1.ClusterRole{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "kubermatic:usersshkey-abcd:owners-thunderball",
+						OwnerReferences: []metav1.OwnerReference{
+							{
+								APIVersion: kubermaticv1.SchemeGroupVersion.String(),
+								Kind:       kubermaticv1.SSHKeyKind,
+								Name:       "abcd",
+								UID:        "abcdID", // set manually
+							},
+						},
+					},
+					Rules: []rbacv1.PolicyRule{
+						{
+							APIGroups:     []string{kubermaticv1.SchemeGroupVersion.Group},
+							Resources:     []string{kubermaticv1.SSHKeyResourceName},
+							ResourceNames: []string{"abcd"},
+							Verbs:         []string{"get", "update", "delete"},
+						},
+					},
+				},
+
+				&rbacv1.ClusterRole{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "kubermatic:usersshkey-abcd:editors-thunderball",
+						OwnerReferences: []metav1.OwnerReference{
+							{
+								APIVersion: kubermaticv1.SchemeGroupVersion.String(),
+								Kind:       kubermaticv1.SSHKeyKind,
+								Name:       "abcd",
+								UID:        "abcdID", // set manually
+							},
+						},
+					},
+					Rules: []rbacv1.PolicyRule{
+						{
+							APIGroups:     []string{kubermaticv1.SchemeGroupVersion.Group},
+							Resources:     []string{kubermaticv1.SSHKeyResourceName},
+							ResourceNames: []string{"abcd"},
+							Verbs:         []string{"get", "update", "delete"},
+						},
+					},
+				},
+				&rbacv1.ClusterRole{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "kubermatic:usersshkey-abcd:viewers-thunderball",
+						OwnerReferences: []metav1.OwnerReference{
+							{
+								APIVersion: kubermaticv1.SchemeGroupVersion.String(),
+								Kind:       kubermaticv1.SSHKeyKind,
+								Name:       "abcd",
+								UID:        "abcdID", // set manually
+							},
+						},
+					},
+					Rules: []rbacv1.PolicyRule{
+						{
+							APIGroups:     []string{kubermaticv1.SchemeGroupVersion.Group},
+							Resources:     []string{kubermaticv1.SSHKeyResourceName},
+							ResourceNames: []string{"abcd"},
+							Verbs:         []string{"get"},
+						},
+					},
+				},
+			},
+
+			expectedClusterRoleBindings: []*rbacv1.ClusterRoleBinding{
+				&rbacv1.ClusterRoleBinding{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "kubermatic:usersshkey-abcd:owners-thunderball",
+						OwnerReferences: []metav1.OwnerReference{
+							{
+								APIVersion: kubermaticv1.SchemeGroupVersion.String(),
+								Kind:       kubermaticv1.SSHKeyKind,
+								Name:       "abcd",
+								UID:        "abcdID", // set manually
+							},
+						},
+					},
+					Subjects: []rbacv1.Subject{
+						{
+							APIGroup: rbacv1.GroupName,
+							Kind:     "Group",
+							Name:     "owners-thunderball",
+						},
+					},
+					RoleRef: rbacv1.RoleRef{
+						APIGroup: rbacv1.GroupName,
+						Kind:     "ClusterRole",
+						Name:     "kubermatic:usersshkey-abcd:owners-thunderball",
+					},
+				},
+
+				&rbacv1.ClusterRoleBinding{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "kubermatic:usersshkey-abcd:editors-thunderball",
+						OwnerReferences: []metav1.OwnerReference{
+							{
+								APIVersion: kubermaticv1.SchemeGroupVersion.String(),
+								Kind:       kubermaticv1.SSHKeyKind,
+								Name:       "abcd",
+								UID:        "abcdID", // set manually
+							},
+						},
+					},
+					Subjects: []rbacv1.Subject{
+						{
+							APIGroup: rbacv1.GroupName,
+							Kind:     "Group",
+							Name:     "editors-thunderball",
+						},
+					},
+					RoleRef: rbacv1.RoleRef{
+						APIGroup: rbacv1.GroupName,
+						Kind:     "ClusterRole",
+						Name:     "kubermatic:usersshkey-abcd:editors-thunderball",
+					},
+				},
+
+				&rbacv1.ClusterRoleBinding{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "kubermatic:usersshkey-abcd:viewers-thunderball",
+						OwnerReferences: []metav1.OwnerReference{
+							{
+								APIVersion: kubermaticv1.SchemeGroupVersion.String(),
+								Kind:       kubermaticv1.SSHKeyKind,
+								Name:       "abcd",
+								UID:        "abcdID", // set manually
+							},
+						},
+					},
+					Subjects: []rbacv1.Subject{
+						{
+							APIGroup: rbacv1.GroupName,
+							Kind:     "Group",
+							Name:     "viewers-thunderball",
+						},
+					},
+					RoleRef: rbacv1.RoleRef{
+						APIGroup: rbacv1.GroupName,
+						Kind:     "ClusterRole",
+						Name:     "kubermatic:usersshkey-abcd:viewers-thunderball",
+					},
+				},
+			},
+		},
+
+		// scenario 3
+		{
+			name:            "scenario 3: a proper set of RBAC Role/Binding is generated for a userprojectbinding resource",
+			expectedActions: []string{"create", "create"},
+			existingProject: createProject("thunderball", createUser("James Bond")),
+
+			dependantToSync: &projectResourceQueueItem{
+				gvr: schema.GroupVersionResource{
+					Group:    kubermaticv1.SchemeGroupVersion.Group,
+					Version:  kubermaticv1.SchemeGroupVersion.Version,
+					Resource: kubermaticv1.UserProjectBindingResourceName,
+				},
+				kind: kubermaticv1.UserProjectBindingKind,
+				metaObject: &kubermaticv1.UserProjectBinding{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "abcd",
+						UID:  types.UID("abcdID"),
+						OwnerReferences: []metav1.OwnerReference{
+							{
+								APIVersion: kubermaticv1.SchemeGroupVersion.String(),
+								Kind:       kubermaticv1.ProjectKindName,
+								Name:       "thunderball",
+								UID:        "thunderballID",
+							},
+						},
+					},
+					Spec: kubermaticv1.UserProjectBindingSpec{
+						UserEmail: "bob@acme.com",
+						ProjectID: "thunderball",
+						Group:     "owners-thunderball",
+					},
+				},
+			},
+
+			expectedClusterRoles: []*rbacv1.ClusterRole{
+				&rbacv1.ClusterRole{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "kubermatic:userprojectbinding-abcd:owners-thunderball",
+						OwnerReferences: []metav1.OwnerReference{
+							{
+								APIVersion: kubermaticv1.SchemeGroupVersion.String(),
+								Kind:       kubermaticv1.UserProjectBindingKind,
+								Name:       "abcd",
+								UID:        "abcdID", // set manually
+							},
+						},
+					},
+					Rules: []rbacv1.PolicyRule{
+						{
+							APIGroups:     []string{kubermaticv1.SchemeGroupVersion.Group},
+							Resources:     []string{kubermaticv1.UserProjectBindingResourceName},
+							ResourceNames: []string{"abcd"},
+							Verbs:         []string{"get", "update", "delete"},
+						},
+					},
+				},
+			},
+
+			expectedClusterRoleBindings: []*rbacv1.ClusterRoleBinding{
+				&rbacv1.ClusterRoleBinding{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "kubermatic:userprojectbinding-abcd:owners-thunderball",
+						OwnerReferences: []metav1.OwnerReference{
+							{
+								APIVersion: kubermaticv1.SchemeGroupVersion.String(),
+								Kind:       kubermaticv1.UserProjectBindingKind,
+								Name:       "abcd",
+								UID:        "abcdID", // set manually
+							},
+						},
+					},
+					Subjects: []rbacv1.Subject{
+						{
+							APIGroup: rbacv1.GroupName,
+							Kind:     "Group",
+							Name:     "owners-thunderball",
+						},
+					},
+					RoleRef: rbacv1.RoleRef{
+						APIGroup: rbacv1.GroupName,
+						Kind:     "ClusterRole",
+						Name:     "kubermatic:userprojectbinding-abcd:owners-thunderball",
+					},
+				},
+			},
+		},
+
+		// scenario 4
+		{
+			name:            "scenario 4 an error is returned when syncing a cluster that doesn't belong to a project",
 			expectError:     true,
 			existingProject: createProject("thunderball", createUser("James Bond")),
 			dependantToSync: &projectResourceQueueItem{
@@ -235,16 +490,13 @@ func TestEnsureDependantsRBACRole(t *testing.T) {
 						UID:  types.UID("abcdID"),
 					},
 					Spec:    kubermaticv1.ClusterSpec{},
-					Address: &kubermaticv1.ClusterAddress{},
+					Address: kubermaticv1.ClusterAddress{},
 					Status: kubermaticv1.ClusterStatus{
 						NamespaceName: "cluster-abcd",
 					},
 				},
 			},
-		},*/
-		//
-		//  END of TODO
-		//
+		},
 	}
 
 	for _, test := range tests {
@@ -259,7 +511,6 @@ func TestEnsureDependantsRBACRole(t *testing.T) {
 				}
 				kubermaticObjs = append(kubermaticObjs, test.existingProject)
 			}
-			//projectLister := kubermaticv1lister.NewProjectLister(projectIndexer)
 
 			objs := []runtime.Object{}
 			clusterRoleIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})

@@ -61,8 +61,6 @@ echo "initial-cluster: ${INITIAL_CLUSTER}"
 exec /usr/local/bin/etcd \
     --name=${POD_NAME} \
     --data-dir="/var/run/etcd/pod_${POD_NAME}/" \
-    --heartbeat-interval=500 \
-    --election-timeout=5000 \
     --initial-cluster=${INITIAL_CLUSTER} \
     --initial-cluster-token="lg69pmx8wf" \
     --initial-cluster-state=${INITIAL_STATE} \
@@ -73,7 +71,8 @@ exec /usr/local/bin/etcd \
     --trusted-ca-file /etc/etcd/pki/ca/ca.crt \
     --client-cert-auth \
     --cert-file /etc/etcd/pki/tls/etcd-tls.crt \
-    --key-file /etc/etcd/pki/tls/etcd-tls.key
+    --key-file /etc/etcd/pki/tls/etcd-tls.key \
+    --auto-compaction-retention=8
 `
 
 	migration = `export MASTER_ENDPOINT="https://etcd-0.etcd.cluster-62m9k9tqlm.svc.cluster.local:2379"
@@ -133,8 +132,6 @@ echo "initial-cluster: ${INITIAL_CLUSTER}"
 exec /usr/local/bin/etcd \
     --name=${POD_NAME} \
     --data-dir="/var/run/etcd/pod_${POD_NAME}/" \
-    --heartbeat-interval=500 \
-    --election-timeout=5000 \
     --initial-cluster=${INITIAL_CLUSTER} \
     --initial-cluster-token="62m9k9tqlm" \
     --initial-cluster-state=${INITIAL_STATE} \
@@ -145,6 +142,7 @@ exec /usr/local/bin/etcd \
     --trusted-ca-file /etc/etcd/pki/ca/ca.crt \
     --client-cert-auth \
     --cert-file /etc/etcd/pki/tls/etcd-tls.crt \
-    --key-file /etc/etcd/pki/tls/etcd-tls.key
+    --key-file /etc/etcd/pki/tls/etcd-tls.key \
+    --auto-compaction-retention=8
 `
 )

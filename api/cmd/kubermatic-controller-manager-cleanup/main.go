@@ -2,6 +2,7 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"strings"
 	"sync"
 
@@ -12,12 +13,14 @@ import (
 	kubermaticKubernetesProvider "github.com/kubermatic/kubermatic/api/pkg/provider/kubernetes"
 	"github.com/kubermatic/kubermatic/api/pkg/resources"
 	"github.com/kubermatic/kubermatic/api/pkg/util/hash"
+	"github.com/kubermatic/kubermatic/api/pkg/util/workerlabel"
 
 	corev1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
+	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
@@ -40,9 +43,10 @@ type ClusterTask func(cluster *kubermaticv1.Cluster, ctx *cleanupContext) error
 type KeyTask func(key *kubermaticv1.UserSSHKey, ctx *cleanupContext) error
 
 func main() {
-	var kubeconfig, masterURL string
+	var kubeconfig, masterURL, workerName string
 
 	flag.StringVar(&kubeconfig, "kubeconfig", "", "Path to a kubeconfig. Only required if out-of-cluster.")
+	flag.StringVar(&workerName, "worker-name", "", "Name of the current worker, only clusters with a matching label will be cleaned up.")
 	flag.StringVar(&masterURL, "master", "", "The address of the Kubernetes API server. Overrides any value in kubeconfig. Only required if out-of-cluster.")
 	flag.Parse()
 
@@ -58,7 +62,20 @@ func main() {
 	ctx.kubeClient = kubernetes.NewForConfigOrDie(ctx.config)
 	ctx.kubermaticClient = kubermaticclientset.NewForConfigOrDie(ctx.config)
 
-	clusters, err := ctx.kubermaticClient.KubermaticV1().Clusters().List(metav1.ListOptions{})
+	// The worker labels used to be assigned to every cluster, even if they were empty.
+	// We remove these empty labels first, since the label selector below expects
+	// them to be absent for empty worker label.
+	if err = purgeEmptyWorkerLabels(ctx.kubermaticClient); err != nil {
+		glog.Fatalf("failed to remove empty worker labels: %v", err)
+	}
+
+	selector, err := workerlabel.LabelSelector(workerName)
+	if err != nil {
+		glog.Fatal(err)
+	}
+	options := metav1.ListOptions{}
+	selector(&options)
+	clusters, err := ctx.kubermaticClient.KubermaticV1().Clusters().List(options)
 	if err != nil {
 		glog.Fatal(err)
 	}
@@ -69,6 +86,7 @@ func main() {
 	for i := range clusters.Items {
 		go func(c *kubermaticv1.Cluster) {
 			defer w.Done()
+
 			cleanupCluster(c, &ctx)
 		}(&clusters.Items[i])
 	}
@@ -89,6 +107,35 @@ func main() {
 		}(&keys.Items[i])
 	}
 	w.Wait()
+}
+
+func purgeEmptyWorkerLabels(kubermaticClient kubermaticclientset.Interface) error {
+	// find empty, but present label
+	req, err := labels.NewRequirement(kubermaticv1.WorkerNameLabelKey, selection.Equals, []string{""})
+	if err != nil {
+		return fmt.Errorf("failed to build label selector: %v", err)
+	}
+
+	options := metav1.ListOptions{LabelSelector: req.String()}
+	clusters, err := kubermaticClient.KubermaticV1().Clusters().List(options)
+	if err != nil {
+		return err
+	}
+
+	for _, c := range clusters.Items {
+		if err = removeWorkerLabelFromCluster(&c, kubermaticClient); err != nil {
+			return fmt.Errorf("failed to remove empty worker label from cluster %s: %v", c.Name, err)
+		}
+	}
+
+	return nil
+}
+
+func removeWorkerLabelFromCluster(cluster *kubermaticv1.Cluster, kubermaticClient kubermaticclientset.Interface) error {
+	delete(cluster.Labels, kubermaticv1.WorkerNameLabelKey)
+
+	_, err := kubermaticClient.KubermaticV1().Clusters().Update(cluster)
+	return err
 }
 
 func cleanupCluster(cluster *kubermaticv1.Cluster, ctx *cleanupContext) {

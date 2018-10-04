@@ -26,7 +26,8 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"time"
+
+	"github.com/kubermatic/kubermatic/api/pkg/util/informer"
 
 	"github.com/golang/glog"
 	"github.com/gorilla/handlers"
@@ -65,10 +66,6 @@ var (
 	tokenIssuerSkipTLSVerify bool
 )
 
-const (
-	informerResyncPeriod = 5 * time.Minute
-)
-
 func main() {
 	flag.StringVar(&listenAddress, "address", ":8080", "The address to listen on")
 	flag.StringVar(&kubeconfig, "kubeconfig", "", "Path to the kubeconfig.")
@@ -96,7 +93,7 @@ func main() {
 	}
 
 	kubermaticMasterClient := kubermaticclientset.NewForConfigOrDie(config)
-	kubermaticMasterInformerFactory := kubermaticinformers.NewSharedInformerFactory(kubermaticMasterClient, informerResyncPeriod)
+	kubermaticMasterInformerFactory := kubermaticinformers.NewSharedInformerFactory(kubermaticMasterClient, informer.DefaultInformerResyncPeriod)
 
 	defaultImpersonationClient := kubernetesprovider.NewKubermaticImpersonationClient(config)
 
@@ -104,6 +101,7 @@ func main() {
 	newSSHKeyProvider := kubernetesprovider.NewRBACCompliantSSHKeyProvider(defaultImpersonationClient.CreateImpersonatedClientSet, kubermaticMasterInformerFactory.Kubermatic().V1().UserSSHKeies().Lister())
 	userProvider := kubernetesprovider.NewUserProvider(kubermaticMasterClient, kubermaticMasterInformerFactory.Kubermatic().V1().Users().Lister())
 	projectProvider, err := kubernetesprovider.NewProjectProvider(defaultImpersonationClient.CreateImpersonatedClientSet, kubermaticMasterInformerFactory.Kubermatic().V1().Projects().Lister())
+	projectMemberProvider := kubernetesprovider.NewProjectMemberProvider(defaultImpersonationClient.CreateImpersonatedClientSet, kubermaticMasterInformerFactory.Kubermatic().V1().UserProjectBindings().Lister())
 	if err != nil {
 		glog.Fatalf("failed to create project provider due to %v", err)
 	}
@@ -131,10 +129,12 @@ func main() {
 		glog.V(2).Infof("adding %s as seed", ctx)
 
 		kubeClient := kubernetes.NewForConfigOrDie(cfg)
-		kubeInformerFactory := informers.NewSharedInformerFactory(kubeClient, informerResyncPeriod)
+		kubeInformerFactory := informers.NewSharedInformerFactory(kubeClient, informer.DefaultInformerResyncPeriod)
 
 		kubermaticSeedClient := kubermaticclientset.NewForConfigOrDie(cfg)
-		kubermaticSeedInformerFactory := kubermaticinformers.NewSharedInformerFactory(kubermaticSeedClient, informerResyncPeriod)
+		kubermaticSeedInformerFactory := kubermaticinformers.NewSharedInformerFactory(kubermaticSeedClient, informer.DefaultInformerResyncPeriod)
+
+		defaultImpersonationClientForSeed := kubernetesprovider.NewKubermaticImpersonationClient(cfg)
 
 		clusterProviders[ctx] = kubernetesprovider.NewClusterProvider(
 			kubermaticSeedClient,
@@ -144,7 +144,7 @@ func main() {
 			handler.IsAdmin,
 		)
 		newClusterProviders[ctx] = kubernetesprovider.NewRBACCompliantClusterProvider(
-			defaultImpersonationClient.CreateImpersonatedClientSet,
+			defaultImpersonationClientForSeed.CreateImpersonatedClientSet,
 			client.New(kubeInformerFactory.Core().V1().Secrets().Lister()),
 			kubermaticSeedInformerFactory.Kubermatic().V1().Clusters().Lister(),
 			workerName,
@@ -200,12 +200,16 @@ func main() {
 		authenticator,
 		updateManager,
 		prometheusClient,
+		projectMemberProvider,
+		projectMemberProvider, /*satisfies also a different interface*/
 	)
 
 	mainRouter := mux.NewRouter()
 	v1Router := mainRouter.PathPrefix("/api/v1").Subrouter()
+	v1AlphaRouter := mainRouter.PathPrefix("/api/v1alpha").Subrouter()
 	v3Router := mainRouter.PathPrefix("/api/v3").Subrouter()
 	r.RegisterV1(v1Router)
+	r.RegisterV1Alpha(v1AlphaRouter)
 	r.RegisterV3(v3Router)
 
 	metrics.RegisterHTTPVecs()

@@ -43,9 +43,9 @@ func NewMetrics() *Metrics {
 
 // Controller stores necessary components that are required to install in-cluster Add-On's
 type Controller struct {
+	workerName       string
 	queue            workqueue.RateLimitingInterface
 	metrics          *Metrics
-	workerName       string
 	defaultAddonList []string
 	client           kubermaticclientset.Interface
 	clusterLister    kubermaticv1lister.ClusterLister
@@ -55,17 +55,17 @@ type Controller struct {
 // New creates a new Addon-Installer controller that is responsible for
 // installing in-cluster addons
 func New(
-	metrics *Metrics,
 	workerName string,
+	metrics *Metrics,
 	defaultAddonList []string,
 	client kubermaticclientset.Interface,
 	addonInformer kubermaticv1informers.AddonInformer,
 	clusterInformer kubermaticv1informers.ClusterInformer) (*Controller, error) {
 
 	c := &Controller{
-		queue:            workqueue.NewNamedRateLimitingQueue(workqueue.NewItemExponentialFailureRateLimiter(1*time.Second, 5*time.Minute), "cluster"),
-		metrics:          metrics,
 		workerName:       workerName,
+		queue:            workqueue.NewNamedRateLimitingQueue(workqueue.NewItemExponentialFailureRateLimiter(1*time.Second, 5*time.Minute), "addon_installer_cluster"),
+		metrics:          metrics,
 		defaultAddonList: defaultAddonList,
 		client:           client,
 	}
@@ -121,11 +121,12 @@ func (c *Controller) createDefaultAddon(addon string, cluster *kubermaticv1.Clus
 	gv := kubermaticv1.SchemeGroupVersion
 	glog.V(8).Infof("Create addon %s for the cluster %s\n", addon, cluster.Name)
 
-	_, err := c.client.KubermaticV1().Addons(cluster.Status.NamespaceName).Create(&kubermaticv1.Addon{
+	a := &kubermaticv1.Addon{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:            addon,
 			Namespace:       cluster.Status.NamespaceName,
 			OwnerReferences: []metav1.OwnerReference{*metav1.NewControllerRef(cluster, gv.WithKind("Cluster"))},
+			Labels:          map[string]string{},
 		},
 		Spec: kubermaticv1.AddonSpec{
 			Name: addon,
@@ -137,9 +138,31 @@ func (c *Controller) createDefaultAddon(addon string, cluster *kubermaticv1.Clus
 				Kind:       "Cluster",
 			},
 		},
-	})
+	}
 
-	return err
+	if c.workerName != "" {
+		a.Labels[kubermaticv1.WorkerNameLabelKey] = c.workerName
+	}
+
+	if _, err := c.client.KubermaticV1().Addons(cluster.Status.NamespaceName).Create(a); err != nil {
+		return err
+	}
+
+	err := wait.Poll(10*time.Millisecond, 10*time.Second, func() (bool, error) {
+		_, err := c.addonLister.Addons(cluster.Status.NamespaceName).Get(a.Name)
+		if err != nil {
+			if kerrors.IsNotFound(err) {
+				return false, nil
+			}
+			return false, err
+		}
+		return true, nil
+	})
+	if err != nil {
+		return fmt.Errorf("failed waitung for addon %s to exist in the lister", a.Name)
+	}
+
+	return nil
 }
 
 // Run starts the controller's worker routines. This method is blocking and ends when stopCh gets closed
@@ -210,22 +233,21 @@ func (c *Controller) sync(key string) error {
 	}
 
 	cluster := clusterFromCache.DeepCopy()
-	if cluster.Labels[kubermaticv1.WorkerNameLabelKey] != c.workerName {
-		glog.V(8).Infof("skipping cluster %s due to different worker assigned to it", key)
-		return nil
-	}
 
 	// Reconciling
-	if cluster.Status.NamespaceName == "" {
-		glog.V(8).Infof("skipping addon sync for cluster %s as no namespace has been created yet", key)
+
+	// Wait until the Apiserver is running to ensure the namespace exists at least.
+	// Just checking for cluster.status.namespaceName is not enough as it gets set before the namespace exists
+	if !cluster.Status.Health.Apiserver {
+		glog.V(8).Infof("skipping addon sync for cluster %s as the apiserver is not running yet", key)
+		c.queue.AddAfter(key, 1*time.Second)
 		return nil
 	}
 
 	for _, defaultAddon := range c.defaultAddonList {
 		_, err := c.addonLister.Addons(cluster.Status.NamespaceName).Get(defaultAddon)
 		if err != nil && kerrors.IsNotFound(err) {
-			err = c.createDefaultAddon(defaultAddon, cluster)
-			if err != nil {
+			if err = c.createDefaultAddon(defaultAddon, cluster); err != nil {
 				return fmt.Errorf("failed to create initial adddon %s: %v", defaultAddon, err)
 			}
 		} else if err != nil {
