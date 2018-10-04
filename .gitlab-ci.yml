@@ -25,7 +25,7 @@ dep:
 
 gofmt:
   stage: check
-  image: golang:1.10.3
+  image: golang:1.11.0
   script:
   - cd api
   - make gofmt
@@ -36,7 +36,7 @@ gofmt:
 
 verify-codegen:
   stage: check
-  image: golang:1.10.3
+  image: golang:1.11.0
   script:
   - cd api
   - ./hack/verify-codegen.sh
@@ -79,7 +79,7 @@ verify-addons-up-to-date:
 
 verify-swagger-spec:
   stage: check
-  image: golang:1.10.3
+  image: golang:1.11.0
   script:
   - cd api
   - ./hack/verify-swagger.sh
@@ -90,7 +90,7 @@ verify-swagger-spec:
 
 test:
   stage: test
-  image: golang:1.10.3
+  image: golang:1.11.0
   script:
   - cd api
   - make test
@@ -101,7 +101,7 @@ test:
 
 build:
   stage: build
-  image: golang:1.10.3
+  image: golang:1.11.0
   script:
   - cd api
   - make build
