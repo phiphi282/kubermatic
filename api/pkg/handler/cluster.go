@@ -70,7 +70,7 @@ func newClusterEndpoint(sshKeysProvider provider.SSHKeyProvider, cloudProviders 
 	}
 }
 
-func newCreateClusterEndpoint(sshKeyProvider provider.NewSSHKeyProvider, cloudProviders map[string]provider.CloudProvider, projectProvider provider.ProjectProvider) endpoint.Endpoint {
+func newCreateClusterEndpoint(cloudProviders map[string]provider.CloudProvider, projectProvider provider.ProjectProvider) endpoint.Endpoint {
 	return func(ctx context.Context, request interface{}) (interface{}, error) {
 		req := request.(NewCreateClusterReq)
 		clusterProvider := ctx.Value(newClusterProviderContextKey).(provider.NewClusterProvider)
@@ -194,9 +194,10 @@ func newUpdateCluster(cloudProviders map[string]provider.CloudProvider, projectP
 			return nil, kubernetesErrorToHTTPError(err)
 		}
 
-		existingCluster.Spec.Cloud = req.Body.Spec.Cloud
+		newCluster := req.Body
 		existingCluster.Spec.Version = req.Body.Spec.Version
-		existingCluster.Spec.MachineNetworks = req.Body.Spec.MachineNetworks
+		existingCluster.Spec.MachineNetworks = newCluster.Spec.MachineNetworks
+		newCluster.Spec.Cloud = kubermaticapiv1.UpdateCloudSpec(newCluster.Spec.Cloud, existingCluster.Spec.Cloud)
 
 		if err = validation.ValidateUpdateCluster(existingCluster, existingCluster, cloudProviders); err != nil {
 			return nil, errors.NewBadRequest("invalid cluster: %v", err)
