@@ -96,22 +96,22 @@ func decodeClusterReq(c context.Context, r *http.Request) (interface{}, error) {
 	return req, nil
 }
 
-// LegacyGetPrometheusProxyReq represents a request to the Prometheus proxy route
-type LegacyGetPrometheusProxyReq struct {
-	LegacyGetClusterReq
+// GetPrometheusProxyReq represents a request to the Prometheus proxy route
+type GetPrometheusProxyReq struct {
+	GetClusterReq
 	PrometheusQueryPath string `json:"prometheus_query_path"`
 	PrometheusRawQuery  string `json:"prometheus_raw_query"`
 	RequestHeaders      http.Header
 }
 
-func decodeLegacyPrometheusProxyReq(c context.Context, r *http.Request) (interface{}, error) {
-	var req LegacyGetPrometheusProxyReq
+func decodePrometheusProxyReq(c context.Context, r *http.Request) (interface{}, error) {
+	var req GetPrometheusProxyReq
 
-	cr, err := decodeLegacyClusterReq(c, r)
+	cr, err := decodeClusterReq(c, r)
 	if err != nil {
 		return nil, err
 	}
-	req.LegacyGetClusterReq = cr.(LegacyGetClusterReq)
+	req.GetClusterReq = cr.(GetClusterReq)
 	req.PrometheusQueryPath = mux.Vars(r)["query_path"]
 	if req.PrometheusQueryPath != "query" && req.PrometheusQueryPath != "query_range" {
 		return nil, errors.New(http.StatusBadRequest, "invalid Prometheus query path")

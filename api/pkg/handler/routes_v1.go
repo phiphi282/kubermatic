@@ -1590,7 +1590,7 @@ func (r Routing) prometheusProxyHandler() http.Handler {
 			r.newDatacenterMiddleware(),
 			r.userInfoMiddleware(),
 		)(getPrometheusProxyEndpoint()),
-		decodeLegacyPrometheusProxyReq,
+		decodePrometheusProxyReq,
 		encodeRawResponse,
 		r.defaultServerOptions()...,
 	)

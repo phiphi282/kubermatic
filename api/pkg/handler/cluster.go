@@ -651,7 +651,7 @@ func getPrometheusProxyEndpoint() endpoint.Endpoint {
 	return func(ctx context.Context, request interface{}) (interface{}, error) {
 		user := ctx.Value(apiUserContextKey).(apiv1.User)
 		clusterProvider := ctx.Value(clusterProviderContextKey).(provider.ClusterProvider)
-		req := request.(LegacyGetPrometheusProxyReq)
+		req := request.(GetPrometheusProxyReq)
 		c, err := clusterProvider.Cluster(user, req.ClusterName)
 		if err != nil {
 			return nil, kubernetesErrorToHTTPError(err)
