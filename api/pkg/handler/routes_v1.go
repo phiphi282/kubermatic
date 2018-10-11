@@ -273,6 +273,10 @@ func (r Routing) RegisterV1(mux *mux.Router) {
 	mux.Methods(http.MethodGet).
 		Path("/me").
 		Handler(r.getCurrentUser())
+
+	mux.Methods(http.MethodGet).
+		Path("/projects/{project_id}/dc/{dc}/cluster/{cluster}/prometheus/{query_path}").
+		Handler(r.prometheusProxyHandler())
 }
 
 func (r Routing) redirectTo(path string) http.Handler {
@@ -1574,6 +1578,20 @@ func (r Routing) listLegacyVSphereNetworks() http.Handler {
 		)(legacyVsphereNetworksEndpoint(r.cloudProviders)),
 		decodeLegacyVSphereNetworksReq,
 		encodeJSON,
+		r.defaultServerOptions()...,
+	)
+}
+
+func (r Routing) prometheusProxyHandler() http.Handler {
+	return httptransport.NewServer(
+		endpoint.Chain(
+			r.authenticator.Verifier(),
+			r.userSaverMiddleware(),
+			r.newDatacenterMiddleware(),
+			r.userInfoMiddleware(),
+		)(getPrometheusProxyEndpoint()),
+		decodeLegacyPrometheusProxyReq,
+		encodeRawResponse,
 		r.defaultServerOptions()...,
 	)
 }
