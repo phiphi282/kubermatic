@@ -649,10 +649,10 @@ func prometheusQueryRange(ctx context.Context, api prometheusv1.API, query strin
 func getPrometheusProxyEndpoint() endpoint.Endpoint {
 
 	return func(ctx context.Context, request interface{}) (interface{}, error) {
-		user := ctx.Value(apiUserContextKey).(apiv1.User)
-		clusterProvider := ctx.Value(clusterProviderContextKey).(provider.ClusterProvider)
+		userInfo := ctx.Value(userInfoContextKey).(*provider.UserInfo)
+		clusterProvider := ctx.Value(newClusterProviderContextKey).(provider.NewClusterProvider)
 		req := request.(GetPrometheusProxyReq)
-		c, err := clusterProvider.Cluster(user, req.ClusterID)
+		c, err := clusterProvider.Get(userInfo, req.ClusterID, &provider.ClusterGetOptions{})
 		if err != nil {
 			return nil, kubernetesErrorToHTTPError(err)
 		}
