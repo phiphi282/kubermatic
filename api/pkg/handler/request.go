@@ -107,11 +107,18 @@ type GetPrometheusProxyReq struct {
 func decodePrometheusProxyReq(c context.Context, r *http.Request) (interface{}, error) {
 	var req GetPrometheusProxyReq
 
-	cr, err := decodeNewClusterReq(c, r)
+	clusterID, err := decodeClusterID(c, r)
 	if err != nil {
 		return nil, err
 	}
-	req.NewGetClusterReq = cr.(NewGetClusterReq)
+
+	dcr, err := decodeDcReq(c, r)
+	if err != nil {
+		return nil, err
+	}
+
+	req.ClusterID = clusterID
+	req.DCReq = dcr.(DCReq)
 	req.PrometheusQueryPath = mux.Vars(r)["query_path"]
 	if req.PrometheusQueryPath != "query" && req.PrometheusQueryPath != "query_range" {
 		return nil, errors.New(http.StatusBadRequest, "invalid Prometheus query path")

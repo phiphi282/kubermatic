@@ -275,7 +275,7 @@ func (r Routing) RegisterV1(mux *mux.Router) {
 		Handler(r.getCurrentUser())
 
 	mux.Methods(http.MethodGet).
-		Path("/projects/{project_id}/dc/{dc}/cluster/{cluster}/prometheus/{query_path}").
+		Path("/projects/{project_id}/dc/{dc}/cluster/{cluster_id}/prometheus/{query_path}").
 		Handler(r.prometheusProxyHandler())
 }
 
