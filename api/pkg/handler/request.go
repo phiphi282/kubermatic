@@ -267,6 +267,24 @@ func decodeLegacyDoSizesReq(c context.Context, r *http.Request) (interface{}, er
 	return req, nil
 }
 
+// DoSizesNoCredentialsReq represent a request for digitalocean sizes EP,
+// note that the request doesn't have credentials for autN
+// swagger:parameters listDigitaloceanSizesNoCredentials
+type DoSizesNoCredentialsReq struct {
+	NewGetClusterReq
+}
+
+func decodeDoSizesNoCredentialsReq(c context.Context, r *http.Request) (interface{}, error) {
+	var req DoSizesNoCredentialsReq
+	cr, err := newDecodeGetClusterReq(c, r)
+	if err != nil {
+		return nil, err
+	}
+
+	req.NewGetClusterReq = cr.(NewGetClusterReq)
+	return req, nil
+}
+
 // DoSizesReq represent a request for digitalocean sizes
 type DoSizesReq struct {
 	DoToken string
@@ -293,6 +311,24 @@ func decodeLegacyAzureSizesReq(c context.Context, r *http.Request) (interface{},
 	}
 
 	req.LegacyGetClusterReq = cr.(LegacyGetClusterReq)
+	return req, nil
+}
+
+// AzureSizeNoCredentialsReq represent a request for Azure VM sizes
+// note that the request doesn't have credentials for authN
+// swagger:parameters listAzureSizesNoCredentials
+type AzureSizeNoCredentialsReq struct {
+	NewGetClusterReq
+}
+
+func decodeAzureSizesNoCredentialsReq(c context.Context, r *http.Request) (interface{}, error) {
+	var req AzureSizeNoCredentialsReq
+	cr, err := newDecodeGetClusterReq(c, r)
+	if err != nil {
+		return nil, err
+	}
+
+	req.NewGetClusterReq = cr.(NewGetClusterReq)
 	return req, nil
 }
 
@@ -337,6 +373,23 @@ func decodeOpenstackReq(c context.Context, r *http.Request) (interface{}, error)
 	return req, nil
 }
 
+// OpenstackNoCredentialsReq represent a request for openstack
+// swagger:parameters listOpenstackSizesNoCredentials listOpenstackTenantsNoCredentials listOpenstackNetworksNoCredentials listOpenstackSecurityGroupsNoCredentials
+type OpenstackNoCredentialsReq struct {
+	NewGetClusterReq
+}
+
+func decodeOpenstackNoCredentialsReq(c context.Context, r *http.Request) (interface{}, error) {
+	var req OpenstackNoCredentialsReq
+	cr, err := newDecodeGetClusterReq(c, r)
+	if err != nil {
+		return nil, err
+	}
+
+	req.NewGetClusterReq = cr.(NewGetClusterReq)
+	return req, nil
+}
+
 // LegacyOpenstackReq represent a request for openstack
 // swagger:parameters listLegacyOpenstackSizes listLegacyOpenstackTenants listLegacyOpenstackNetworks listLegacyOpenstackSecurityGroups
 type LegacyOpenstackReq struct {
@@ -374,6 +427,30 @@ func decodeOpenstackSubnetReq(c context.Context, r *http.Request) (interface{}, 
 	if req.NetworkID == "" {
 		return nil, fmt.Errorf("get openstack subnets needs a parameter 'network_id'")
 	}
+	return req, nil
+}
+
+// OpenstackSubnetNoCredentialsReq represent a request for openstack subnets
+// swagger:parameters listOpenstackSubnetsNoCredentials
+type OpenstackSubnetNoCredentialsReq struct {
+	OpenstackNoCredentialsReq
+	// in: query
+	NetworkID string
+}
+
+func decodeOpenstackSubnetNoCredentialsReq(c context.Context, r *http.Request) (interface{}, error) {
+	var req OpenstackSubnetNoCredentialsReq
+	lr, err := decodeOpenstackNoCredentialsReq(c, r)
+	if err != nil {
+		return nil, err
+	}
+	req.OpenstackNoCredentialsReq = lr.(OpenstackNoCredentialsReq)
+
+	req.NetworkID = r.URL.Query().Get("network_id")
+	if req.NetworkID == "" {
+		return nil, fmt.Errorf("get openstack subnets needs a parameter 'network_id'")
+	}
+
 	return req, nil
 }
 
@@ -513,6 +590,22 @@ func decodeVSphereNetworksReq(c context.Context, r *http.Request) (interface{}, 
 	req.Password = r.Header.Get("Password")
 	req.DatacenterName = r.Header.Get("DatacenterName")
 
+	return req, nil
+}
+
+// VSphereNetworksNoCredentialsReq represent a request for vsphere networks
+// swagger:parameters listVSphereNetworksNoCredentials
+type VSphereNetworksNoCredentialsReq struct {
+	NewGetClusterReq
+}
+
+func decodeVSphereNetworksNoCredentialsReq(c context.Context, r *http.Request) (interface{}, error) {
+	var req VSphereNetworksNoCredentialsReq
+	lr, err := newDecodeGetClusterReq(c, r)
+	if err != nil {
+		return nil, err
+	}
+	req.NewGetClusterReq = lr.(NewGetClusterReq)
 	return req, nil
 }
 

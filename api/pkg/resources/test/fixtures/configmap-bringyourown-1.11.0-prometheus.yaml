@@ -35,6 +35,10 @@ data:
         namespaces:
           names:
           - "cluster-de-test-01"
+      metric_relabel_configs:
+      - source_labels: [job, __name__]
+        regex: 'controller-manager;rest_.*'
+        action: drop
 
       metric_relabel_configs:
       - source_labels: [job, __name__]
@@ -71,6 +75,10 @@ data:
         namespaces:
           names:
           - "cluster-de-test-01"
+      metric_relabel_configs:
+      - source_labels: [job, __name__]
+        regex: 'controller-manager;rest_.*'
+        action: drop
 
       metric_relabel_configs:
       - source_labels: [job, __name__]
