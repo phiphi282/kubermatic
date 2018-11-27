@@ -19,7 +19,7 @@ const (
 	securityGroupCleanupFinalizer = "kubermatic.io/cleanup-openstack-security-group"
 	networkCleanupFinalizer       = "kubermatic.io/cleanup-openstack-network"
 	// LoadBalancerCleanupFinalizer for cleaning up load balancers, used in deleting.go
-	LoadBalancerCleanupFinalizer  = "kubermatic.io/cleanup-load-balancers"
+	LoadBalancerCleanupFinalizer = "kubermatic.io/cleanup-load-balancers"
 )
 
 // Provider is a struct that implements CloudProvider interface
