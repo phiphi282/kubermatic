@@ -18,6 +18,7 @@ import (
 const (
 	securityGroupCleanupFinalizer = "kubermatic.io/cleanup-openstack-security-group"
 	networkCleanupFinalizer       = "kubermatic.io/cleanup-openstack-network"
+	LoadBalancerCleanupFinalizer  = "kubermatic.io/cleanup-load-balancers"
 )
 
 // Provider is a struct that implements CloudProvider interface
@@ -146,7 +147,7 @@ func (os *Provider) InitializeCloudProvider(cluster *kubermaticv1.Cluster, updat
 		}
 
 		cluster, err = update(cluster.Name, func(cluster *kubermaticv1.Cluster) {
-			cluster.Finalizers = append(cluster.Finalizers, networkCleanupFinalizer)
+			cluster.Finalizers = append(cluster.Finalizers, networkCleanupFinalizer, LoadBalancerCleanupFinalizer)
 		})
 		if err != nil {
 			return nil, err

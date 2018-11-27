@@ -2,21 +2,16 @@ package cluster
 
 import (
 	"fmt"
-	"github.com/kubermatic/kubermatic/api/pkg/kubernetes"
-
 	kubermaticv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
 	kuberneteshelper "github.com/kubermatic/kubermatic/api/pkg/kubernetes"
 	"github.com/kubermatic/kubermatic/api/pkg/provider"
+	"github.com/kubermatic/kubermatic/api/pkg/provider/cloud/openstack"
 
 	"github.com/kubermatic/machine-controller/pkg/node/eviction"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/util/retry"
-)
-
-const (
-	loadBalancerCleanupFinalizer = "kubermatic.io/cleanup-load-balancers"
 )
 
 // cleanupCluster is the function which handles clusters in the deleting phase.
@@ -124,7 +119,7 @@ func (cc *Controller) deletingCloudProviderCleanup(c *kubermaticv1.Cluster) (*ku
 }
 
 func (cc *Controller) deletingLoadBalancerServices(c *kubermaticv1.Cluster) (*kubermaticv1.Cluster, error) {
-	if kubernetes.HasFinalizer(c, loadBalancerCleanupFinalizer) {
+	if kuberneteshelper.HasFinalizer(c, openstack.LoadBalancerCleanupFinalizer) {
 		client, err := cc.userClusterConnProvider.GetClient(c)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get kubernetes client: %v", err)
@@ -154,7 +149,7 @@ func (cc *Controller) deletingLoadBalancerServices(c *kubermaticv1.Cluster) (*ku
 		}
 
 		c, err = cc.updateCluster(c.Name, func(cluster *kubermaticv1.Cluster) {
-			cluster.Finalizers = kubernetes.RemoveFinalizer(cluster.Finalizers, loadBalancerCleanupFinalizer)
+			cluster.Finalizers = kuberneteshelper.RemoveFinalizer(cluster.Finalizers, openstack.LoadBalancerCleanupFinalizer)
 		})
 
 		if err != nil {
