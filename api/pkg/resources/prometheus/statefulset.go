@@ -22,10 +22,16 @@ const (
 )
 
 var (
-	defaultCPURequest    = resource.MustParse("50m")
-	defaultMemoryRequest = resource.MustParse("128Mi")
-	defaultCPULimit      = resource.MustParse("200m")
-	defaultMemoryLimit   = resource.MustParse("512Mi")
+	defaultResourceRequirements = corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceMemory: resource.MustParse("128Mi"),
+			corev1.ResourceCPU:    resource.MustParse("50m"),
+		},
+		Limits: corev1.ResourceList{
+			corev1.ResourceMemory: resource.MustParse("512Mi"),
+			corev1.ResourceCPU:    resource.MustParse("200m"),
+		},
+	}
 )
 
 // StatefulSet returns the prometheus StatefulSet
@@ -67,7 +73,10 @@ func StatefulSet(data resources.StatefulSetDataProvider, existing *appsv1.Statef
 	}
 	set.Spec.Template.Spec.ServiceAccountName = resources.PrometheusServiceAccountName
 	set.Spec.Template.Spec.TerminationGracePeriodSeconds = resources.Int64(600)
-
+	resourceRequirements := defaultResourceRequirements
+	if data.Cluster().Spec.ComponentsOverride.Prometheus.Resources != nil {
+		resourceRequirements = *data.Cluster().Spec.ComponentsOverride.Prometheus.Resources
+	}
 	set.Spec.Template.Spec.Containers = []corev1.Container{
 		{
 			Name:                     name,
@@ -90,16 +99,7 @@ func StatefulSet(data resources.StatefulSetDataProvider, existing *appsv1.Statef
 					Protocol:      corev1.ProtocolTCP,
 				},
 			},
-			Resources: corev1.ResourceRequirements{
-				Requests: corev1.ResourceList{
-					corev1.ResourceCPU:    defaultCPURequest,
-					corev1.ResourceMemory: defaultMemoryRequest,
-				},
-				Limits: corev1.ResourceList{
-					corev1.ResourceCPU:    defaultCPULimit,
-					corev1.ResourceMemory: defaultMemoryLimit,
-				},
-			},
+			Resources: resourceRequirements,
 			VolumeMounts: []corev1.VolumeMount{
 				{
 					Name:      volumeConfigName,

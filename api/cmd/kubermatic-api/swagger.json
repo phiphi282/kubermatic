@@ -3899,7 +3899,10 @@
           "$ref": "#/definitions/DeploymentSettings"
         },
         "etcd": {
-          "$ref": "#/definitions/EtcdSettings"
+          "$ref": "#/definitions/StatefulSetSettings"
+        },
+        "prometheus": {
+          "$ref": "#/definitions/StatefulSetSettings"
         },
         "scheduler": {
           "$ref": "#/definitions/DeploymentSettings"
@@ -4217,15 +4220,6 @@
         }
       },
       "x-go-package": "github.com/kubermatic/kubermatic/api/pkg/handler"
-    },
-    "EtcdSettings": {
-      "type": "object",
-      "properties": {
-        "resources": {
-          "$ref": "#/definitions/ResourceRequirements"
-        }
-      },
-      "x-go-package": "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
     },
     "ExecConfig": {
       "description": "See the client.authentiction.k8s.io API group for specifications of the exact input\nand output format",
@@ -5384,6 +5378,15 @@
         }
       },
       "x-go-package": "github.com/kubermatic/kubermatic/api/pkg/api/v1"
+    },
+    "StatefulSetSettings": {
+      "type": "object",
+      "properties": {
+        "resources": {
+          "$ref": "#/definitions/ResourceRequirements"
+        }
+      },
+      "x-go-package": "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
     },
     "Status": {
       "type": "object",
