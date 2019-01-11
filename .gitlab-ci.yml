@@ -58,7 +58,7 @@ license-validation:
 
 lint:
   stage: check
-  image: quay.io/kubermatic/gometalinter:latest
+  image: golangci/golangci-lint:latest
   script:
   - cd api
   - make lint
