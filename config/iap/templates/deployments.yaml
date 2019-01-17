@@ -61,6 +61,10 @@ spec:
           items:
           - key: config.yaml
             path: config.yaml
+{{- if $.Value.iap.signin_page }}
+          - key: signin.html
+            path: signin.html
+{{ end }}
       securityContext:
         fsGroup: 65534
         runAsNonRoot: true

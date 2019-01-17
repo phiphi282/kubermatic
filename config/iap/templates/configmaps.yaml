@@ -8,5 +8,12 @@ data:
   config.yaml: |
 {{- with .config }}
 {{ toYaml . | indent 4 }}
+{{- if .signin_page }}
+    sign-in-page: signin.html
+{{ end }}
+{{ end }}
+{{- if .signin_page }}
+  signin.html: |
+{{ toYaml .signin_page | indent 4 }}
 {{ end }}
 {{ end }}
