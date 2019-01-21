@@ -9,7 +9,7 @@ data:
 {{- with .config }}
 {{ toYaml . | indent 4 }}
 {{- if .signin_page }}
-    sign-in-page: signin.html
+    sign-in-page: /config/signin.html
 {{ end }}
 {{ end }}
 {{- if .signin_page }}
