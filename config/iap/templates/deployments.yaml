@@ -61,7 +61,7 @@ spec:
           items:
           - key: config.yaml
             path: config.yaml
-{{- if $.Values.iap.signin_page }}
+{{- if .signin_page }}
           - key: signin.html
             path: signin.html
 {{ end }}
