@@ -12,7 +12,7 @@ import (
 func HostnameAntiAffinity(labels map[string]string, prioritizedClusterName string) *corev1.Affinity {
 	var reducedWeight int32 = 100
 	reducedLabels := make(map[string]string)
-	for k,v := range labels {
+	for k, v := range labels {
 		reducedLabels[k] = v
 	}
 	if prioritizedClusterName != "" {
