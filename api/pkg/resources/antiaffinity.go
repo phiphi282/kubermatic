@@ -10,18 +10,22 @@ import (
 // "cluster".
 // *if scheduling is not possible with this rule, it will be ignored.
 func HostnameAntiAffinity(labels map[string]string, prioritizedClusterName string) *corev1.Affinity {
-	var primaryWeight int32 = 100
+	var reducedWeight int32 = 100
+	reducedLabels := make(map[string]string)
+	for k,v := range labels {
+		reducedLabels[k] = v
+	}
 	if prioritizedClusterName != "" {
-		primaryWeight = 5
-		delete(labels, "cluster")
+		reducedWeight = 5
+		delete(reducedLabels, "cluster")
 	}
 
 	affinity := []corev1.WeightedPodAffinityTerm{
 		{
-			Weight: primaryWeight,
+			Weight: reducedWeight,
 			PodAffinityTerm: corev1.PodAffinityTerm{
 				LabelSelector: &metav1.LabelSelector{
-					MatchLabels: labels,
+					MatchLabels: reducedLabels,
 				},
 				TopologyKey: TopologyKeyHostname,
 			},
