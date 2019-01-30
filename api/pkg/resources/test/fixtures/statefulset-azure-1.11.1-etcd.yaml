@@ -34,6 +34,12 @@ spec:
               labelSelector:
                 matchLabels:
                   app: etcd
+              topologyKey: kubernetes.io/hostname
+            weight: 5
+          - podAffinityTerm:
+              labelSelector:
+                matchLabels:
+                  app: etcd
                   cluster: de-test-01
               topologyKey: kubernetes.io/hostname
             weight: 100
