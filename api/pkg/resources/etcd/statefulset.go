@@ -172,7 +172,7 @@ func StatefulSet(data resources.StatefulSetDataProvider, existing *appsv1.Statef
 		},
 	}
 
-	set.Spec.Template.Spec.Affinity = resources.HostnameAntiAffinity(baseLabels, data.Cluster().Name)
+	set.Spec.Template.Spec.Affinity = resources.HostnameAntiAffinity(baseLabels)
 
 	set.Spec.Template.Spec.Volumes = volumes
 
