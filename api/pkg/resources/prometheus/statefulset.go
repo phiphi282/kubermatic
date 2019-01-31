@@ -18,7 +18,7 @@ const (
 	volumeConfigName = "config"
 	volumeDataName   = "data"
 
-	tag = "v2.7.0"
+	tag = "v2.7.1"
 )
 
 var (
