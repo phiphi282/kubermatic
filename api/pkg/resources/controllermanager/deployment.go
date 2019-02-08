@@ -226,16 +226,25 @@ func getFlags(cluster *kubermaticv1.Cluster) ([]string, error) {
 		flags = append(flags, "--cloud-config", "/etc/kubernetes/cloud/config")
 	}
 
-	// New flag in v1.12 which gets used to perform permission checks
 	if cluster.Spec.Version.Semver().Minor() >= 12 {
+		// New flag in v1.12 which gets used to perform permission checks for tokens
 		flags = append(flags, "--authentication-kubeconfig", "/etc/kubernetes/kubeconfig/kubeconfig")
+		// New flag in v1.12 which gets used to perform permission checks for certs
+		flags = append(flags, "--client-ca-file", "/etc/kubernetes/pki/ca/ca.crt")
 	}
 
 	// With 1.13 we're using the secure port for scraping metrics as the insecure port got marked deprecated
 	if cluster.Spec.Version.Semver().Minor() >= 13 {
+		flags = append(flags, "--authentication-kubeconfig", "/etc/kubernetes/kubeconfig/kubeconfig")
 		flags = append(flags, "--authorization-kubeconfig", "/etc/kubernetes/kubeconfig/kubeconfig")
 		// We're going to use the https endpoints for scraping the metrics starting from 1.12. Thus we can deactivate the http endpoint
 		flags = append(flags, "--port", "0")
+		// Force the authentication lookup to succeed, otherwise if it fails all requests will be treated as anonymous and thus fail
+		if cluster.Spec.Version.Semver().Patch() > 0 {
+			// Force the authentication lookup to succeed, otherwise if it fails all requests will be treated as anonymous and thus fail
+			// Both the flag and the issue only exist in 1.13.1 and above
+			flags = append(flags, "--authentication-tolerate-lookup-failure", "false")
+		}
 	}
 
 	// This is required in 1.12.0 as a workaround for
