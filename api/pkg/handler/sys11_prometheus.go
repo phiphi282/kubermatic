@@ -2,8 +2,10 @@ package handler
 
 import (
 	"context"
-	"fmt"
 	goerrors "errors"
+	"fmt"
+
+	"time"
 
 	"github.com/go-kit/kit/endpoint"
 	httptransport "github.com/go-kit/kit/transport/http"
@@ -12,10 +14,10 @@ import (
 	"github.com/kubermatic/kubermatic/api/pkg/provider"
 	k8cerrors "github.com/kubermatic/kubermatic/api/pkg/util/errors"
 	prometheusapi "github.com/prometheus/client_golang/api"
-	"time"
+
+	"net/http"
 
 	"github.com/gorilla/mux"
-	"net/http"
 )
 
 // RawResponse is the default representation of a raw (proxied) HTTP response
@@ -71,7 +73,6 @@ func decodePrometheusProxyReq(c context.Context, r *http.Request) (interface{}, 
 
 	return req, nil
 }
-
 
 func getPrometheusProxyEndpoint() endpoint.Endpoint {
 
@@ -130,4 +131,3 @@ func encodeRawResponse(c context.Context, w http.ResponseWriter, response interf
 	}
 	return goerrors.New("internal error (unexpected raw response object)")
 }
-
