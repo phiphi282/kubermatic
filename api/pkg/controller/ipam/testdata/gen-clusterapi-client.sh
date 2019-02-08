@@ -5,14 +5,14 @@ set -euxo pipefail
 cd $(dirname $0)/../../../..
 
 TEMPDIR=$(mktemp -d)
-BINPATH=$(go env GOPATH)/bin/client-gen
-go build -o ${BINPATH} github.com/kubermatic/kubermatic/api/vendor/k8s.io/code-generator/cmd/client-gen
+
+type client-gen &>/dev/null || go build -o $(go env GOPATH)/bin/client-gen github.com/kubermatic/kubermatic/api/vendor/k8s.io/code-generator/cmd/client-gen
 
 ls $(go env GOPATH)/src/sigs.k8s.io/cluster-api &>/dev/null || git clone https://github.com/kubernetes-sigs/cluster-api.git $(go env GOPATH)/src/sigs.k8s.io/cluster-api
 
 touch ${TEMPDIR}/header.txt
 
-${BINPATH} --clientset-name clientset \
+client-gen --clientset-name clientset \
   --input-base sigs.k8s.io/cluster-api/pkg/apis \
   --input cluster/v1alpha1 \
   --output-base=${TEMPDIR} \

@@ -28,7 +28,6 @@ import (
 
 const (
 	initializerName = "ipam.kubermatic.io"
-	finalizerName   = initializerName
 )
 
 type cidrExhaustedError struct{}
@@ -94,36 +93,38 @@ func NewController(client clusterv1alpha1clientset.Interface, machineInformer cl
 
 // Run executes the worker loop. Blocks.
 func (c *Controller) Run(stopCh <-chan struct{}) error {
-	// ATM it is important that only one worker is running at a time since we dont do any locking for the "wait till cache has synchronized"-mechanism which would be needed if we have multiple workers running.
 	go wait.Until(c.runWorker, time.Second, stopCh)
+	glog.Infoln("Successfully started ipam-controller")
 	<-stopCh
 
 	return nil
 }
 
 func (c *Controller) runWorker() {
-	for c.processNextWorkItem() {
+	for c.processNextItem() {
 	}
 }
 
-func (c *Controller) processNextWorkItem() bool {
+func (c *Controller) processNextItem() bool {
 	key, quit := c.queue.Get()
 	if quit {
 		return false
 	}
-
 	defer c.queue.Done(key)
 
-	glog.V(6).Infof("Processing machine: %s", key)
-	err := c.syncHandler(key.(string))
-	if err == nil {
-		c.queue.Forget(key)
+	if err := c.syncHandler(key.(string)); err != nil {
+		glog.V(0).Infof("Error syncing %v: %v", key, err)
+
+		// Re-enqueue the key rate limited. Based on the rate limiter on the
+		// queue and the re-enqueue history, the key will be processed later again.
+		c.queue.AddRateLimited(key)
 		return true
 	}
 
-	utilruntime.HandleError(fmt.Errorf("%v failed with: %v", key, err))
-	c.queue.AddRateLimited(key)
-
+	// Forget about the #AddRateLimited history of the key on every successful synchronization.
+	// This ensures that future processing of updates for this key is not delayed because of
+	// an outdated error history.
+	c.queue.Forget(key)
 	return true
 }
 
@@ -185,7 +186,7 @@ func (c *Controller) getUsedIPs() ([]net.IP, error) {
 			continue
 		}
 
-		cfg, err := providerconfig.GetConfig(m.Spec.ProviderConfig)
+		cfg, err := providerconfig.GetConfig(m.Spec.ProviderSpec)
 		if err != nil {
 			return nil, err
 		}
@@ -215,7 +216,7 @@ func (c *Controller) initMachineIfNeeded(machine *clusterv1alpha1.Machine) error
 		return nil
 	}
 
-	cfg, err := providerconfig.GetConfig(machine.Spec.ProviderConfig)
+	cfg, err := providerconfig.GetConfig(machine.Spec.ProviderSpec)
 	if err != nil {
 		return err
 	}
@@ -249,8 +250,7 @@ func (c *Controller) initMachineIfNeeded(machine *clusterv1alpha1.Machine) error
 		return err
 	}
 
-	machine.Finalizers = append(machine.Finalizers, finalizerName)
-	machine.Spec.ProviderConfig.Value = &runtime.RawExtension{Raw: cfgSerialized}
+	machine.Spec.ProviderSpec.Value = &runtime.RawExtension{Raw: cfgSerialized}
 	pendingInitializers := machine.ObjectMeta.GetInitializers().Pending
 
 	// Remove self from the list of pending Initializers while preserving ordering.
@@ -278,7 +278,7 @@ func (c *Controller) awaitIPSync(machine *clusterv1alpha1.Machine, cidr string) 
 			return false, fmt.Errorf("error while retrieving machine %s from lister, see: %v", machine.Name, err)
 		}
 
-		cfg2, err := providerconfig.GetConfig(m2.Spec.ProviderConfig)
+		cfg2, err := providerconfig.GetConfig(m2.Spec.ProviderSpec)
 		if err != nil {
 			return false, fmt.Errorf("couldn't get providerconfig for machine %s, see: %v", m2.Name, err)
 		}
@@ -298,7 +298,7 @@ func (c *Controller) ipsToStrs(ips []net.IP) []string {
 }
 
 func (c *Controller) testIfInitIsNeeded(m *clusterv1alpha1.Machine) bool {
-	if m.ObjectMeta.GetInitializers() == nil {
+	if m.ObjectMeta.GetInitializers() == nil || len(m.ObjectMeta.GetInitializers().Pending) == 0 {
 		return false
 	}
 

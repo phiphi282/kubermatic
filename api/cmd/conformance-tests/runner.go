@@ -13,12 +13,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Masterminds/semver"
 	"github.com/onsi/ginkgo/reporters"
 	"github.com/sirupsen/logrus"
 
-	apiv2 "github.com/kubermatic/kubermatic/api/pkg/api/v2"
+	kubermaticapiv1 "github.com/kubermatic/kubermatic/api/pkg/api/v1"
 	clusterclient "github.com/kubermatic/kubermatic/api/pkg/cluster/client"
+	clustercontroller "github.com/kubermatic/kubermatic/api/pkg/controller/cluster"
 	kubermaticclientset "github.com/kubermatic/kubermatic/api/pkg/crd/client/clientset/versioned"
 	kubermaticv1lister "github.com/kubermatic/kubermatic/api/pkg/crd/client/listers/kubermatic/v1"
 	kubermaticv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
@@ -33,12 +33,13 @@ import (
 	"k8s.io/apimachinery/pkg/util/rand"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/util/retry"
 )
 
 type testScenario interface {
 	Name() string
 	Cluster(secrets secrets) *kubermaticv1.Cluster
-	Nodes(num int) []*apiv2.Node
+	Nodes(num int) []*kubermaticapiv1.Node
 }
 
 func newRunner(scenarios []testScenario, opts *Opts) *testRunner {
@@ -175,9 +176,7 @@ func (r *testRunner) Run() error {
 			scenarioResultMsg = fmt.Sprintf("%s : %v", scenarioResultMsg, result.err)
 		}
 
-		if _, err := fmt.Fprintln(overallResultBuf, scenarioResultMsg); err != nil {
-			fmt.Printf("failed to write to byte buffer: %v", err)
-		}
+		fmt.Fprintln(overallResultBuf, scenarioResultMsg)
 		if result.report != nil {
 			printDetailedReport(result.report)
 		}
@@ -277,7 +276,7 @@ func (r *testRunner) testCluster(
 	scenarioName string,
 	cluster *kubermaticv1.Cluster,
 	clusterKubeClient kubernetes.Interface,
-	apiNodes []*apiv2.Node,
+	apiNodes []*kubermaticapiv1.Node,
 	dc provider.DatacenterMeta,
 	kubeconfigFilename string,
 	cloudConfigFilename string,
@@ -297,41 +296,6 @@ func (r *testRunner) testCluster(
 	report := &reporters.JUnitTestSuite{
 		Name: scenarioName,
 	}
-	// Do a simple PVC test - with retries
-	if supportsStorage(cluster) {
-		testStart := time.Now()
-		testCase := reporters.JUnitTestCase{
-			Name:      "[CloudProvider] Test PVC support with the existing StorageClass",
-			ClassName: "Kubermatic custom tests",
-		}
-		err := retryNAttempts(maxTestAttempts, func(attempt int) error { return r.testPVC(log, clusterKubeClient) })
-		if err != nil {
-			report.Errors++
-			testCase.FailureMessage = &reporters.JUnitFailureMessage{Message: err.Error()}
-			log.Errorf("Failed to verify that PVC's work: %v", err)
-		}
-		testCase.Time = time.Since(testStart).Seconds()
-		report.TestCases = append(report.TestCases, testCase)
-		report.Tests++
-	}
-
-	// Do a simple LB test - with retries
-	if supportsLBs(cluster) {
-		testStart := time.Now()
-		testCase := reporters.JUnitTestCase{
-			Name:      "[CloudProvider] Test LB support",
-			ClassName: "Kubermatic custom tests",
-		}
-		err := retryNAttempts(maxTestAttempts, func(attempt int) error { return r.testLB(log, clusterKubeClient) })
-		if err != nil {
-			report.Errors++
-			testCase.FailureMessage = &reporters.JUnitFailureMessage{Message: err.Error()}
-			log.Errorf("Failed to verify that LB's work: %v", err)
-		}
-		testCase.Time = time.Since(testStart).Seconds()
-		report.TestCases = append(report.TestCases, testCase)
-		report.Tests++
-	}
 
 	ginkgoRuns, err := r.getGinkgoRuns(log, scenarioName, kubeconfigFilename, cloudConfigFilename, cluster, apiNodes, dc)
 	if err != nil {
@@ -339,7 +303,7 @@ func (r *testRunner) testCluster(
 	}
 	for _, run := range ginkgoRuns {
 
-		ginkgoRes, err := r.executeGinkgoRunWithRetries(log, run)
+		ginkgoRes, err := r.executeGinkgoRunWithRetries(log, run, clusterKubeClient)
 		if err != nil {
 			// Ginkgo failed hard. We don't have any JUnit reports to append, so we appenda custom one to indicate the hard failure
 			report.TestCases = append(report.TestCases, reporters.JUnitTestCase{
@@ -358,14 +322,50 @@ func (r *testRunner) testCluster(
 		report = combineReports("Kubernetes Conformance tests", report, ginkgoRes.report)
 	}
 
+	// Do a simple PVC test - with retries
+	if supportsStorage(cluster) {
+		testStart := time.Now()
+		testCase := reporters.JUnitTestCase{
+			Name:      "[CloudProvider] Test PVC support with the existing StorageClass",
+			ClassName: "Kubermatic custom tests",
+		}
+		err := retryNAttempts(maxTestAttempts, func(attempt int) error { return r.testPVC(log, clusterKubeClient, attempt) })
+		if err != nil {
+			report.Errors++
+			testCase.FailureMessage = &reporters.JUnitFailureMessage{Message: err.Error()}
+			log.Errorf("Failed to verify that PVC's work: %v", err)
+		}
+		testCase.Time = time.Since(testStart).Seconds()
+		report.TestCases = append(report.TestCases, testCase)
+		report.Tests++
+	}
+
+	// Do a simple LB test - with retries
+	if supportsLBs(cluster) {
+		testStart := time.Now()
+		testCase := reporters.JUnitTestCase{
+			Name:      "[CloudProvider] Test LB support",
+			ClassName: "Kubermatic custom tests",
+		}
+		err := retryNAttempts(maxTestAttempts, func(attempt int) error { return r.testLB(log, clusterKubeClient, attempt) })
+		if err != nil {
+			report.Errors++
+			testCase.FailureMessage = &reporters.JUnitFailureMessage{Message: err.Error()}
+			log.Errorf("Failed to verify that LB's work: %v", err)
+		}
+		testCase.Time = time.Since(testStart).Seconds()
+		report.TestCases = append(report.TestCases, testCase)
+		report.Tests++
+	}
+
 	report.Time = time.Since(totalStart).Seconds()
 	b, err := xml.Marshal(report)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal combined report file: %v", err)
 	}
 
-	if err := ioutil.WriteFile(path.Join(scenarioFolder, "junit.xml"), b, 0644); err != nil {
-		return nil, fmt.Errorf("failed to wrte combined report file: %v", err)
+	if err := ioutil.WriteFile(path.Join(r.reportsRoot, fmt.Sprintf("junit.%s.xml", scenarioName)), b, 0644); err != nil {
+		return nil, fmt.Errorf("failed to write combined report file: %v", err)
 	}
 
 	return report, nil
@@ -374,11 +374,11 @@ func (r *testRunner) testCluster(
 // executeGinkgoRunWithRetries executes the passed GinkgoRun and retries if it failed hard(Failed to execute the Ginkgo binary for example)
 // Or if the JUnit report from Ginkgo contains failed tests.
 // Only if Ginkgo failed hard, an error will be returned. If some tests still failed after retrying the run, the report will reflect that.
-func (r *testRunner) executeGinkgoRunWithRetries(log *logrus.Entry, run *ginkgoRun) (ginkgoRes *ginkgoResult, err error) {
+func (r *testRunner) executeGinkgoRunWithRetries(log *logrus.Entry, run *ginkgoRun, kubeClient kubernetes.Interface) (ginkgoRes *ginkgoResult, err error) {
 	const maxAttempts = 3
 
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		ginkgoRes, err = executeGinkgoRun(log, run)
+		ginkgoRes, err = executeGinkgoRun(log, run, kubeClient)
 		if err != nil {
 			// Something critical happened and we don't have a valid result
 			log.Errorf("failed to execute the Ginkgo run '%s': %v", run.name, err)
@@ -401,7 +401,7 @@ func (r *testRunner) executeGinkgoRunWithRetries(log *logrus.Entry, run *ginkgoR
 	return ginkgoRes, err
 }
 
-func (r *testRunner) setupNodes(log *logrus.Entry, scenarioName string, cluster *kubermaticv1.Cluster, clusterKubeClient kubernetes.Interface, apiNodes []*apiv2.Node, dc provider.DatacenterMeta) error {
+func (r *testRunner) setupNodes(log *logrus.Entry, scenarioName string, cluster *kubermaticv1.Cluster, clusterKubeClient kubernetes.Interface, apiNodes []*kubermaticapiv1.Node, dc provider.DatacenterMeta) error {
 	log.Info("Creating machines...")
 	kubeMachineClient, err := r.clusterClientProvider.GetMachineClient(cluster)
 	if err != nil {
@@ -420,7 +420,7 @@ func (r *testRunner) setupNodes(log *logrus.Entry, scenarioName string, cluster 
 	for i, node := range apiNodes {
 		m, err := machine.Machine(cluster, node, dc, keys)
 		if err != nil {
-			return fmt.Errorf("failed to create Machine from scenario node '%s': %v", node.Metadata.Name, err)
+			return fmt.Errorf("failed to create Machine from scenario node '%s': %v", node.Name, err)
 		}
 		// Make sure all nodes have different names across all scenarios - otherwise the Kubelet might not come up (OpenStack has this...)
 		m.Name = fmt.Sprintf("%s-machine-%d", scenarioName, i)
@@ -535,6 +535,22 @@ func (r *testRunner) setupCluster(log *logrus.Entry, scenario testScenario) (*ku
 		return nil, fmt.Errorf("failed waiting for control plane to become ready: %v", err)
 	}
 
+	// We must store the name here because the cluster object may be nil on error
+	clusterName := cluster.Name
+	err = retry.RetryOnConflict(retry.DefaultBackoff, func() error {
+		cluster, err = r.kubermaticClient.KubermaticV1().Clusters().Get(clusterName, metav1.GetOptions{})
+		if err != nil {
+			return err
+		}
+		cluster.Finalizers = append(cluster.Finalizers, clustercontroller.InClusterPVCleanupFinalizer, clustercontroller.InClusterLBCleanupFinalizer)
+		cluster, err = r.kubermaticClient.KubermaticV1().Clusters().Update(cluster)
+		return err
+
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to add PV and LB cleanup finalizers: %v", err)
+	}
+
 	return cluster, nil
 }
 
@@ -556,7 +572,8 @@ func (r *testRunner) waitForReadyNodes(log *logrus.Entry, client kubernetes.Inte
 	err := wait.Poll(nodesReadyPollPeriod, r.nodesReadyWaitTimeout, func() (done bool, err error) {
 		nodeList, err := client.CoreV1().Nodes().List(metav1.ListOptions{})
 		if err != nil {
-			return false, fmt.Errorf("failed to list nodes: %v", err)
+			log.Debugf("failed to list nodes while waiting for them to be ready. %v. Will retry", err)
+			return false, nil
 		}
 
 		if len(nodeList.Items) != num {
@@ -668,17 +685,12 @@ func (r *testRunner) getGinkgoRuns(
 	kubeconfigFilename,
 	cloudConfigFilename string,
 	cluster *kubermaticv1.Cluster,
-	nodes []*apiv2.Node,
+	nodes []*kubermaticapiv1.Node,
 	dc provider.DatacenterMeta,
 ) ([]*ginkgoRun, error) {
 	kubeconfigFilename = path.Clean(kubeconfigFilename)
 	repoRoot := path.Clean(r.repoRoot)
-
-	version, err := semver.NewVersion(cluster.Spec.Version)
-	if err != nil {
-		return nil, fmt.Errorf("invalid version('%s') in cluster: %v", cluster.Spec.Version, err)
-	}
-	MajorMinor := fmt.Sprintf("%d.%d", version.Major(), version.Minor())
+	MajorMinor := fmt.Sprintf("%d.%d", cluster.Spec.Version.Major(), cluster.Spec.Version.Minor())
 
 	runs := []struct {
 		name          string
@@ -768,9 +780,13 @@ func (r *testRunner) getGinkgoRuns(
 	return ginkgoRuns, nil
 }
 
-func executeGinkgoRun(parentLog *logrus.Entry, run *ginkgoRun) (*ginkgoResult, error) {
+func executeGinkgoRun(parentLog *logrus.Entry, run *ginkgoRun, kubeClient kubernetes.Interface) (*ginkgoResult, error) {
 	started := time.Now()
 	log := parentLog.WithField("reports-dir", run.reportsDir)
+
+	if err := deleteAllNonDefaultNamespaces(log, kubeClient); err != nil {
+		return nil, fmt.Errorf("failed to cleanup namespaces before the Ginkgo run: %v", err)
+	}
 
 	// We're clearing up the temp dir on every run
 	if err := os.RemoveAll(run.reportsDir); err != nil {
@@ -852,7 +868,8 @@ func supportsStorage(cluster *kubermaticv1.Cluster) bool {
 	return cluster.Spec.Cloud.Openstack != nil ||
 		cluster.Spec.Cloud.Azure != nil ||
 		cluster.Spec.Cloud.AWS != nil ||
-		cluster.Spec.Cloud.VSphere != nil
+		cluster.Spec.Cloud.VSphere != nil ||
+		cluster.Spec.Cloud.Hetzner != nil
 }
 
 func supportsLBs(cluster *kubermaticv1.Cluster) bool {

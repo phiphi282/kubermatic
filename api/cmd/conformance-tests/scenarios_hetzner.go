@@ -3,22 +3,22 @@ package main
 import (
 	"fmt"
 
-	"github.com/Masterminds/semver"
-	"github.com/kubermatic/kubermatic/api/pkg/api/v2"
+	kubermaticapiv1 "github.com/kubermatic/kubermatic/api/pkg/api/v1"
 	"github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
+	"github.com/kubermatic/kubermatic/api/pkg/semver"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // Returns a matrix of (version x operating system)
-func getHetznerScenarios(versions []*semver.Version) []testScenario {
+func getHetznerScenarios(versions []*semver.Semver) []testScenario {
 	var scenarios []testScenario
 	for _, v := range versions {
 		// Ubuntu
 		scenarios = append(scenarios, &hetznerScenario{
 			version: v,
-			nodeOsSpec: v2.OperatingSystemSpec{
-				Ubuntu: &v2.UbuntuSpec{},
+			nodeOsSpec: kubermaticapiv1.OperatingSystemSpec{
+				Ubuntu: &kubermaticapiv1.UbuntuSpec{},
 			},
 		})
 		// CentOS
@@ -35,8 +35,8 @@ func getHetznerScenarios(versions []*semver.Version) []testScenario {
 }
 
 type hetznerScenario struct {
-	version    *semver.Version
-	nodeOsSpec v2.OperatingSystemSpec
+	version    *semver.Semver
+	nodeOsSpec kubermaticapiv1.OperatingSystemSpec
 }
 
 func (s *hetznerScenario) Name() string {
@@ -47,7 +47,7 @@ func (s *hetznerScenario) Cluster(secrets secrets) *v1.Cluster {
 	return &v1.Cluster{
 		ObjectMeta: metav1.ObjectMeta{},
 		Spec: v1.ClusterSpec{
-			Version:           s.version.String(),
+			Version:           *s.version,
 			HumanReadableName: s.Name(),
 			ClusterNetwork: v1.ClusterNetworkingConfig{
 				Services: v1.NetworkRanges{
@@ -68,18 +68,18 @@ func (s *hetznerScenario) Cluster(secrets secrets) *v1.Cluster {
 	}
 }
 
-func (s *hetznerScenario) Nodes(num int) []*v2.Node {
-	var nodes []*v2.Node
+func (s *hetznerScenario) Nodes(num int) []*kubermaticapiv1.Node {
+	var nodes []*kubermaticapiv1.Node
 	for i := 0; i < num; i++ {
-		node := &v2.Node{
-			Metadata: v2.ObjectMeta{},
-			Spec: v2.NodeSpec{
-				Cloud: v2.NodeCloudSpec{
-					Hetzner: &v2.HetznerNodeSpec{
+		node := &kubermaticapiv1.Node{
+			ObjectMeta: kubermaticapiv1.ObjectMeta{},
+			Spec: kubermaticapiv1.NodeSpec{
+				Cloud: kubermaticapiv1.NodeCloudSpec{
+					Hetzner: &kubermaticapiv1.HetznerNodeSpec{
 						Type: "cx31",
 					},
 				},
-				Versions: v2.NodeVersionInfo{
+				Versions: kubermaticapiv1.NodeVersionInfo{
 					Kubelet: s.version.String(),
 				},
 				OperatingSystem: s.nodeOsSpec,

@@ -1,13 +1,11 @@
 metadata:
   creationTimestamp: null
-  name: machine-awscluster-1a2b3c4d5e-te5s7
+  generateName: machine-kubermatic-awscluster-1a2b3c4d5e-
   namespace: kube-system
 spec:
   metadata:
     creationTimestamp: null
-    name: awscluster-1a2b3c4d5e-te5s7
-  providerConfig:
-    ValueFrom: null
+  providerSpec:
     value:
       cloudProvider: aws
       cloudProviderSpec:
@@ -36,6 +34,4 @@ spec:
       - ssh-rsa TEST456test
   versions:
     kubelet: v1.9.6
-status:
-  lastUpdated: null
-  providerStatus: null
+status: {}

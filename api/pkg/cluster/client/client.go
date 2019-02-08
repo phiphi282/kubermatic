@@ -12,6 +12,7 @@ import (
 	corev1lister "k8s.io/client-go/listers/core/v1"
 	restclient "k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
+	aggregationclientset "k8s.io/kube-aggregator/pkg/client/clientset_generated/clientset"
 
 	clusterv1alpha1clientset "sigs.k8s.io/cluster-api/pkg/client/clientset_generated/clientset"
 )
@@ -40,8 +41,11 @@ func (p *Provider) GetAdminKubeconfig(c *kubermaticv1.Cluster) ([]byte, error) {
 	return d, nil
 }
 
+// ConfigOption defines a function that applies additional configuration to restclient.Config in a generic way.
+type ConfigOption func(*restclient.Config) *restclient.Config
+
 // GetClientConfig returns the client config used for initiating a connection for the given cluster
-func (p *Provider) GetClientConfig(c *kubermaticv1.Cluster) (*restclient.Config, error) {
+func (p *Provider) GetClientConfig(c *kubermaticv1.Cluster, options ...ConfigOption) (*restclient.Config, error) {
 	b, err := p.GetAdminKubeconfig(c)
 	if err != nil {
 		return nil, err
@@ -58,12 +62,27 @@ func (p *Provider) GetClientConfig(c *kubermaticv1.Cluster) (*restclient.Config,
 		&clientcmd.ConfigOverrides{},
 		nil,
 	)
-	return iconfig.ClientConfig()
+
+	clientConfig, err := iconfig.ClientConfig()
+	if err != nil {
+		return nil, err
+	}
+
+	// Avoid blocking of the controller by increasing the QPS for user cluster interaction
+	clientConfig.QPS = 20
+	clientConfig.Burst = 50
+
+	// apply all options
+	for _, opt := range options {
+		clientConfig = opt(clientConfig)
+	}
+
+	return clientConfig, err
 }
 
 // GetClient returns a kubernetes client to interact with the given cluster
-func (p *Provider) GetClient(c *kubermaticv1.Cluster) (kubernetes.Interface, error) {
-	config, err := p.GetClientConfig(c)
+func (p *Provider) GetClient(c *kubermaticv1.Cluster, options ...ConfigOption) (kubernetes.Interface, error) {
+	config, err := p.GetClientConfig(c, options...)
 	if err != nil {
 		return nil, err
 	}
@@ -77,8 +96,8 @@ func (p *Provider) GetClient(c *kubermaticv1.Cluster) (kubernetes.Interface, err
 }
 
 // GetMachineClient returns a client to interact with machine resources for the given cluster
-func (p *Provider) GetMachineClient(c *kubermaticv1.Cluster) (clusterv1alpha1clientset.Interface, error) {
-	config, err := p.GetClientConfig(c)
+func (p *Provider) GetMachineClient(c *kubermaticv1.Cluster, options ...ConfigOption) (clusterv1alpha1clientset.Interface, error) {
+	config, err := p.GetClientConfig(c, options...)
 	if err != nil {
 		return nil, err
 	}
@@ -91,8 +110,8 @@ func (p *Provider) GetMachineClient(c *kubermaticv1.Cluster) (clusterv1alpha1cli
 }
 
 // GetApiextensionsClient returns a client to interact with apiextension resources for the given cluster
-func (p *Provider) GetApiextensionsClient(c *kubermaticv1.Cluster) (apiextensionsclientset.Interface, error) {
-	config, err := p.GetClientConfig(c)
+func (p *Provider) GetApiextensionsClient(c *kubermaticv1.Cluster, options ...ConfigOption) (apiextensionsclientset.Interface, error) {
+	config, err := p.GetClientConfig(c, options...)
 	if err != nil {
 		return nil, err
 	}
@@ -100,10 +119,19 @@ func (p *Provider) GetApiextensionsClient(c *kubermaticv1.Cluster) (apiextension
 }
 
 // GetAdmissionRegistrationClient returns a client to interact with admissionregistration resources
-func (p *Provider) GetAdmissionRegistrationClient(c *kubermaticv1.Cluster) (admissionregistrationclientset.AdmissionregistrationV1beta1Interface, error) {
-	config, err := p.GetClientConfig(c)
+func (p *Provider) GetAdmissionRegistrationClient(c *kubermaticv1.Cluster, options ...ConfigOption) (admissionregistrationclientset.AdmissionregistrationV1beta1Interface, error) {
+	config, err := p.GetClientConfig(c, options...)
 	if err != nil {
 		return nil, err
 	}
 	return admissionregistrationclientset.NewForConfig(config)
+}
+
+// GetKubeAggregatorClient returns a client to interact with the aggregation API for the given cluster
+func (p *Provider) GetKubeAggregatorClient(c *kubermaticv1.Cluster, options ...ConfigOption) (aggregationclientset.Interface, error) {
+	config, err := p.GetClientConfig(c, options...)
+	if err != nil {
+		return nil, err
+	}
+	return aggregationclientset.NewForConfig(config)
 }

@@ -7,77 +7,43 @@ import (
 	"github.com/go-kit/kit/endpoint"
 
 	apiv1 "github.com/kubermatic/kubermatic/api/pkg/api/v1"
+	"github.com/kubermatic/kubermatic/api/pkg/handler/middleware"
+	"github.com/kubermatic/kubermatic/api/pkg/handler/v1/common"
 	"github.com/kubermatic/kubermatic/api/pkg/provider"
 	"github.com/kubermatic/kubermatic/api/pkg/util/errors"
-
-	kerrors "k8s.io/apimachinery/pkg/api/errors"
 )
 
 func getClusterUpgrades(updateManager UpdateManager, projectProvider provider.ProjectProvider) endpoint.Endpoint {
 	return func(ctx context.Context, request interface{}) (interface{}, error) {
-		clusterProvider := ctx.Value(newClusterProviderContextKey).(provider.NewClusterProvider)
-		userInfo := ctx.Value(userInfoContextKey).(*provider.UserInfo)
+		clusterProvider := ctx.Value(middleware.ClusterProviderContextKey).(provider.ClusterProvider)
+		userInfo := ctx.Value(middleware.UserInfoContextKey).(*provider.UserInfo)
 
-		req, ok := request.(GetClusterReq)
+		req, ok := request.(common.GetClusterReq)
 		if !ok {
-			return nil, errors.NewWrongRequest(request, GetClusterReq{})
+			return nil, errors.NewWrongRequest(request, common.GetClusterReq{})
 		}
 
 		_, err := projectProvider.Get(userInfo, req.ProjectID, &provider.ProjectGetOptions{})
 		if err != nil {
-			return nil, kubernetesErrorToHTTPError(err)
+			return nil, common.KubernetesErrorToHTTPError(err)
 		}
 		cluster, err := clusterProvider.Get(userInfo, req.ClusterID, &provider.ClusterGetOptions{})
 		if err != nil {
-			return nil, kubernetesErrorToHTTPError(err)
+			return nil, common.KubernetesErrorToHTTPError(err)
 		}
 
-		versions, err := updateManager.GetPossibleUpdates(cluster.Spec.Version)
+		versions, err := updateManager.GetPossibleUpdates(cluster.Spec.Version.String())
 		if err != nil {
 			return nil, err
 		}
 		var upgrades []*apiv1.MasterVersion
 		for _, v := range versions {
 			upgrades = append(upgrades, &apiv1.MasterVersion{
-				Version:             v.Version,
-				AllowedNodeVersions: v.AllowedNodeVersions,
+				Version: v.Version,
 			})
 		}
 
 		return upgrades, nil
-	}
-}
-
-func legacyGetClusterUpgrades(updateManager UpdateManager) endpoint.Endpoint {
-	return func(ctx context.Context, request interface{}) (interface{}, error) {
-		user := ctx.Value(apiUserContextKey).(apiv1.User)
-		clusterProvider := ctx.Value(clusterProviderContextKey).(provider.ClusterProvider)
-		req, ok := request.(LegacyGetClusterReq)
-		if !ok {
-			return nil, errors.NewWrongRequest(request, LegacyGetClusterReq{})
-		}
-
-		c, err := clusterProvider.Cluster(user, req.ClusterName)
-		if err != nil {
-			if kerrors.IsNotFound(err) {
-				return nil, errors.NewNotFound("cluster", req.ClusterName)
-			}
-			return nil, err
-		}
-
-		versions, err := updateManager.GetPossibleUpdates(c.Spec.Version)
-		if err != nil {
-			return nil, err
-		}
-		var sv []*apiv1.MasterVersion
-		for v := range versions {
-			sv = append(sv, &apiv1.MasterVersion{
-				Version:             versions[v].Version,
-				AllowedNodeVersions: versions[v].AllowedNodeVersions,
-			})
-		}
-
-		return sv, nil
 	}
 }
 
@@ -91,9 +57,8 @@ func getMasterVersions(updateManager UpdateManager) endpoint.Endpoint {
 		sv := make([]*apiv1.MasterVersion, len(versions))
 		for v := range versions {
 			sv[v] = &apiv1.MasterVersion{
-				Version:             versions[v].Version,
-				AllowedNodeVersions: versions[v].AllowedNodeVersions,
-				Default:             versions[v].Default,
+				Version: versions[v].Version,
+				Default: versions[v].Default,
 			}
 		}
 

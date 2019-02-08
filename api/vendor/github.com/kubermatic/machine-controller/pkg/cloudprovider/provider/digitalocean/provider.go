@@ -96,7 +96,7 @@ func getClient(token string) *godo.Client {
 	return godo.NewClient(oauthClient)
 }
 
-func (p *provider) getConfig(s v1alpha1.ProviderConfig) (*Config, *providerconfig.Config, error) {
+func (p *provider) getConfig(s v1alpha1.ProviderSpec) (*Config, *providerconfig.Config, error) {
 	if s.Value == nil {
 		return nil, nil, fmt.Errorf("machine.spec.providerconfig.value is nil")
 	}
@@ -151,12 +151,12 @@ func (p *provider) getConfig(s v1alpha1.ProviderConfig) (*Config, *providerconfi
 	return &c, &pconfig, err
 }
 
-func (p *provider) AddDefaults(spec v1alpha1.MachineSpec) (v1alpha1.MachineSpec, bool, error) {
-	return spec, false, nil
+func (p *provider) AddDefaults(spec v1alpha1.MachineSpec) (v1alpha1.MachineSpec, error) {
+	return spec, nil
 }
 
 func (p *provider) Validate(spec v1alpha1.MachineSpec) error {
-	c, pc, err := p.getConfig(spec.ProviderConfig)
+	c, pc, err := p.getConfig(spec.ProviderSpec)
 	if err != nil {
 		return fmt.Errorf("failed to parse config: %v", err)
 	}
@@ -255,8 +255,8 @@ func uploadRandomSSHPublicKey(ctx context.Context, service godo.KeysService) (st
 	return newDoKey.Fingerprint, nil
 }
 
-func (p *provider) Create(machine *v1alpha1.Machine, _ cloud.MachineUpdater, userdata string) (instance.Instance, error) {
-	c, pc, err := p.getConfig(machine.Spec.ProviderConfig)
+func (p *provider) Create(machine *v1alpha1.Machine, _ *cloud.MachineCreateDeleteData, userdata string) (instance.Instance, error) {
+	c, pc, err := p.getConfig(machine.Spec.ProviderSpec)
 	if err != nil {
 		return nil, cloudprovidererrors.TerminalError{
 			Reason:  common.InvalidConfigurationMachineError,
@@ -327,18 +327,18 @@ func (p *provider) Create(machine *v1alpha1.Machine, _ cloud.MachineUpdater, use
 	return &doInstance{droplet: droplet}, err
 }
 
-func (p *provider) Delete(machine *v1alpha1.Machine, _ cloud.MachineUpdater) error {
+func (p *provider) Cleanup(machine *v1alpha1.Machine, _ *cloud.MachineCreateDeleteData) (bool, error) {
 	instance, err := p.Get(machine)
 	if err != nil {
 		if err == cloudprovidererrors.ErrInstanceNotFound {
-			return nil
+			return true, nil
 		}
-		return err
+		return false, err
 	}
 
-	c, _, err := p.getConfig(machine.Spec.ProviderConfig)
+	c, _, err := p.getConfig(machine.Spec.ProviderSpec)
 	if err != nil {
-		return cloudprovidererrors.TerminalError{
+		return false, cloudprovidererrors.TerminalError{
 			Reason:  common.InvalidConfigurationMachineError,
 			Message: fmt.Sprintf("Failed to parse MachineSpec, due to %v", err),
 		}
@@ -348,18 +348,19 @@ func (p *provider) Delete(machine *v1alpha1.Machine, _ cloud.MachineUpdater) err
 
 	doID, err := strconv.Atoi(instance.ID())
 	if err != nil {
-		return fmt.Errorf("failed to convert instance id %s to int: %v", instance.ID(), err)
+		return false, fmt.Errorf("failed to convert instance id %s to int: %v", instance.ID(), err)
 	}
 
 	rsp, err := client.Droplets.Delete(ctx, doID)
 	if err != nil {
-		return doStatusAndErrToTerminalError(rsp.StatusCode, err)
+		return false, doStatusAndErrToTerminalError(rsp.StatusCode, err)
 	}
-	return nil
+
+	return false, nil
 }
 
 func (p *provider) Get(machine *v1alpha1.Machine) (instance.Instance, error) {
-	c, _, err := p.getConfig(machine.Spec.ProviderConfig)
+	c, _, err := p.getConfig(machine.Spec.ProviderSpec)
 	if err != nil {
 		return nil, cloudprovidererrors.TerminalError{
 			Reason:  common.InvalidConfigurationMachineError,
@@ -388,7 +389,7 @@ func (p *provider) MigrateUID(machine *v1alpha1.Machine, new types.UID) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	c, _, err := p.getConfig(machine.Spec.ProviderConfig)
+	c, _, err := p.getConfig(machine.Spec.ProviderSpec)
 	if err != nil {
 		return fmt.Errorf("failed to decode providerconfig: %v", err)
 	}
@@ -398,7 +399,7 @@ func (p *provider) MigrateUID(machine *v1alpha1.Machine, new types.UID) error {
 		return fmt.Errorf("failed to list droplets: %v", err)
 	}
 
-	// The create does not fail if that tag already exists, it even keep responsing with a http/201
+	// The create does not fail if that tag already exists, it even keep responding with a http/201
 	_, response, err := client.Tags.Create(ctx, &godo.TagCreateRequest{Name: string(new)})
 	if err != nil {
 		return fmt.Errorf("failed to create new UID tag: %v, status code: %v", err, response.StatusCode)
@@ -433,7 +434,7 @@ func (p *provider) GetCloudConfig(spec v1alpha1.MachineSpec) (config string, nam
 func (p *provider) MachineMetricsLabels(machine *v1alpha1.Machine) (map[string]string, error) {
 	labels := make(map[string]string)
 
-	c, _, err := p.getConfig(machine.Spec.ProviderConfig)
+	c, _, err := p.getConfig(machine.Spec.ProviderSpec)
 	if err == nil {
 		labels["size"] = c.Size
 		labels["region"] = c.Region
@@ -493,4 +494,8 @@ func doStatusAndErrToTerminalError(status int, err error) error {
 	default:
 		return err
 	}
+}
+
+func (p *provider) SetMetricsForMachines(machines v1alpha1.MachineList) error {
+	return nil
 }

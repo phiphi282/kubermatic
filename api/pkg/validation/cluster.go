@@ -6,9 +6,6 @@ import (
 	"net"
 	"regexp"
 
-	"github.com/Masterminds/semver"
-
-	apiv1 "github.com/kubermatic/kubermatic/api/pkg/api/v1"
 	kubermaticv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
 	"github.com/kubermatic/kubermatic/api/pkg/provider"
 	"k8s.io/apimachinery/pkg/api/equality"
@@ -31,12 +28,12 @@ func ValidateKubernetesToken(token string) error {
 }
 
 // ValidateCreateClusterSpec validates the given cluster spec
-func ValidateCreateClusterSpec(spec *kubermaticv1.ClusterSpec, cloudProviders map[string]provider.CloudProvider) error {
+func ValidateCreateClusterSpec(spec *kubermaticv1.ClusterSpec, cloudProviders map[string]provider.CloudProvider, dc provider.DatacenterMeta) error {
 	if spec.HumanReadableName == "" {
 		return errors.New("no name specified")
 	}
 
-	if err := ValidateCloudSpec(spec.Cloud); err != nil {
+	if err := ValidateCloudSpec(spec.Cloud, dc); err != nil {
 		return fmt.Errorf("invalid cloud spec: %v", err)
 	}
 
@@ -50,11 +47,11 @@ func ValidateCreateClusterSpec(spec *kubermaticv1.ClusterSpec, cloudProviders ma
 		return fmt.Errorf("invalid cloud provider '%s' specified: %v", err, providerName)
 	}
 
-	if spec.Version == "" {
-		return errors.New("invalid cloud spec \"Version\" is required but was not specified")
+	if spec.Version.Semver() == nil || spec.Version.String() == "" {
+		return errors.New(`invalid cloud spec "Version" is required but was not specified`)
 	}
 
-	if err := cloudProvider.ValidateCloudSpec(spec.Cloud); err != nil {
+	if err = cloudProvider.ValidateCloudSpec(spec.Cloud); err != nil {
 		return fmt.Errorf("invalid cloud spec: %v", err)
 	}
 
@@ -72,13 +69,12 @@ func validateMachineNetworksFromClusterSpec(spec *kubermaticv1.ClusterSpec) erro
 		return nil
 	}
 
-	clusterSemVer, err := semver.NewVersion(spec.Version)
-	if err != nil {
-		return fmt.Errorf("couldnt parse version, see: %v", err)
+	if len(networks) > 0 && spec.Version.Semver().Minor() < 9 {
+		return errors.New("cant specify machinenetworks on kubernetes <= 1.9.0")
 	}
 
-	if len(networks) > 0 && clusterSemVer.Minor() < 9 {
-		return errors.New("cant specify machinenetworks on kubernetes <= 1.9.0")
+	if len(networks) > 0 && spec.Cloud.VSphere == nil {
+		return errors.New("machineNetworks are only supported with the vSphere provider")
 	}
 
 	for _, network := range networks {
@@ -134,7 +130,7 @@ func ValidateCloudChange(newSpec, oldSpec kubermaticv1.CloudSpec) error {
 }
 
 // ValidateUpdateCluster validates if the cluster update is allowed
-func ValidateUpdateCluster(newCluster, oldCluster *kubermaticv1.Cluster, cloudProviders map[string]provider.CloudProvider) error {
+func ValidateUpdateCluster(newCluster, oldCluster *kubermaticv1.Cluster, cloudProviders map[string]provider.CloudProvider, dc provider.DatacenterMeta) error {
 	if err := ValidateCloudChange(newCluster.Spec.Cloud, oldCluster.Spec.Cloud); err != nil {
 		return err
 	}
@@ -167,37 +163,7 @@ func ValidateUpdateCluster(newCluster, oldCluster *kubermaticv1.Cluster, cloudPr
 		return errors.New("changing the type metadata is not allowed")
 	}
 
-	if err := ValidateCloudSpec(newCluster.Spec.Cloud); err != nil {
-		return fmt.Errorf("invalid cloud spec: %v", err)
-	}
-
-	providerName, err := provider.ClusterCloudProviderName(newCluster.Spec.Cloud)
-	if err != nil {
-		return fmt.Errorf("invalid cloud spec: %v", err)
-	}
-
-	cloudProvider, exists := cloudProviders[providerName]
-	if !exists {
-		return fmt.Errorf("invalid cloud provider '%s' specified: %v", err, providerName)
-	}
-
-	if err := cloudProvider.ValidateCloudSpec(newCluster.Spec.Cloud); err != nil {
-		return fmt.Errorf("invalid cloud spec: %v", err)
-	}
-	return nil
-}
-
-// ValidateUpdateNewCluster validates if the newCluster update is allowed
-func ValidateUpdateNewCluster(newCluster *apiv1.NewCluster, oldCluster *kubermaticv1.Cluster, cloudProviders map[string]provider.CloudProvider) error {
-	if err := ValidateCloudChange(newCluster.Spec.Cloud, oldCluster.Spec.Cloud); err != nil {
-		return err
-	}
-
-	if newCluster.Status.URL != oldCluster.Address.URL {
-		return errors.New("changing the url is not allowed")
-	}
-
-	if err := ValidateCloudSpec(newCluster.Spec.Cloud); err != nil {
+	if err := ValidateCloudSpec(newCluster.Spec.Cloud, dc); err != nil {
 		return fmt.Errorf("invalid cloud spec: %v", err)
 	}
 
@@ -218,7 +184,7 @@ func ValidateUpdateNewCluster(newCluster *apiv1.NewCluster, oldCluster *kubermat
 }
 
 // ValidateCloudSpec validates if the cloud spec is valid
-func ValidateCloudSpec(spec kubermaticv1.CloudSpec) error {
+func ValidateCloudSpec(spec kubermaticv1.CloudSpec, dc provider.DatacenterMeta) error {
 	if spec.DatacenterName == "" {
 		return errors.New("no node datacenter specified")
 	}
@@ -279,6 +245,9 @@ func ValidateCloudSpec(spec kubermaticv1.CloudSpec) error {
 		}
 		if spec.Openstack.Tenant == "" {
 			return errors.New("no tenant specified")
+		}
+		if spec.Openstack.FloatingIPPool == "" && dc.Spec.Openstack != nil && dc.Spec.Openstack.EnforceFloatingIP {
+			return errors.New("no floating ip pool specified")
 		}
 		return nil
 	}

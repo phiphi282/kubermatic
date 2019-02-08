@@ -4,9 +4,9 @@ import (
 	"errors"
 	"fmt"
 
-	apiv1 "github.com/kubermatic/kubermatic/api/pkg/api/v1"
 	kubermaticv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
 
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 
@@ -52,46 +52,6 @@ type CloudSpecProvider interface {
 	ValidateCloudSpec(spec kubermaticv1.CloudSpec) error
 }
 
-// ClusterProvider declares the set of methods for storing and loading clusters.
-type ClusterProvider interface {
-	// NewCluster creates a cluster for the provided user using the given ClusterSpec
-	NewCluster(user apiv1.User, spec *kubermaticv1.ClusterSpec) (*kubermaticv1.Cluster, error)
-
-	// Cluster return a Cluster struct, given the user and cluster.
-	Cluster(user apiv1.User, name string) (*kubermaticv1.Cluster, error)
-
-	// Clusters returns all clusters for a given user.
-	Clusters(user apiv1.User) ([]*kubermaticv1.Cluster, error)
-
-	// DeleteCluster deletes a Cluster from a user by it's name.
-	DeleteCluster(user apiv1.User, name string) error
-
-	// UpdateCluster updates a cluster
-	UpdateCluster(user apiv1.User, cluster *kubermaticv1.Cluster) (*kubermaticv1.Cluster, error)
-
-	GetClient(*kubermaticv1.Cluster) (kubernetes.Interface, error)
-
-	GetMachineClient(*kubermaticv1.Cluster) (clusterv1alpha1clientset.Interface, error)
-
-	GetAdminKubeconfig(c *kubermaticv1.Cluster) (*clientcmdapi.Config, error)
-}
-
-// SSHKeyProvider declares the set of methods for interacting with ssh keys
-type SSHKeyProvider interface {
-	// SSHKey returns a ssh key by name
-	SSHKey(user apiv1.User, name string) (*kubermaticv1.UserSSHKey, error)
-	// SSHKeys returns the user ssh keys
-	SSHKeys(user apiv1.User) ([]*kubermaticv1.UserSSHKey, error)
-	// AssignSSHKeysToCluster assigns a ssh key to a cluster
-	AssignSSHKeysToCluster(user apiv1.User, names []string, cluster string) error
-	// ClusterSSHKeys returns the ssh keys of a cluster
-	ClusterSSHKeys(user apiv1.User, cluster string) ([]*kubermaticv1.UserSSHKey, error)
-	// CreateSSHKey creates a ssh key
-	CreateSSHKey(name, pubkey string, user apiv1.User) (*kubermaticv1.UserSSHKey, error)
-	// DeleteSSHKey deletes a ssh key
-	DeleteSSHKey(name string, user apiv1.User) error
-}
-
 // ClusterListOptions allows to set filters that will be applied to filter the result.
 type ClusterListOptions struct {
 	// ClusterSpecName gets the clusters with the given name in the spec
@@ -112,9 +72,18 @@ type ProjectGetOptions struct {
 	IncludeUninitialized bool
 }
 
-// NewClusterProvider declares the set of methods for interacting with clusters
+// ProjectListOptions allows to set filters that will be applied to the result returned form List method
+type ProjectListOptions struct {
+	// ProjectName list only projects with the given name
+	ProjectName string
+
+	// OwnerUID list only project that belong to this user
+	OwnerUID types.UID
+}
+
+// ClusterProvider declares the set of methods for interacting with clusters
 // This provider is Project and RBAC compliant
-type NewClusterProvider interface {
+type ClusterProvider interface {
 	// New creates a brand new cluster that is bound to the given project
 	New(project *kubermaticv1.Project, userInfo *UserInfo, spec *kubermaticv1.ClusterSpec) (*kubermaticv1.Cluster, error)
 
@@ -138,26 +107,28 @@ type NewClusterProvider interface {
 	// GetAdminKubeconfigForCustomerCluster returns the admin kubeconfig for the given cluster
 	GetAdminKubeconfigForCustomerCluster(cluster *kubermaticv1.Cluster) (*clientcmdapi.Config, error)
 
-	// GetMachineClientForCustomerCluster returns a client to interact with machine resources in the given cluster
+	// GetAdminMachineClientForCustomerCluster returns a client to interact with machine resources in the given cluster
 	//
 	// Note that the client you will get has admin privileges
-	GetMachineClientForCustomerCluster(cluster *kubermaticv1.Cluster) (clusterv1alpha1clientset.Interface, error)
+	GetAdminMachineClientForCustomerCluster(cluster *kubermaticv1.Cluster) (clusterv1alpha1clientset.Interface, error)
 
-	// GetClientForCustomerCluster returns a client to interact with the given cluster
+	// GetAdminKubernetesClientForCustomerCluster returns a client to interact with the given cluster
 	//
 	// Note that the client you will get has admin privileges
-	GetKubernetesClientForCustomerCluster(cluster *kubermaticv1.Cluster) (kubernetes.Interface, error)
+	GetAdminKubernetesClientForCustomerCluster(cluster *kubermaticv1.Cluster) (kubernetes.Interface, error)
 }
 
 // SSHKeyListOptions allows to set filters that will be applied to filter the result.
 type SSHKeyListOptions struct {
 	// ClusterName gets the keys that are being used by the given cluster name
 	ClusterName string
+	// SSHKeyName gets the ssh keys with the given name in the spec
+	SSHKeyName string
 }
 
-// NewSSHKeyProvider declares the set of methods for interacting with ssh keys
+// SSHKeyProvider declares the set of methods for interacting with ssh keys
 // This provider is Project and RBAC compliant
-type NewSSHKeyProvider interface {
+type SSHKeyProvider interface {
 	// List gets a list of ssh keys, by default it will get all the keys that belong to the given project.
 	// If you want to filter the result please take a look at SSHKeyListOptions
 	//
@@ -182,7 +153,6 @@ type NewSSHKeyProvider interface {
 type UserProvider interface {
 	UserByEmail(email string) (*kubermaticv1.User, error)
 	CreateUser(id, name, email string) (*kubermaticv1.User, error)
-	ListByProject(projectName string) ([]*kubermaticv1.User, error)
 	UserByID(id string) (*kubermaticv1.User, error)
 }
 
@@ -200,6 +170,15 @@ type ProjectProvider interface {
 
 	// Get returns the project with the given name
 	Get(userInfo *UserInfo, projectInternalName string, options *ProjectGetOptions) (*kubermaticv1.Project, error)
+
+	// Update update an existing project and returns it
+	Update(userInfo *UserInfo, newProject *kubermaticv1.Project) (*kubermaticv1.Project, error)
+
+	// List gets a list of projects, by default it returns all resources.
+	// If you want to filter the result please set ProjectListOptions
+	//
+	// Note that the list is taken from the cache
+	List(options *ProjectListOptions) ([]*kubermaticv1.Project, error)
 }
 
 // UserInfo represent authenticated user

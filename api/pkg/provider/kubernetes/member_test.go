@@ -22,7 +22,7 @@ import (
 func TestCreateBinding(t *testing.T) {
 	// test data
 	kubermaticObjects := []runtime.Object{}
-	impersonationClient, _, bindingLister, err := createFakeClients(kubermaticObjects)
+	impersonationClient, _, indexer, err := createFakeClients(kubermaticObjects)
 	if err != nil {
 		t.Fatalf("unable to create fake clients, err = %v", err)
 	}
@@ -30,6 +30,7 @@ func TestCreateBinding(t *testing.T) {
 	existingProject := createProject("abcd")
 	memberEmail := ""
 	groupName := fmt.Sprintf("owners-%s", existingProject.Name)
+	bindingLister := kubermaticv1lister.NewUserProjectBindingLister(indexer)
 
 	// act
 	target := kubernetes.NewProjectMemberProvider(impersonationClient.CreateFakeImpersonatedClientSet, bindingLister)
@@ -67,7 +68,7 @@ func TestListBinding(t *testing.T) {
 			authenticatedUser: createAuthenitactedUser(),
 			projectToSync:     createProject("1234"),
 			existingBindings: []*kubermaticv1.UserProjectBinding{
-				&kubermaticv1.UserProjectBinding{
+				{
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "abcdBinding",
 					},
@@ -78,7 +79,7 @@ func TestListBinding(t *testing.T) {
 					},
 				},
 
-				&kubermaticv1.UserProjectBinding{
+				{
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "cdBinding",
 					},
@@ -89,7 +90,7 @@ func TestListBinding(t *testing.T) {
 					},
 				},
 
-				&kubermaticv1.UserProjectBinding{
+				{
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "differentProjectBinding",
 					},
@@ -101,7 +102,7 @@ func TestListBinding(t *testing.T) {
 				},
 			},
 			expectedBindings: []*kubermaticv1.UserProjectBinding{
-				&kubermaticv1.UserProjectBinding{
+				{
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "abcdBinding",
 					},
@@ -111,7 +112,7 @@ func TestListBinding(t *testing.T) {
 						Group:     fmt.Sprintf("owners-%s", createProject("123").Name),
 					},
 				},
-				&kubermaticv1.UserProjectBinding{
+				{
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "cdBinding",
 					},
@@ -132,10 +133,12 @@ func TestListBinding(t *testing.T) {
 				kubermaticObjects = append(kubermaticObjects, binding)
 			}
 
-			impersonationClient, _, bindingLister, err := createFakeClients(kubermaticObjects)
+			impersonationClient, _, indexer, err := createFakeClients(kubermaticObjects)
 			if err != nil {
 				t.Fatalf("unable to create fake clients, err = %v", err)
 			}
+
+			bindingLister := kubermaticv1lister.NewUserProjectBindingLister(indexer)
 
 			// act
 			target := kubernetes.NewProjectMemberProvider(impersonationClient.CreateFakeImpersonatedClientSet, bindingLister)
@@ -173,7 +176,7 @@ func (f *FakeImpersonationClient) CreateFakeImpersonatedClientSet(impCfg restcli
 	return f.kubermaticClent.KubermaticV1(), nil
 }
 
-func createFakeClients(kubermaticObjects []runtime.Object) (*FakeImpersonationClient, *kubermaticfakeclentset.Clientset, kubermaticv1lister.UserProjectBindingLister, error) {
+func createFakeClients(kubermaticObjects []runtime.Object) (*FakeImpersonationClient, *kubermaticfakeclentset.Clientset, cache.Indexer, error) {
 	kubermaticClient := kubermaticfakeclentset.NewSimpleClientset(kubermaticObjects...)
 
 	indexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
@@ -183,9 +186,8 @@ func createFakeClients(kubermaticObjects []runtime.Object) (*FakeImpersonationCl
 			return nil, nil, nil, err
 		}
 	}
-	lister := kubermaticv1lister.NewUserProjectBindingLister(indexer)
 
-	return &FakeImpersonationClient{kubermaticClient}, kubermaticClient, lister, nil
+	return &FakeImpersonationClient{kubermaticClient}, kubermaticClient, indexer, nil
 }
 
 func createAuthenitactedUser() *kubermaticv1.User {

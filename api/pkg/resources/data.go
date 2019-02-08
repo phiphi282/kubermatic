@@ -1,6 +1,7 @@
 package resources
 
 import (
+	"crypto/x509"
 	"fmt"
 	"net"
 	"net/url"
@@ -34,6 +35,9 @@ type TemplateData struct {
 	inClusterPrometheusDisableDefaultRules           bool
 	inClusterPrometheusDisableDefaultScrapingConfigs bool
 	inClusterPrometheusScrapingConfigsFile           string
+	oidcCAFile                                       string
+	oidcIssuerURL                                    string
+	oidcIssuerClientID                               string
 	DockerPullConfigJSON                             []byte
 }
 
@@ -78,6 +82,8 @@ type ServiceAccountDataProvider interface {
 type ConfigMapDataProvider interface {
 	GetClusterRef() metav1.OwnerReference
 	Cluster() *kubermaticv1.Cluster
+	GetRootCA() (*triple.KeyPair, error)
+	ClusterVersion() string
 	TemplateData() interface{}
 	ServiceLister() corev1lister.ServiceLister
 	NodeAccessNetwork() string
@@ -86,6 +92,7 @@ type ConfigMapDataProvider interface {
 	InClusterPrometheusScrapingConfigsFile() string
 	InClusterPrometheusDisableDefaultRules() bool
 	InClusterPrometheusDisableDefaultScrapingConfigs() bool
+	DC() *provider.DatacenterMeta
 }
 
 // SecretDataProvider provides data
@@ -95,8 +102,10 @@ type SecretDataProvider interface {
 	InClusterApiserverAddress() (string, error)
 	GetFrontProxyCA() (*triple.KeyPair, error)
 	GetRootCA() (*triple.KeyPair, error)
+	GetOpenVPNCA() (*ECDSAKeyPair, error)
 	ExternalIP() (*net.IP, error)
 	Cluster() *kubermaticv1.Cluster
+	GetDexCA() ([]*x509.Certificate, error)
 }
 
 // ServiceDataProvider provides data
@@ -119,6 +128,10 @@ type DeploymentDataProvider interface {
 	ImageRegistry(string) string
 	Cluster() *kubermaticv1.Cluster
 	DC() *provider.DatacenterMeta
+	OIDCAuthPluginEnabled() bool
+	OIDCCAFile() string
+	OIDCIssuerURL() string
+	OIDCIssuerClientID() string
 }
 
 // StatefulSetDataProvider provides data
@@ -143,7 +156,10 @@ func NewTemplateData(
 	inClusterPrometheusDisableDefaultRules bool,
 	inClusterPrometheusDisableDefaultScrapingConfigs bool,
 	inClusterPrometheusScrapingConfigsFile string,
-	dockerPullConfigJSON []byte) *TemplateData {
+	dockerPullConfigJSON []byte,
+	oidcCAFile string,
+	oidcURL string,
+	oidcIssuerClientID string) *TemplateData {
 	return &TemplateData{
 		cluster:                                cluster,
 		dC:                                     dc,
@@ -161,12 +177,45 @@ func NewTemplateData(
 		inClusterPrometheusDisableDefaultScrapingConfigs: inClusterPrometheusDisableDefaultScrapingConfigs,
 		inClusterPrometheusScrapingConfigsFile:           inClusterPrometheusScrapingConfigsFile,
 		DockerPullConfigJSON:                             dockerPullConfigJSON,
+		oidcCAFile:                                       oidcCAFile,
+		oidcIssuerURL:                                    oidcURL,
+		oidcIssuerClientID:                               oidcIssuerClientID,
 	}
+}
+
+// GetDexCA returns the chain of public certificates of the Dex
+func (d *TemplateData) GetDexCA() ([]*x509.Certificate, error) {
+	return GetDexCAFromFile(d.oidcCAFile)
+}
+
+// OIDCAuthPluginEnabled returns flag to indicate if OpenID auth plugin enabled
+func (d *TemplateData) OIDCAuthPluginEnabled() bool {
+	return len(d.oidcIssuerURL) > 0 && len(d.oidcIssuerClientID) > 0
+}
+
+// OIDCCAFile return CA file
+func (d *TemplateData) OIDCCAFile() string {
+	return d.oidcCAFile
+}
+
+// OIDCIssuerURL returns URL of the OpenID token issuer
+func (d *TemplateData) OIDCIssuerURL() string {
+	return d.oidcIssuerURL
+}
+
+// OIDCIssuerClientID return the issuer client ID
+func (d *TemplateData) OIDCIssuerClientID() string {
+	return d.oidcIssuerClientID
 }
 
 // Cluster returns the cluster
 func (d *TemplateData) Cluster() *kubermaticv1.Cluster {
 	return d.cluster
+}
+
+// ClusterVersion returns version of the cluster
+func (d *TemplateData) ClusterVersion() string {
+	return d.cluster.Spec.Version.String()
 }
 
 // DC returns the dC
@@ -306,9 +355,14 @@ func (d *TemplateData) GetRootCA() (*triple.KeyPair, error) {
 	return GetClusterRootCA(d.cluster, d.SecretLister)
 }
 
-// GetFrontProxyCA returns the root CA of the cluster
+// GetFrontProxyCA returns the root CA for the front proxy
 func (d *TemplateData) GetFrontProxyCA() (*triple.KeyPair, error) {
 	return GetClusterFrontProxyCA(d.cluster, d.SecretLister)
+}
+
+// GetOpenVPNCA returns the root ca for the OpenVPN
+func (d *TemplateData) GetOpenVPNCA() (*ECDSAKeyPair, error) {
+	return GetOpenVPNCA(d.cluster, d.SecretLister)
 }
 
 // SecretRevision returns the resource version of the secret specified by name. A empty string will be returned in case of an error

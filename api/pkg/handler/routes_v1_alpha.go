@@ -4,9 +4,11 @@ import (
 	"net/http"
 
 	"github.com/go-kit/kit/endpoint"
+	httptransport "github.com/go-kit/kit/transport/http"
 	"github.com/gorilla/mux"
 
-	httptransport "github.com/go-kit/kit/transport/http"
+	"github.com/kubermatic/kubermatic/api/pkg/handler/middleware"
+	"github.com/kubermatic/kubermatic/api/pkg/handler/v1/common"
 )
 
 // RegisterV1Alpha declares all HTTP paths that are experimental
@@ -14,10 +16,10 @@ import (
 func (r Routing) RegisterV1Alpha(mux *mux.Router) {
 	mux.Methods(http.MethodGet).
 		Path("/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/metrics").
-		Handler(r.clusterMetricsHandler())
+		Handler(r.getClusterMetrics())
 }
 
-// swagger:route GET /api/v1alpha/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/metrics project clusterMetricsHandler
+// swagger:route GET /api/v1alpha/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/metrics project getClusterMetrics
 //
 //    Gets cluster metrics
 //
@@ -29,16 +31,16 @@ func (r Routing) RegisterV1Alpha(mux *mux.Router) {
 //       200: []ClusterMetric
 //       401: empty
 //       403: empty
-func (r Routing) clusterMetricsHandler() http.Handler {
+func (r Routing) getClusterMetrics() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			r.authenticator.Verifier(),
+			r.oidcAuthenticator.Verifier(),
 			r.userSaverMiddleware(),
-			r.newDatacenterMiddleware(),
+			middleware.Datacenter(r.clusterProviders, r.datacenters),
 			r.userInfoMiddleware(),
-		)(getClusterMetricsEndpoint(r.projectProvider, r.prometheusClient)),
-		decodeClusterReq,
-		encodeJSON,
+		)(getClusterMetrics(r.projectProvider, r.prometheusClient)),
+		common.DecodeGetClusterReq,
+		EncodeJSON,
 		r.defaultServerOptions()...,
 	)
 }

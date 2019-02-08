@@ -8,7 +8,6 @@ import (
 	"text/template"
 
 	"github.com/Masterminds/semver"
-	ctconfig "github.com/coreos/container-linux-config-transpiler/config"
 	"k8s.io/apimachinery/pkg/runtime"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 
@@ -62,7 +61,7 @@ func (p Provider) UserData(
 		return "", fmt.Errorf("failed to get cloud config: %v", err)
 	}
 
-	pconfig, err := providerconfig.GetConfig(spec.ProviderConfig)
+	pconfig, err := providerconfig.GetConfig(spec.ProviderSpec)
 	if err != nil {
 		return "", fmt.Errorf("failed to get provider config: %v", err)
 	}
@@ -88,7 +87,7 @@ func (p Provider) UserData(
 
 	data := struct {
 		MachineSpec       clusterv1alpha1.MachineSpec
-		ProviderConfig    *providerconfig.Config
+		ProviderSpec      *providerconfig.Config
 		CoreOSConfig      *Config
 		Kubeconfig        string
 		CloudProvider     string
@@ -99,7 +98,7 @@ func (p Provider) UserData(
 		KubeletVersion    string
 	}{
 		MachineSpec:       spec,
-		ProviderConfig:    pconfig,
+		ProviderSpec:      pconfig,
 		CoreOSConfig:      coreosConfig,
 		Kubeconfig:        kubeconfigString,
 		CloudProvider:     cpName,
@@ -115,23 +114,7 @@ func (p Provider) UserData(
 		return "", fmt.Errorf("failed to execute user-data template: %v", err)
 	}
 
-	// Convert to ignition
-	cfg, ast, report := ctconfig.Parse(b.Bytes())
-	if len(report.Entries) > 0 {
-		return "", fmt.Errorf("failed to validate coreos cloud config: %s", report.String())
-	}
-
-	ignCfg, report := ctconfig.Convert(cfg, "", ast)
-	if len(report.Entries) > 0 {
-		return "", fmt.Errorf("failed to convert container linux config to ignition: %s", report.String())
-	}
-
-	out, err := json.MarshalIndent(ignCfg, "", "  ")
-	if err != nil {
-		return "", fmt.Errorf("failed to marshal ignition config: %v", err)
-	}
-
-	return string(out), nil
+	return b.String(), nil
 }
 
 const ctTemplate = `
@@ -139,10 +122,10 @@ passwd:
   users:
     - name: core
       ssh_authorized_keys:
-        {{range .ProviderConfig.SSHPublicKeys}}- {{.}}
+        {{range .ProviderSpec.SSHPublicKeys}}- {{.}}
         {{end}}
 
-{{- if .ProviderConfig.Network }}
+{{- if .ProviderSpec.Network }}
 networkd:
   units:
     - name: static-nic.network
@@ -155,9 +138,9 @@ networkd:
 
         [Network]
         DHCP=no
-        Address={{ .ProviderConfig.Network.CIDR }}
-        Gateway={{ .ProviderConfig.Network.Gateway }}
-        {{range .ProviderConfig.Network.DNS.Servers}}DNS={{.}}
+        Address={{ .ProviderSpec.Network.CIDR }}
+        Gateway={{ .ProviderSpec.Network.Gateway }}
+        {{range .ProviderSpec.Network.DNS.Servers}}DNS={{.}}
         {{end}}
 {{- end }}
 

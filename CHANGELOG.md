@@ -1,4 +1,203 @@
 
+### [v2.8.3]()
+
+Supported Kubernetes versions:
+- `1.10.11`
+- `1.11.5`
+- `1.12.3`
+
+
+**Misc:**
+
+- Kubermatic now validates nodes synchronously [#2340](https://github.com/kubermatic/kubermatic/issues/2340) ([alvaroaleman](https://github.com/alvaroaleman))
+- Components will no longer be shown as as unhealthy when only some replicas are up [#2358](https://github.com/kubermatic/kubermatic/issues/2358) ([mrIncompetent](https://github.com/mrIncompetent))
+- Disabled debug logs on control plane components [#2471](https://github.com/kubermatic/kubermatic/issues/2471) ([mrIncompetent](https://github.com/mrIncompetent))
+- Kubernetes will be automatically updated to versions that contain a fix for CVE-2018-1002105 [#2478](https://github.com/kubermatic/kubermatic/issues/2478) ([alvaroaleman](https://github.com/alvaroaleman))
+- Updated the machine-controller to `v0.10.3` [#2479](https://github.com/kubermatic/kubermatic/issues/2479) ([mrIncompetent](https://github.com/mrIncompetent))
+
+**Bugfix:**
+- Fixed missing permissions in kube-state-metrics ClusterRole [#2366](https://github.com/kubermatic/kubermatic/issues/2366) ([bashofmann](https://github.com/bashofmann))
+
+
+
+
+### [v2.7.8]()
+
+Supported Kubernetes versions:
+- `1.10.11`
+- `1.11.5`
+
+
+**Major changes:**
+
+- Communicating with cloud providers APIs no longer requires providing additional credentials. [#2151](https://github.com/kubermatic/kubermatic/issues/2151) ([p0lyn0mial](https://github.com/p0lyn0mial))
+- Updated the kubermatic dashboard to `v0.38.0` [#2165](https://github.com/kubermatic/kubermatic/issues/2165) ([mrIncompetent](https://github.com/mrIncompetent))
+  - Provider-specific data will now be fetched without re-sending credentials. [#806](https://github.com/kubermatic/dashboard-v2/issues/806) ([maciaszczykm](https://github.com/maciaszczykm))
+- Kubernetes will be automatically updated to versions that contain a fix for CVE-2018-1002105 and `v1.8`, `v1.9` cluster creation is now dropped [#2487](https://github.com/kubermatic/kubermatic/issues/2487) ([kdomanski](https://github.com/kdomanski))
+
+
+
+
+### [v2.6.17]()
+
+Supported Kubernetes versions:
+- `1.10.11`
+
+
+**Bugfix:**
+
+- Fixed handling of very long user IDs [#2086](https://github.com/kubermatic/kubermatic/issues/2086) ([kdomanski](https://github.com/kdomanski))
+
+
+**Misc:**
+
+- Enabled the usage of Heapster for the HorizontalPodAutoscaler [#2199](https://github.com/kubermatic/kubermatic/issues/2199) ([mrIncompetent](https://github.com/mrIncompetent))
+- Kubernetes will be automatically updated to versions that contain a fix for CVE-2018-1002105 and `v1.8`, `v1.9` cluster creation is now dropped [#2497](https://github.com/kubermatic/kubermatic/issues/2497) ([kdomanski](https://github.com/kdomanski))
+
+
+
+
+### [v2.8.2]()
+
+
+- Fixed migration of users from older versions of Kubermatic [#2294](https://github.com/kubermatic/kubermatic/issues/2294) ([mrIncompetent](https://github.com/mrIncompetent))
+- Fixed a bug in the machine-migration that caused cloud provider instances to not be properly identified anymore [#2307](https://github.com/kubermatic/kubermatic/issues/2307) ([alvaroaleman](https://github.com/alvaroaleman))
+- Increased etcd readiness check timeout [#2312](https://github.com/kubermatic/kubermatic/issues/2312) ([mrIncompetent](https://github.com/mrIncompetent))
+- Updated machine-controller to `v0.9.9`
+
+
+
+
+### [v2.8.1]()
+
+
+**Misc:**
+
+- Prometheus is now scraping user clusters [#2219](https://github.com/kubermatic/kubermatic/issues/2219) ([thetechnick](https://github.com/thetechnick))
+- Updated the Kubermatic dashboard to `v1.0.2` [#2263](https://github.com/kubermatic/kubermatic/issues/2263) ([mrIncompetent](https://github.com/mrIncompetent))
+- Update machine controller to `v0.9.8` [#2275](https://github.com/kubermatic/kubermatic/issues/2275) ([mrIncompetent](https://github.com/mrIncompetent))
+
+
+**Dashboard:**
+
+- Removed Container Runtime selection, which is no longer supported. [#828](https://github.com/kubermatic/dashboard-v2/issues/828) ([bashofmann](https://github.com/bashofmann))
+- Various minor visual improvements
+
+
+
+
+### [v2.8.0]()
+
+Supported Kubernetes versions:
+- `1.9.0` - `1.9.10`
+- `1.10.0` - `1.10.8`
+- `1.11.0` - `1.11.3`
+- `1.12.0` - `1.12.1`
+
+
+**Major changes:**
+
+
+- Implemented user/project management
+- Old clusters will be automatically migrated to each user&#39;s default project [#1829](https://github.com/kubermatic/kubermatic/issues/1829) ([p0lyn0mial](https://github.com/p0lyn0mial))
+- Kubermatic now supports Kubernetes 1.12 [#2132](https://github.com/kubermatic/kubermatic/issues/2132) ([alvaroaleman](https://github.com/alvaroaleman))
+
+
+**Dashboard:**
+
+- The UI has been reworked for the new user/project management
+- Fixed error appearing when trying to change selected OS [#699](https://github.com/kubermatic/dashboard-v2/issues/699) ([kgroschoff](https://github.com/kgroschoff))
+- Openstack: fixed an issue, where list of tenants wouldn&#39;t get loaded when returning from summary page [#705](https://github.com/kubermatic/dashboard-v2/issues/705) ([kgroschoff](https://github.com/kgroschoff))
+- Fixed confirmation of cluster deletion [#718](https://github.com/kubermatic/dashboard-v2/issues/718) ([kgroschoff](https://github.com/kgroschoff))
+- Fixed the link to Kubernetes dashboard [#740](https://github.com/kubermatic/dashboard-v2/issues/740) ([guusvw](https://github.com/guusvw))
+- Openstack: show selected image in cluster creation summary [#698](https://github.com/kubermatic/dashboard-v2/issues/698) ([bashofmann](https://github.com/bashofmann))
+- vSphere: custom cluster vnet can now be selected [#708](https://github.com/kubermatic/dashboard-v2/issues/708) ([kgroschoff](https://github.com/kgroschoff))
+- Openstack: the list of available networks and floating IP pools will be loaded from the API [#737](https://github.com/kubermatic/dashboard-v2/issues/737) ([j3ank](https://github.com/j3ank))
+- Dashboard metrics can now be collected by Prometheus [#678](https://github.com/kubermatic/dashboard-v2/issues/678) ([pkavajin](https://github.com/pkavajin))
+- Redesigned cluster creation summary page [#688](https://github.com/kubermatic/dashboard-v2/issues/688) ([kgroschoff](https://github.com/kgroschoff))
+- Default template images for Openstack and vSphere are now taken from datacenter configuration [#689](https://github.com/kubermatic/dashboard-v2/issues/689) ([kgroschoff](https://github.com/kgroschoff))
+- Fixed cluster settings view for Openstack [#746](https://github.com/kubermatic/dashboard-v2/issues/746) ([kgroschoff](https://github.com/kgroschoff))
+- &#34;Upgrade Cluster&#34; link is no longer available for clusters that have no updates available or are not ready [#750](https://github.com/kubermatic/dashboard-v2/issues/750) ([bashofmann](https://github.com/bashofmann))
+- Fixed initial nodes data being lost when the browser tab was closed right after cluster creation [#796](https://github.com/kubermatic/dashboard-v2/issues/796) ([kgroschoff](https://github.com/kgroschoff))
+- Google Analytics code can now be optionally added by the administrator [#742](https://github.com/kubermatic/dashboard-v2/issues/742) ([bashofmann](https://github.com/bashofmann))
+- OpenStack tenant can now be either chosen from dropdown or typed in by hand [#759](https://github.com/kubermatic/dashboard-v2/issues/759) ([kgroschoff](https://github.com/kgroschoff))
+- vSphere: Network can now be selected from a list [#771](https://github.com/kubermatic/dashboard-v2/issues/771) ([kgroschoff](https://github.com/kgroschoff))
+- Login token is now removed from URL for security reasons [#790](https://github.com/kubermatic/dashboard-v2/issues/790) ([bashofmann](https://github.com/bashofmann))
+- `Admin` button has been removed from `Certificates and Keys` panel as it allowed to copy the admin token into the clipboard. Since this is a security concern we decided to remove this functionality. [#800](https://github.com/kubermatic/dashboard-v2/issues/800) ([p0lyn0mial](https://github.com/p0lyn0mial))
+- Notifications timeout is now 10s
+- Close and copy to clipboard actions are available on notifications. [#798](https://github.com/kubermatic/dashboard-v2/issues/798) ([maciaszczykm](https://github.com/maciaszczykm))
+- Provider-specific data will now be fetched without re-sending credentials. [#814](https://github.com/kubermatic/dashboard-v2/issues/814) ([maciaszczykm](https://github.com/maciaszczykm))
+- Various minor fixes and improvements
+
+
+**Bugfix:**
+
+- Kubernetes aggregation layer now uses a dedicated CA [#1787](https://github.com/kubermatic/kubermatic/issues/1787) ([mrIncompetent](https://github.com/mrIncompetent))
+- fixed DNS/scheduler/controller-manager alerts in Prometheus [#1908](https://github.com/kubermatic/kubermatic/issues/1908) ([xrstf](https://github.com/xrstf))
+- fixed bad rules.yaml format for Prometheus [#1924](https://github.com/kubermatic/kubermatic/issues/1924) ([xrstf](https://github.com/xrstf))
+- Add missing RoleBinding for bootstrap tokens created with `kubeadm token create` [#1943](https://github.com/kubermatic/kubermatic/issues/1943) ([mrIncompetent](https://github.com/mrIncompetent))
+- Fixed handling of very long user IDs [#2075](https://github.com/kubermatic/kubermatic/issues/2075) ([mrIncompetent](https://github.com/mrIncompetent))
+- The API server will redact sensitive data from its legacy API responses. [#2079](https://github.com/kubermatic/kubermatic/issues/2079) ([p0lyn0mial](https://github.com/p0lyn0mial)), [#2087](https://github.com/kubermatic/kubermatic/issues/2087) ([p0lyn0mial](https://github.com/p0lyn0mial))
+- Missing upgrade paths for K8S 1.10 and 1.11 have been addded. [#2159](https://github.com/kubermatic/kubermatic/issues/2159) ([mrIncompetent](https://github.com/mrIncompetent))
+
+
+**Misc:**
+
+- Added a controller for static ip address management [#1616](https://github.com/kubermatic/kubermatic/issues/1616) ([pkavajin](https://github.com/pkavajin))
+- Activated kubelet certificate rotation feature flags [#1771](https://github.com/kubermatic/kubermatic/issues/1771) ([mrIncompetent](https://github.com/mrIncompetent))
+- Made s3-exporter endpoint configurable [#1772](https://github.com/kubermatic/kubermatic/issues/1772) ([bashofmann](https://github.com/bashofmann))
+- etcd StatefulSet uses default timings again [#1776](https://github.com/kubermatic/kubermatic/issues/1776) ([mrIncompetent](https://github.com/mrIncompetent))
+- Breaking change: basic auth for kibana/grafana/prometheus/alertmanager has been replaced with oAuth [#1808](https://github.com/kubermatic/kubermatic/issues/1808) ([kron4eg](https://github.com/kron4eg))
+- Added a controller which steers control plane traffic to the kubelets via VPN.  [#1817](https://github.com/kubermatic/kubermatic/issues/1817) ([thz](https://github.com/thz))
+- Fixed a memory leak which occurs when using credentials for a container registry. [#1850](https://github.com/kubermatic/kubermatic/issues/1850) ([thz](https://github.com/thz))
+- Combined ImagePullSecrets im the Kubermatic chart [#1877](https://github.com/kubermatic/kubermatic/issues/1877) ([mrIncompetent](https://github.com/mrIncompetent))
+- Include cluster name as label on each pod [#1891](https://github.com/kubermatic/kubermatic/issues/1891) ([mrIncompetent](https://github.com/mrIncompetent))
+- Ark-based seed-cluster backup infrastructure [#1894](https://github.com/kubermatic/kubermatic/issues/1894) ([xrstf](https://github.com/xrstf))
+- Add AntiAffinity to the control plane pods to prevent scheduling of the same kind pod on the same node. [#1895](https://github.com/kubermatic/kubermatic/issues/1895) ([mrIncompetent](https://github.com/mrIncompetent))
+- Enabled etcd auto-compaction [#1932](https://github.com/kubermatic/kubermatic/issues/1932) ([mrIncompetent](https://github.com/mrIncompetent))
+- etcd in user cluser namespaces is defragmented every 3 hours [#1935](https://github.com/kubermatic/kubermatic/issues/1935) ([xrstf](https://github.com/xrstf))
+- DNS names are now used inside the cluster namespaces, Scoped to the cluster namespace [#1959](https://github.com/kubermatic/kubermatic/issues/1959) ([mrIncompetent](https://github.com/mrIncompetent))
+- Increased kubectl timeouts on AWS  [#1983](https://github.com/kubermatic/kubermatic/issues/1983) ([pkavajin](https://github.com/pkavajin))
+- Support for Kubernetes v1.8 has been dropped. The control planes of all clusters running 1.8 will be automatically updated [#2013](https://github.com/kubermatic/kubermatic/issues/2013) ([mrIncompetent](https://github.com/mrIncompetent))
+- OpenVPN status is now a part of cluster health [#2038](https://github.com/kubermatic/kubermatic/issues/2038) ([mrIncompetent](https://github.com/mrIncompetent))
+- Improved detection of user-cluster apiserver health on startup [#2052](https://github.com/kubermatic/kubermatic/issues/2052) ([thz](https://github.com/thz))
+- Kubermatic now uses the types from the [cluster api project](https://github.com/kubernetes-sigs/cluster-api) to manage nodes [#2056](https://github.com/kubermatic/kubermatic/issues/2056) ([alvaroaleman](https://github.com/alvaroaleman))
+- CPU&amp;Memory limit for the Kubermatic controller manager deployment has been increased [#2081](https://github.com/kubermatic/kubermatic/issues/2081) ([mrIncompetent](https://github.com/mrIncompetent))
+- controller-manager and its controllers will no longer run with cluster-admin permissions [#2096](https://github.com/kubermatic/kubermatic/issues/2096) ([alvaroaleman](https://github.com/alvaroaleman))
+- PodDisruptionBudget is now configured for the API server deployment [#2098](https://github.com/kubermatic/kubermatic/issues/2098) ([mrIncompetent](https://github.com/mrIncompetent))
+- The kubermatic-master chart has been merged into the main kubermatic chart [#2103](https://github.com/kubermatic/kubermatic/issues/2103) ([alvaroaleman](https://github.com/alvaroaleman))
+- Version v1.11.0 - 1.11.3 Clusters will no longer gather `rest_*` metrics from the controller-manager due to a [bug in kubernetes](https://github.com/kubernetes/kubernetes/pull/68530) [#2020](https://github.com/kubermatic/kubermatic/issues/2020) ([cbeneke](https://github.
+com/cbeneke))
+- Communicating with cloud providers through the non-project APIs no longer requires providing additional credentials. [#2156](https://github.com/kubermatic/kubermatic/issues/2156) ([p0lyn0mial](https://github.com/p0lyn0mial))
+- Communicating with cloud providers through the project APIs no longer requires providing additional credentials. [#2227](https://github.com/kubermatic/kubermatic/issues/2227) ([p0lyn0mial](https://github.com/p0lyn0mial))
+- Updated dashboard to `v1.0.1` [#2228](https://github.com/kubermatic/kubermatic/issues/2228) ([mrIncompetent](https://github.com/mrIncompetent))
+- Updated kubernetes-dashboard addon to `1.10.0` [#1874](https://github.com/kubermatic/kubermatic/issues/1874) ([bashofmann](https://github.com/bashofmann))
+- Updated nginx ingress controller to `0.18.0` [#1800](https://github.com/kubermatic/kubermatic/issues/1800) ([bashofmann](https://github.com/bashofmann))
+- Updated etcd to `v3.3.9` [#1961](https://github.com/kubermatic/kubermatic/issues/1961) ([mrIncompetent](https://github.com/mrIncompetent))
+- Updated machine-controller to `v0.9.5` [#2224](https://github.com/kubermatic/kubermatic/issues/2224)
+([mrIncompetent](https://github.com/mrIncompetent))
+- updated cert-manager to `0.4.1` [#1925](https://github.com/kubermatic/kubermatic/issues/1925) ([xrstf](https://github.com/xrstf))
+- Updated Prometheus to `v2.3.2` [#1830](https://github.com/kubermatic/kubermatic/issues/1830) ([mrIncompetent](https://github.com/mrIncompetent))
+- Updated dex to `2.11.0` [#1986](https://github.com/kubermatic/kubermatic/issues/1986) ([bashofmann](https://github.com/bashofmann))
+- Updated kube-proxy addon to match the cluster version [#2017](https://github.com/kubermatic/kubermatic/issues/2017) ([mrIncompetent](https://github.com/mrIncompetent))
+
+
+**Monitoring:**
+
+- Grafana dashboards now use the latest kubernetes-mixin dashboards. [#1705](https://github.com/kubermatic/kubermatic/issues/1705) ([metalmatze](https://github.com/metalmatze))
+- nginx ingress controller metrics are now scraped [#1777](https://github.com/kubermatic/kubermatic/issues/1777) ([bashofmann](https://github.com/bashofmann))
+- annotations will be used instead of labels for the nginx-ingress Prometheus configuration [#1823](https://github.com/kubermatic/kubermatic/issues/1823) ([xrstf](https://github.com/xrstf))
+- `KubePersistentVolumeFullInFourDays` will only be predicted when there is at least 6h of historical data available [#1862](https://github.com/kubermatic/kubermatic/issues/1862) ([cbeneke](https://github.com/cbeneke))
+- reorganized Grafana dashboards, including etcd dashboard [#1775](https://github.com/kubermatic/kubermatic/issues/1775) ([xrstf](https://github.com/xrstf))
+- customizations of Grafana dashboard providers, datasources and dashboards themselves are now easier [#1812](https://github.com/kubermatic/kubermatic/issues/1812) ([xrstf](https://github.com/xrstf))
+- new Prometheus and Kubernetes Volumes dashboards [#1838](https://github.com/kubermatic/kubermatic/issues/1838) ([xrstf](https://github.com/xrstf))
+- Prometheus in the seed cluster can now be customized by extending the Helm chart&#39;s `values.yaml` [#1801](https://github.com/kubermatic/kubermatic/issues/1801) ([xrstf](https://github.com/xrstf))
+- Prometheus alerts can now be customized in cluster namespaces [#1831](https://github.com/kubermatic/kubermatic/issues/1831) ([pkavajin](https://github.com/pkavajin))
+- Added a way to customize scraping configs for in-cluster-namespace-prometheuses [#1837](https://github.com/kubermatic/kubermatic/issues/1837) ([pkavajin](https://github.com/pkavajin))
+
+
+
+
 ### [v2.7.7]()
 
 

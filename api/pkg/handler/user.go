@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/mail"
+	"strings"
 
 	"github.com/go-kit/kit/endpoint"
 	"github.com/gorilla/mux"
@@ -13,6 +15,8 @@ import (
 	apiv1 "github.com/kubermatic/kubermatic/api/pkg/api/v1"
 	"github.com/kubermatic/kubermatic/api/pkg/controller/rbac"
 	kubermaticapiv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
+	"github.com/kubermatic/kubermatic/api/pkg/handler/middleware"
+	"github.com/kubermatic/kubermatic/api/pkg/handler/v1/common"
 	"github.com/kubermatic/kubermatic/api/pkg/provider"
 	k8cerrors "github.com/kubermatic/kubermatic/api/pkg/util/errors"
 
@@ -21,7 +25,7 @@ import (
 
 func deleteMemberFromProject(projectProvider provider.ProjectProvider, userProvider provider.UserProvider, memberProvider provider.ProjectMemberProvider) endpoint.Endpoint {
 	return func(ctx context.Context, request interface{}) (interface{}, error) {
-		userInfo := ctx.Value(userInfoContextKey).(*provider.UserInfo)
+		userInfo := ctx.Value(middleware.UserInfoContextKey).(*provider.UserInfo)
 		req, ok := request.(DeleteUserFromProjectReq)
 		if !ok {
 			return nil, k8cerrors.NewBadRequest("invalid request")
@@ -32,15 +36,15 @@ func deleteMemberFromProject(projectProvider provider.ProjectProvider, userProvi
 
 		project, err := projectProvider.Get(userInfo, req.ProjectID, &provider.ProjectGetOptions{})
 		if err != nil {
-			return nil, kubernetesErrorToHTTPError(err)
+			return nil, common.KubernetesErrorToHTTPError(err)
 		}
 		user, err := userProvider.UserByID(req.UserID)
 		if err != nil {
-			return nil, kubernetesErrorToHTTPError(err)
+			return nil, common.KubernetesErrorToHTTPError(err)
 		}
 		memberList, err := memberProvider.List(userInfo, project, &provider.ProjectMemberListOptions{MemberEmail: user.Spec.Email})
 		if err != nil {
-			return nil, kubernetesErrorToHTTPError(err)
+			return nil, common.KubernetesErrorToHTTPError(err)
 		}
 		if len(memberList) == 0 {
 			return nil, k8cerrors.New(http.StatusBadRequest, fmt.Sprintf("cannot delete the user = %s from the project %s because the user is not a member of the project", user.Spec.Email, req.ProjectID))
@@ -50,13 +54,13 @@ func deleteMemberFromProject(projectProvider provider.ProjectProvider, userProvi
 		}
 
 		bindingForRequestedMember := memberList[0]
-		if bindingForRequestedMember.Spec.UserEmail == userInfo.Email {
+		if strings.EqualFold(bindingForRequestedMember.Spec.UserEmail, userInfo.Email) {
 			return nil, k8cerrors.New(http.StatusForbidden, "you cannot delete yourself from the project")
 		}
 
 		err = memberProvider.Delete(userInfo, bindingForRequestedMember.Name)
 		if err != nil {
-			return nil, kubernetesErrorToHTTPError(err)
+			return nil, common.KubernetesErrorToHTTPError(err)
 		}
 
 		return nil, nil
@@ -65,11 +69,12 @@ func deleteMemberFromProject(projectProvider provider.ProjectProvider, userProvi
 
 func editMemberOfProject(projectProvider provider.ProjectProvider, userProvider provider.UserProvider, memberProvider provider.ProjectMemberProvider) endpoint.Endpoint {
 	return func(ctx context.Context, request interface{}) (interface{}, error) {
-		userInfo := ctx.Value(userInfoContextKey).(*provider.UserInfo)
+		userInfo := ctx.Value(middleware.UserInfoContextKey).(*provider.UserInfo)
 		req, ok := request.(EditUserInProjectReq)
 		if !ok {
 			return nil, k8cerrors.NewBadRequest("invalid request")
 		}
+
 		err := req.Validate(userInfo)
 		if err != nil {
 			return nil, err
@@ -79,18 +84,18 @@ func editMemberOfProject(projectProvider provider.ProjectProvider, userProvider 
 
 		project, err := projectProvider.Get(userInfo, req.ProjectID, &provider.ProjectGetOptions{})
 		if err != nil {
-			return nil, kubernetesErrorToHTTPError(err)
+			return nil, common.KubernetesErrorToHTTPError(err)
 		}
 		memberToUpdate, err := userProvider.UserByEmail(currentMemberFromRequest.Email)
 		if err != nil && err == provider.ErrNotFound {
 			return nil, k8cerrors.NewBadRequest("cannot add the user = %s to the project %s because the user doesn't exist.", currentMemberFromRequest.Email, projectFromRequest.ID)
 		} else if err != nil {
-			return nil, kubernetesErrorToHTTPError(err)
+			return nil, common.KubernetesErrorToHTTPError(err)
 		}
 
 		memberList, err := memberProvider.List(userInfo, project, &provider.ProjectMemberListOptions{MemberEmail: currentMemberFromRequest.Email})
 		if err != nil {
-			return nil, kubernetesErrorToHTTPError(err)
+			return nil, common.KubernetesErrorToHTTPError(err)
 		}
 		if len(memberList) == 0 {
 			return nil, k8cerrors.New(http.StatusBadRequest, fmt.Sprintf("cannot change the membership of the user = %s for the project %s because the user is not a member of the project", currentMemberFromRequest.Email, req.ProjectID))
@@ -104,7 +109,7 @@ func editMemberOfProject(projectProvider provider.ProjectProvider, userProvider 
 		currentMemberBinding.Spec.Group = generatedGroupName
 		updatedMemberBinding, err := memberProvider.Update(userInfo, currentMemberBinding)
 		if err != nil {
-			return nil, kubernetesErrorToHTTPError(err)
+			return nil, common.KubernetesErrorToHTTPError(err)
 		}
 
 		externalUser := convertInternalUserToExternal(memberToUpdate, updatedMemberBinding)
@@ -113,11 +118,10 @@ func editMemberOfProject(projectProvider provider.ProjectProvider, userProvider 
 	}
 }
 
-// TODO: change to listMembers
-func listUsersFromProject(projectProvider provider.ProjectProvider, userProvider provider.UserProvider, memberProvider provider.ProjectMemberProvider) endpoint.Endpoint {
+func listMembersOfProject(projectProvider provider.ProjectProvider, userProvider provider.UserProvider, memberProvider provider.ProjectMemberProvider) endpoint.Endpoint {
 	return func(ctx context.Context, request interface{}) (interface{}, error) {
-		userInfo := ctx.Value(userInfoContextKey).(*provider.UserInfo)
-		req, ok := request.(GetProjectRq)
+		userInfo := ctx.Value(middleware.UserInfoContextKey).(*provider.UserInfo)
+		req, ok := request.(common.GetProjectRq)
 		if !ok {
 			return nil, k8cerrors.NewBadRequest("invalid request")
 		}
@@ -128,44 +132,21 @@ func listUsersFromProject(projectProvider provider.ProjectProvider, userProvider
 
 		project, err := projectProvider.Get(userInfo, req.ProjectID, &provider.ProjectGetOptions{})
 		if err != nil {
-			return nil, kubernetesErrorToHTTPError(err)
+			return nil, common.KubernetesErrorToHTTPError(err)
 		}
 
 		membersOfProjectBindings, err := memberProvider.List(userInfo, project, nil)
 		if err != nil {
-			return nil, kubernetesErrorToHTTPError(err)
+			return nil, common.KubernetesErrorToHTTPError(err)
 		}
 
-		externalUsers := []*apiv1.NewUser{}
+		externalUsers := []*apiv1.User{}
 		for _, memberOfProjectBinding := range membersOfProjectBindings {
 			user, err := userProvider.UserByEmail(memberOfProjectBinding.Spec.UserEmail)
 			if err != nil {
-				return nil, kubernetesErrorToHTTPError(err)
+				return nil, common.KubernetesErrorToHTTPError(err)
 			}
 			externalUser := convertInternalUserToExternal(user, memberOfProjectBinding)
-			externalUser = filterExternalUser(externalUser, project.Name)
-			externalUsers = append(externalUsers, externalUser)
-		}
-
-		// old approach, read project member from user resources
-		users, err := userProvider.ListByProject(project.Name)
-		if err != nil {
-			return nil, kubernetesErrorToHTTPError(err)
-		}
-		isAlreadyOnTheList := func(apiUser *apiv1.NewUser) bool {
-			for _, existingAPIUser := range externalUsers {
-				if existingAPIUser.ID == apiUser.ID {
-					return true
-				}
-			}
-			return false
-		}
-
-		for _, user := range users {
-			externalUser := convertInternalUserToExternal(user)
-			if isAlreadyOnTheList(externalUser) {
-				continue
-			}
 			externalUser = filterExternalUser(externalUser, project.Name)
 			externalUsers = append(externalUsers, externalUser)
 		}
@@ -174,11 +155,10 @@ func listUsersFromProject(projectProvider provider.ProjectProvider, userProvider
 	}
 }
 
-// TODO: change to addMember
 func addUserToProject(projectProvider provider.ProjectProvider, userProvider provider.UserProvider, memberProvider provider.ProjectMemberProvider) endpoint.Endpoint {
 	return func(ctx context.Context, request interface{}) (interface{}, error) {
 		req := request.(AddUserToProjectReq)
-		userInfo := ctx.Value(userInfoContextKey).(*provider.UserInfo)
+		userInfo := ctx.Value(middleware.UserInfoContextKey).(*provider.UserInfo)
 
 		err := req.Validate(userInfo)
 		if err != nil {
@@ -191,16 +171,16 @@ func addUserToProject(projectProvider provider.ProjectProvider, userProvider pro
 		if err != nil && err == provider.ErrNotFound {
 			return nil, k8cerrors.NewBadRequest("cannot add the user = %s to the project %s because the user doesn't exist.", apiUserFromRequest.Email, projectFromRequest.ID)
 		} else if err != nil {
-			return nil, kubernetesErrorToHTTPError(err)
+			return nil, common.KubernetesErrorToHTTPError(err)
 		}
 		project, err := projectProvider.Get(userInfo, projectFromRequest.ID, &provider.ProjectGetOptions{})
 		if err != nil {
-			return nil, kubernetesErrorToHTTPError(err)
+			return nil, common.KubernetesErrorToHTTPError(err)
 		}
 
 		memberList, err := memberProvider.List(userInfo, project, &provider.ProjectMemberListOptions{MemberEmail: userToInvite.Spec.Email})
 		if err != nil {
-			return nil, kubernetesErrorToHTTPError(err)
+			return nil, common.KubernetesErrorToHTTPError(err)
 		}
 		if len(memberList) > 0 {
 			return nil, k8cerrors.New(http.StatusBadRequest, fmt.Sprintf("cannot add the user = %s to the project %s because user is already in the project", req.Body.Email, req.ProjectID))
@@ -209,7 +189,7 @@ func addUserToProject(projectProvider provider.ProjectProvider, userProvider pro
 		generatedGroupName := rbac.GenerateActualGroupNameFor(project.Name, projectFromRequest.GroupPrefix)
 		generatedBinding, err := memberProvider.Create(userInfo, project, userToInvite.Spec.Email, generatedGroupName)
 		if err != nil {
-			return nil, kubernetesErrorToHTTPError(err)
+			return nil, common.KubernetesErrorToHTTPError(err)
 		}
 
 		externalUser := convertInternalUserToExternal(userToInvite, generatedBinding)
@@ -220,23 +200,23 @@ func addUserToProject(projectProvider provider.ProjectProvider, userProvider pro
 
 func getCurrentUserEndpoint(users provider.UserProvider, memberMapper provider.ProjectMemberMapper) endpoint.Endpoint {
 	return func(ctx context.Context, request interface{}) (interface{}, error) {
-		authenticatedUser := ctx.Value(userCRContextKey).(*kubermaticapiv1.User)
+		authenticatedUser := ctx.Value(middleware.UserCRContextKey).(*kubermaticapiv1.User)
 
 		bindings, err := memberMapper.MappingsFor(authenticatedUser.Spec.Email)
 		if err != nil {
-			return nil, kubernetesErrorToHTTPError(err)
+			return nil, common.KubernetesErrorToHTTPError(err)
 		}
 
 		return convertInternalUserToExternal(authenticatedUser, bindings...), nil
 	}
 }
 
-func convertInternalUserToExternal(internalUser *kubermaticapiv1.User, bindings ...*kubermaticapiv1.UserProjectBinding) *apiv1.NewUser {
-	apiUser := &apiv1.NewUser{
-		NewObjectMeta: apiv1.NewObjectMeta{
+func convertInternalUserToExternal(internalUser *kubermaticapiv1.User, bindings ...*kubermaticapiv1.UserProjectBinding) *apiv1.User {
+	apiUser := &apiv1.User{
+		ObjectMeta: apiv1.ObjectMeta{
 			ID:                internalUser.Name,
 			Name:              internalUser.Spec.Name,
-			CreationTimestamp: internalUser.CreationTimestamp.Time,
+			CreationTimestamp: apiv1.NewTime(internalUser.CreationTimestamp.Time),
 		},
 		Email: internalUser.Spec.Email,
 	}
@@ -262,7 +242,7 @@ func convertInternalUserToExternal(internalUser *kubermaticapiv1.User, bindings 
 	return apiUser
 }
 
-func filterExternalUser(externalUser *apiv1.NewUser, projectID string) *apiv1.NewUser {
+func filterExternalUser(externalUser *apiv1.User, projectID string) *apiv1.User {
 	// remove all projects except requested one
 	// in the future user resources will not contain projects bindings
 	for _, pg := range externalUser.Projects {
@@ -277,29 +257,29 @@ func filterExternalUser(externalUser *apiv1.NewUser, projectID string) *apiv1.Ne
 func (r Routing) userSaverMiddleware() endpoint.Middleware {
 	return func(next endpoint.Endpoint) endpoint.Endpoint {
 		return func(ctx context.Context, request interface{}) (response interface{}, err error) {
-			cAPIUser := ctx.Value(apiUserContextKey)
-			if cAPIUser == nil {
+			rawAuthenticatesUser := ctx.Value(middleware.AuthenticatedUserContextKey)
+			if rawAuthenticatesUser == nil {
 				return nil, errors.New("no user in context found")
 			}
-			apiUser := cAPIUser.(apiv1.User)
+			authenticatedUser := rawAuthenticatesUser.(apiv1.User)
 
-			user, err := r.userProvider.UserByEmail(apiUser.Email)
+			user, err := r.userProvider.UserByEmail(authenticatedUser.Email)
 			if err != nil {
 				if err != provider.ErrNotFound {
-					return nil, kubernetesErrorToHTTPError(err)
+					return nil, common.KubernetesErrorToHTTPError(err)
 				}
 				// handling ErrNotFound
-				user, err = r.userProvider.CreateUser(apiUser.ID, apiUser.Name, apiUser.Email)
+				user, err = r.userProvider.CreateUser(authenticatedUser.ID, authenticatedUser.Name, authenticatedUser.Email)
 				if err != nil {
 					if !kerrors.IsAlreadyExists(err) {
-						return nil, kubernetesErrorToHTTPError(err)
+						return nil, common.KubernetesErrorToHTTPError(err)
 					}
-					if user, err = r.userProvider.UserByEmail(apiUser.Email); err != nil {
-						return nil, kubernetesErrorToHTTPError(err)
+					if user, err = r.userProvider.UserByEmail(authenticatedUser.Email); err != nil {
+						return nil, common.KubernetesErrorToHTTPError(err)
 					}
 				}
 			}
-			return next(context.WithValue(ctx, userCRContextKey, user), request)
+			return next(context.WithValue(ctx, middleware.UserCRContextKey, user), request)
 		}
 	}
 }
@@ -307,53 +287,75 @@ func (r Routing) userSaverMiddleware() endpoint.Middleware {
 func (r Routing) userInfoMiddleware() endpoint.Middleware {
 	return func(next endpoint.Endpoint) endpoint.Endpoint {
 		return func(ctx context.Context, request interface{}) (response interface{}, err error) {
-			user, ok := ctx.Value(userCRContextKey).(*kubermaticapiv1.User)
+			user, ok := ctx.Value(middleware.UserCRContextKey).(*kubermaticapiv1.User)
 			if !ok {
 				return nil, k8cerrors.New(http.StatusInternalServerError, "unable to get authenticated user object")
 			}
-			prjIDGetter, ok := request.(ProjectIDGetter)
-			if !ok {
-				return nil, k8cerrors.NewBadRequest("you can only use userInfoMiddleware for endpoints that interact with project")
-			}
-			projectID := prjIDGetter.GetProjectID()
 
-			// read group info
-			var group string
-			{
-				// old approach, group was stored in user resource
-				group, err = user.GroupForProject(projectID)
-				if err != nil {
-					// new approach read group info from the mapper
-					group, err = r.userProjectMapper.MapUserToGroup(user.Spec.Email, projectID)
-					if err != nil {
-						// wrapping in k8s error to stay consisted with error messages returned from providers
-						return nil, kubernetesErrorToHTTPError(err)
-					}
-				}
+			var projectID string
+			prjIDGetter, ok := request.(common.ProjectIDGetter)
+			if ok {
+				projectID = prjIDGetter.GetProjectID()
 			}
 
-			uInfo := &provider.UserInfo{
-				Email: user.Spec.Email,
-				Group: group,
+			uInfo, err := r.createUserInfo(user, projectID)
+			if err != nil {
+				return nil, common.KubernetesErrorToHTTPError(err)
 			}
 
-			return next(context.WithValue(ctx, userInfoContextKey, uInfo), request)
+			return next(context.WithValue(ctx, middleware.UserInfoContextKey, uInfo), request)
 		}
 	}
 }
 
-// IsAdmin tells if the user has the admin role
-func IsAdmin(u apiv1.User) bool {
-	_, ok := u.Roles[AdminRoleKey]
-	return ok
+// userInfoMiddlewareUnauthorized tries to build userInfo for not authenticated (token) user
+// instead it reads the user_id from the request and finds the associated user in the database
+func (r Routing) userInfoMiddlewareUnauthorized() endpoint.Middleware {
+	return func(next endpoint.Endpoint) endpoint.Endpoint {
+		return func(ctx context.Context, request interface{}) (response interface{}, err error) {
+			userIDGetter, ok := request.(UserIDGetter)
+			if !ok {
+				return nil, k8cerrors.NewBadRequest("you can only use userInfoMiddlewareUnauthorized for endpoints that accepts user ID")
+			}
+			prjIDGetter, ok := request.(common.ProjectIDGetter)
+			if !ok {
+				return nil, k8cerrors.NewBadRequest("you can only use userInfoMiddlewareUnauthorized for endpoints that accepts project ID")
+			}
+			userID := userIDGetter.GetUserID()
+			projectID := prjIDGetter.GetProjectID()
+			user, err := r.userProvider.UserByID(userID)
+			if err != nil {
+				return nil, common.KubernetesErrorToHTTPError(err)
+			}
+
+			uInfo, err := r.createUserInfo(user, projectID)
+			if err != nil {
+				return nil, common.KubernetesErrorToHTTPError(err)
+			}
+			return next(context.WithValue(ctx, middleware.UserInfoContextKey, uInfo), request)
+		}
+	}
+}
+
+func (r Routing) createUserInfo(user *kubermaticapiv1.User, projectID string) (*provider.UserInfo, error) {
+	var group string
+	if projectID != "" {
+		var err error
+		group, err = r.userProjectMapper.MapUserToGroup(user.Spec.Email, projectID)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return &provider.UserInfo{Email: user.Spec.Email, Group: group}, nil
 }
 
 // AddUserToProjectReq defines HTTP request for addUserToProject
 // swagger:parameters addUserToProject
 type AddUserToProjectReq struct {
-	ProjectReq
+	common.ProjectReq
 	// in: body
-	Body apiv1.NewUser
+	Body apiv1.User
 }
 
 // Validate validates AddUserToProjectReq request
@@ -365,6 +367,9 @@ func (r AddUserToProjectReq) Validate(authenticatesUserInfo *provider.UserInfo) 
 	if len(apiUserFromRequest.Email) == 0 {
 		return k8cerrors.NewBadRequest("the email address cannot be empty")
 	}
+	if _, err := mail.ParseAddress(apiUserFromRequest.Email); err != nil {
+		return k8cerrors.NewBadRequest("incorrect email format: %v", err)
+	}
 	if len(r.Body.Projects) != 1 {
 		return k8cerrors.NewBadRequest("expected exactly one entry in \"Projects\" field, but received %d", len(apiUserFromRequest.Projects))
 	}
@@ -375,7 +380,7 @@ func (r AddUserToProjectReq) Validate(authenticatesUserInfo *provider.UserInfo) 
 	if projectFromRequest.ID != r.ProjectID {
 		return k8cerrors.New(http.StatusForbidden, fmt.Sprintf("you can only assign the user to %s project", r.ProjectID))
 	}
-	if apiUserFromRequest.Email == authenticatesUserInfo.Email {
+	if strings.EqualFold(apiUserFromRequest.Email, authenticatesUserInfo.Email) {
 		return k8cerrors.New(http.StatusForbidden, "you cannot assign yourself to a different group")
 	}
 	if projectFromRequest.GroupPrefix == rbac.OwnerGroupNamePrefix {
@@ -397,12 +402,12 @@ func (r AddUserToProjectReq) Validate(authenticatesUserInfo *provider.UserInfo) 
 func decodeAddUserToProject(c context.Context, r *http.Request) (interface{}, error) {
 	var req AddUserToProjectReq
 
-	prjReq, err := decodeProjectRequest(c, r)
+	prjReq, err := common.DecodeProjectRequest(c, r)
 	if err != nil {
 		return nil, err
 
 	}
-	req.ProjectReq = prjReq.(ProjectReq)
+	req.ProjectReq = prjReq.(common.ProjectReq)
 
 	if err := json.NewDecoder(r.Body).Decode(&req.Body); err != nil {
 		return nil, err
@@ -451,12 +456,12 @@ func (r EditUserInProjectReq) Validate(authenticatesUserInfo *provider.UserInfo)
 func decodeEditUserToProject(c context.Context, r *http.Request) (interface{}, error) {
 	var req EditUserInProjectReq
 
-	prjReq, err := decodeProjectRequest(c, r)
+	prjReq, err := common.DecodeProjectRequest(c, r)
 	if err != nil {
 		return nil, err
 
 	}
-	req.ProjectReq = prjReq.(ProjectReq)
+	req.ProjectReq = prjReq.(common.ProjectReq)
 
 	if err := json.NewDecoder(r.Body).Decode(&req.Body); err != nil {
 		return nil, err
@@ -474,18 +479,18 @@ func decodeEditUserToProject(c context.Context, r *http.Request) (interface{}, e
 // DeleteUserFromProjectReq defines HTTP request for deleteUserFromProject
 // swagger:parameters deleteUserFromProject
 type DeleteUserFromProjectReq struct {
-	ProjectReq
+	common.ProjectReq
 	UserIDReq
 }
 
 func decodeDeleteUserFromProject(c context.Context, r *http.Request) (interface{}, error) {
 	var req DeleteUserFromProjectReq
 
-	prjReq, err := decodeProjectRequest(c, r)
+	prjReq, err := common.DecodeProjectRequest(c, r)
 	if err != nil {
 		return nil, err
 	}
-	req.ProjectReq = prjReq.(ProjectReq)
+	req.ProjectReq = prjReq.(common.ProjectReq)
 
 	userIDReq, err := decodeUserIDReq(c, r)
 	if err != nil {

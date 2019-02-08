@@ -8,10 +8,16 @@ import (
 )
 
 var (
-	defaultOpenVPNMemoryRequest = resource.MustParse("30Mi")
-	defaultOpenVPNCPURequest    = resource.MustParse("10m")
-	defaultOpenVPNMemoryLimit   = resource.MustParse("64Mi")
-	defaultOpenVPNCPULimit      = resource.MustParse("40m")
+	vpnClientResourceRequirements = corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceMemory: resource.MustParse("5Mi"),
+			corev1.ResourceCPU:    resource.MustParse("5m"),
+		},
+		Limits: corev1.ResourceList{
+			corev1.ResourceMemory: resource.MustParse("32Mi"),
+			corev1.ResourceCPU:    resource.MustParse("100m"),
+		},
+	}
 )
 
 // OpenVPNSidecarContainer returns a `corev1.Container` for
@@ -34,7 +40,7 @@ func OpenVPNSidecarContainer(data resources.DeploymentDataProvider, name string)
 			"--nobind",
 			"--connect-timeout", "5",
 			"--connect-retry", "1",
-			"--ca", "/etc/kubernetes/pki/ca/ca.crt",
+			"--ca", "/etc/openvpn/pki/client/ca.crt",
 			"--cert", "/etc/openvpn/pki/client/client.crt",
 			"--key", "/etc/openvpn/pki/client/client.key",
 			"--remote-cert-tls", "server",
@@ -51,25 +57,11 @@ func OpenVPNSidecarContainer(data resources.DeploymentDataProvider, name string)
 		},
 		TerminationMessagePath:   corev1.TerminationMessagePathDefault,
 		TerminationMessagePolicy: corev1.TerminationMessageReadFile,
-		Resources: corev1.ResourceRequirements{
-			Requests: corev1.ResourceList{
-				corev1.ResourceMemory: defaultOpenVPNMemoryRequest,
-				corev1.ResourceCPU:    defaultOpenVPNCPURequest,
-			},
-			Limits: corev1.ResourceList{
-				corev1.ResourceMemory: defaultOpenVPNMemoryLimit,
-				corev1.ResourceCPU:    defaultOpenVPNCPULimit,
-			},
-		},
+		Resources:                vpnClientResourceRequirements,
 		VolumeMounts: []corev1.VolumeMount{
 			{
 				MountPath: "/etc/openvpn/pki/client",
 				Name:      resources.OpenVPNClientCertificatesSecretName,
-				ReadOnly:  true,
-			},
-			{
-				MountPath: "/etc/kubernetes/pki/ca",
-				Name:      resources.CASecretName,
 				ReadOnly:  true,
 			},
 		},

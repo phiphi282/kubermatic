@@ -3,20 +3,33 @@ package machinecontroller
 import (
 	"fmt"
 
-	"github.com/kubermatic/kubermatic/api/pkg/resources/apiserver"
-
 	"github.com/kubermatic/kubermatic/api/pkg/resources"
+	"github.com/kubermatic/kubermatic/api/pkg/resources/apiserver"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
+)
+
+var (
+	controllerResourceRequirements = corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceMemory: resource.MustParse("32Mi"),
+			corev1.ResourceCPU:    resource.MustParse("25m"),
+		},
+		Limits: corev1.ResourceList{
+			corev1.ResourceMemory: resource.MustParse("512Mi"),
+			corev1.ResourceCPU:    resource.MustParse("2"),
+		},
+	}
 )
 
 const (
 	name = "machine-controller"
 
-	tag = "v0.10.3"
+	tag = "v1.0.3"
 )
 
 // Deployment returns the machine-controller Deployment
@@ -48,6 +61,7 @@ func Deployment(data resources.DeploymentDataProvider, existing *appsv1.Deployme
 			IntVal: 0,
 		},
 	}
+	dep.Spec.Template.Spec.ImagePullSecrets = []corev1.LocalObjectReference{{Name: resources.ImagePullSecretName}}
 
 	volumes := []corev1.Volume{getKubeconfigVolume()}
 	podLabels, err := data.GetPodTemplateLabels(name, volumes, nil)
@@ -92,26 +106,16 @@ func Deployment(data resources.DeploymentDataProvider, existing *appsv1.Deployme
 			Env:                      getEnvVars(data),
 			TerminationMessagePath:   corev1.TerminationMessagePathDefault,
 			TerminationMessagePolicy: corev1.TerminationMessageReadFile,
-			ReadinessProbe: &corev1.Probe{
-				Handler: corev1.Handler{
-					HTTPGet: &corev1.HTTPGetAction{
-						Path: "/ready",
-						Port: intstr.FromInt(8085),
-					},
-				},
-				FailureThreshold: 3,
-				PeriodSeconds:    10,
-				SuccessThreshold: 1,
-				TimeoutSeconds:   15,
-			},
+			Resources:                controllerResourceRequirements,
 			LivenessProbe: &corev1.Probe{
-				FailureThreshold: 8,
 				Handler: corev1.Handler{
 					HTTPGet: &corev1.HTTPGetAction{
-						Path: "/live",
-						Port: intstr.FromInt(8085),
+						Path:   "/ready",
+						Port:   intstr.FromInt(8085),
+						Scheme: corev1.URISchemeHTTP,
 					},
 				},
+				FailureThreshold:    3,
 				InitialDelaySeconds: 15,
 				PeriodSeconds:       10,
 				SuccessThreshold:    1,

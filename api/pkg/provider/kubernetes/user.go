@@ -3,6 +3,7 @@ package kubernetes
 import (
 	"crypto/sha256"
 	"fmt"
+	"strings"
 
 	kubermaticclientset "github.com/kubermatic/kubermatic/api/pkg/crd/client/clientset/versioned"
 	kubermaticv1lister "github.com/kubermatic/kubermatic/api/pkg/crd/client/listers/kubermatic/v1"
@@ -37,26 +38,6 @@ func (p *UserProvider) UserByID(id string) (*kubermaticv1.User, error) {
 	return p.client.KubermaticV1().Users().Get(id, v1.GetOptions{})
 }
 
-// ListByProject returns a list of users by the given project name
-func (p *UserProvider) ListByProject(projectName string) ([]*kubermaticv1.User, error) {
-	userList, err := p.userLister.List(labels.Everything())
-	if err != nil {
-		return nil, err
-	}
-
-	projectUsers := []*kubermaticv1.User{}
-	for _, user := range userList {
-		for _, project := range user.Spec.Projects {
-			if project.Name == projectName {
-				projectUsers = append(projectUsers, user.DeepCopy())
-				break
-			}
-		}
-	}
-
-	return projectUsers, nil
-}
-
 // UserByEmail returns a user by the given email
 func (p *UserProvider) UserByEmail(email string) (*kubermaticv1.User, error) {
 	users, err := p.userLister.List(labels.Everything())
@@ -65,7 +46,7 @@ func (p *UserProvider) UserByEmail(email string) (*kubermaticv1.User, error) {
 	}
 
 	for _, user := range users {
-		if user.Spec.Email == email {
+		if strings.EqualFold(user.Spec.Email, email) {
 			return user.DeepCopy(), nil
 		}
 	}
@@ -78,7 +59,7 @@ func (p *UserProvider) UserByEmail(email string) (*kubermaticv1.User, error) {
 		return nil, err
 	}
 	for _, user := range userList.Items {
-		if user.Spec.Email == email {
+		if strings.EqualFold(user.Spec.Email, email) {
 			return user.DeepCopy(), nil
 		}
 	}

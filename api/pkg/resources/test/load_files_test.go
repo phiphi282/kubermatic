@@ -11,19 +11,24 @@ import (
 	"testing"
 	"time"
 
+	appsv1 "k8s.io/api/apps/v1"
+
 	"github.com/Masterminds/semver"
 	"github.com/ghodss/yaml"
 	"github.com/pmezard/go-difflib/difflib"
 
-	apiv2 "github.com/kubermatic/kubermatic/api/pkg/api/v2"
+	apiv1 "github.com/kubermatic/kubermatic/api/pkg/api/v1"
 	clustercontroller "github.com/kubermatic/kubermatic/api/pkg/controller/cluster"
+	monitoringcontroller "github.com/kubermatic/kubermatic/api/pkg/controller/monitoring"
 	kubermaticv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
 	"github.com/kubermatic/kubermatic/api/pkg/provider"
 	"github.com/kubermatic/kubermatic/api/pkg/resources"
 	"github.com/kubermatic/kubermatic/api/pkg/resources/machine"
+	ksemver "github.com/kubermatic/kubermatic/api/pkg/semver"
 	"github.com/kubermatic/kubermatic/api/pkg/version"
 
 	"k8s.io/api/core/v1"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -196,7 +201,7 @@ func TestLoadFiles(t *testing.T) {
 					},
 					Spec: kubermaticv1.ClusterSpec{
 						Cloud:   cloudspec,
-						Version: ver.Version.String(),
+						Version: *ksemver.NewSemverOrDie(ver.Version.String()),
 						ClusterNetwork: kubermaticv1.ClusterNetworkingConfig{
 							Services: kubermaticv1.NetworkRanges{
 								CIDRBlocks: []string{"10.10.10.0/24"},
@@ -218,6 +223,13 @@ func TestLoadFiles(t *testing.T) {
 				}
 
 				kubeClient := kubefake.NewSimpleClientset(
+					&v1.Secret{
+						ObjectMeta: metav1.ObjectMeta{
+							ResourceVersion: "123456",
+							Name:            resources.DexCASecretName,
+							Namespace:       cluster.Status.NamespaceName,
+						},
+					},
 					&v1.Secret{
 						ObjectMeta: metav1.ObjectMeta{
 							ResourceVersion: "123456",
@@ -250,6 +262,13 @@ func TestLoadFiles(t *testing.T) {
 						ObjectMeta: metav1.ObjectMeta{
 							ResourceVersion: "123456",
 							Name:            resources.CASecretName,
+							Namespace:       cluster.Status.NamespaceName,
+						},
+					},
+					&v1.Secret{
+						ObjectMeta: metav1.ObjectMeta{
+							ResourceVersion: "123456",
+							Name:            resources.OpenVPNCASecretName,
 							Namespace:       cluster.Status.NamespaceName,
 						},
 					},
@@ -327,6 +346,20 @@ func TestLoadFiles(t *testing.T) {
 						ObjectMeta: metav1.ObjectMeta{
 							ResourceVersion: "123456",
 							Name:            resources.FrontProxyCASecretName,
+							Namespace:       cluster.Status.NamespaceName,
+						},
+					},
+					&v1.Secret{
+						ObjectMeta: metav1.ObjectMeta{
+							ResourceVersion: "123456",
+							Name:            resources.MetricsServerKubeconfigSecretName,
+							Namespace:       cluster.Status.NamespaceName,
+						},
+					},
+					&v1.Secret{
+						ObjectMeta: metav1.ObjectMeta{
+							ResourceVersion: "123456",
+							Name:            resources.PrometheusApiserverClientCertificateSecretName,
 							Namespace:       cluster.Status.NamespaceName,
 						},
 					},
@@ -436,7 +469,13 @@ func TestLoadFiles(t *testing.T) {
 				}
 
 				tmpFilePath := tmpFile.Name()
-				_, err = tmpFile.WriteString("some test")
+				_, err = tmpFile.WriteString(`- job_name: custom-test-config
+  scheme: https
+  metrics_path: '/metrics'
+  static_configs:
+  - targets:
+    - 'foo.bar:12345'
+`)
 				if err != nil {
 					t.Fatalf("couldnt write to temp file, see: %v", err)
 				}
@@ -459,12 +498,15 @@ func TestLoadFiles(t *testing.T) {
 					"",
 					"192.0.2.0/24",
 					resource.MustParse("5Gi"),
-					tmpFilePath,
+					"kubermatic_io_monitoring",
 					"",
 					false,
 					false,
 					tmpFilePath,
 					nil,
+					"test",
+					"",
+					"",
 				)
 				kubeInformerFactory.Start(wait.NeverStop)
 				kubeInformerFactory.WaitForCacheSync(wait.NeverStop)
@@ -477,19 +519,30 @@ func TestLoadFiles(t *testing.T) {
 					},
 				}
 
-				deps := clustercontroller.GetDeploymentCreators(dummyCluster)
-
-				for _, create := range deps {
+				var deploymentCreators []resources.DeploymentCreator
+				deploymentCreators = append(deploymentCreators, clustercontroller.GetDeploymentCreators(dummyCluster)...)
+				deploymentCreators = append(deploymentCreators, monitoringcontroller.GetDeploymentCreators(dummyCluster)...)
+				for _, create := range deploymentCreators {
 					res, err := create(data, nil)
 					if err != nil {
 						t.Fatalf("failed to create Deployment: %v", err)
 					}
 					fixturePath := fmt.Sprintf("deployment-%s-%s-%s", prov, ver.Version.String(), res.Name)
 
+					// Verify that every Deployment has the ImagePullSecret set
+					if len(res.Spec.Template.Spec.ImagePullSecrets) == 0 {
+						t.Errorf("Deployment %s is missing the ImagePullSecret on the PodTemplate", res.Name)
+					}
+
+					verifyContainerResources(fmt.Sprintf("Deployment/%s", res.Name), res.Spec.Template, t)
+
 					checkTestResult(t, fixturePath, res)
 				}
 
-				for _, create := range clustercontroller.GetConfigMapCreators(data) {
+				var configmapCreators []resources.ConfigMapCreator
+				configmapCreators = append(configmapCreators, clustercontroller.GetConfigMapCreators(data)...)
+				configmapCreators = append(configmapCreators, monitoringcontroller.GetConfigMapCreators(data)...)
+				for _, create := range configmapCreators {
 					res, err := create(nil)
 					if err != nil {
 						t.Fatalf("failed to create ConfigMap: %v", err)
@@ -499,7 +552,10 @@ func TestLoadFiles(t *testing.T) {
 					checkTestResult(t, fixturePath, res)
 				}
 
-				for _, create := range clustercontroller.GetServiceCreators() {
+				var serviceCreators []resources.ServiceCreator
+				serviceCreators = append(serviceCreators, clustercontroller.GetServiceCreators()...)
+				serviceCreators = append(serviceCreators, monitoringcontroller.GetServiceCreators()...)
+				for _, create := range serviceCreators {
 					res, err := create(data, nil)
 					if err != nil {
 						t.Fatalf("failed to create Service: %v", err)
@@ -509,8 +565,11 @@ func TestLoadFiles(t *testing.T) {
 					checkTestResult(t, fixturePath, res)
 				}
 
-				for _, create := range clustercontroller.GetStatefulSetCreators() {
-					res, err := create(data, nil)
+				var statefulSetCreators []resources.StatefulSetCreator
+				statefulSetCreators = append(statefulSetCreators, clustercontroller.GetStatefulSetCreators(data)...)
+				statefulSetCreators = append(statefulSetCreators, monitoringcontroller.GetStatefulSetCreators(data)...)
+				for _, create := range statefulSetCreators {
+					res, err := create(&appsv1.StatefulSet{})
 					if err != nil {
 						t.Fatalf("failed to create StatefulSet: %v", err)
 					}
@@ -519,6 +578,13 @@ func TestLoadFiles(t *testing.T) {
 					if err != nil {
 						t.Fatalf("failed to create StatefulSet for %s: %v", fixturePath, err)
 					}
+
+					// Verify that every StatefulSet has the ImagePullSecret set
+					if len(res.Spec.Template.Spec.ImagePullSecrets) == 0 {
+						t.Errorf("StatefulSet %s is missing the ImagePullSecret on the PodTemplate", res.Name)
+					}
+
+					verifyContainerResources(fmt.Sprintf("StatefulSet/%s", res.Name), res.Spec.Template, t)
 
 					checkTestResult(t, fixturePath, res)
 				}
@@ -548,6 +614,11 @@ func TestLoadFiles(t *testing.T) {
 						t.Fatalf("failed to create CronJob for %s: %v", fixturePath, err)
 					}
 
+					// Verify that every CronJob has the ImagePullSecret set
+					if len(res.Spec.JobTemplate.Spec.Template.Spec.ImagePullSecrets) == 0 {
+						t.Errorf("CronJob %s is missing the ImagePullSecret on the PodTemplate", res.Name)
+					}
+
 					checkTestResult(t, fixturePath, res)
 				}
 			})
@@ -555,9 +626,26 @@ func TestLoadFiles(t *testing.T) {
 	}
 }
 
+func verifyContainerResources(owner string, podTemplateSpec v1.PodTemplateSpec, t *testing.T) {
+	// Verify that every pod has resource request's & limit's set.
+	for _, container := range podTemplateSpec.Spec.Containers {
+		resourceLists := map[string]corev1.ResourceList{
+			"Limit":    container.Resources.Limits,
+			"Requests": container.Resources.Requests,
+		}
+		for listKind, resourceList := range resourceLists {
+			for _, resourceName := range []corev1.ResourceName{corev1.ResourceCPU, corev1.ResourceMemory} {
+				if _, exists := resourceList[resourceName]; !exists {
+					t.Errorf("Container '%s' of %s is missing the %s %s!", container.Name, owner, resourceName, listKind)
+				}
+			}
+		}
+	}
+}
+
 type Data struct {
 	Cluster    *kubermaticv1.Cluster
-	Node       *apiv2.Node
+	Node       *apiv1.Node
 	Datacenter provider.DatacenterMeta
 	Name       string
 	Keys       []*kubermaticv1.UserSSHKey
@@ -587,13 +675,13 @@ func TestExecute(t *testing.T) {
 						},
 					},
 				},
-				Node: &apiv2.Node{
-					Metadata: apiv2.ObjectMeta{
+				Node: &apiv1.Node{
+					ObjectMeta: apiv1.ObjectMeta{
 						Name: "docluster-1a2b3c4d5e-te5s7",
 					},
-					Spec: apiv2.NodeSpec{
-						Cloud: apiv2.NodeCloudSpec{
-							Digitalocean: &apiv2.DigitaloceanNodeSpec{
+					Spec: apiv1.NodeSpec{
+						Cloud: apiv1.NodeCloudSpec{
+							Digitalocean: &apiv1.DigitaloceanNodeSpec{
 								Size:       "s-1vcpu-1gb",
 								Backups:    false,
 								IPv6:       false,
@@ -604,16 +692,16 @@ func TestExecute(t *testing.T) {
 								},
 							},
 						},
-						OperatingSystem: apiv2.OperatingSystemSpec{
-							Ubuntu: &apiv2.UbuntuSpec{
+						OperatingSystem: apiv1.OperatingSystemSpec{
+							Ubuntu: &apiv1.UbuntuSpec{
 								DistUpgradeOnBoot: false,
 							},
 						},
-						Versions: apiv2.NodeVersionInfo{
+						Versions: apiv1.NodeVersionInfo{
 							Kubelet: "v1.9.6",
 						},
 					},
-					Status: apiv2.NodeStatus{},
+					Status: apiv1.NodeStatus{},
 				},
 				Datacenter: provider.DatacenterMeta{
 					Location: "Frankfurt",
@@ -668,13 +756,13 @@ func TestExecute(t *testing.T) {
 						},
 					},
 				},
-				Node: &apiv2.Node{
-					Metadata: apiv2.ObjectMeta{
+				Node: &apiv1.Node{
+					ObjectMeta: apiv1.ObjectMeta{
 						Name: "awscluster-1a2b3c4d5e-te5s7",
 					},
-					Spec: apiv2.NodeSpec{
-						Cloud: apiv2.NodeCloudSpec{
-							AWS: &apiv2.AWSNodeSpec{
+					Spec: apiv1.NodeSpec{
+						Cloud: apiv1.NodeCloudSpec{
+							AWS: &apiv1.AWSNodeSpec{
 								InstanceType: "t2.micro",
 								VolumeSize:   25,
 								VolumeType:   "standard",
@@ -685,16 +773,16 @@ func TestExecute(t *testing.T) {
 								},
 							},
 						},
-						OperatingSystem: apiv2.OperatingSystemSpec{
-							Ubuntu: &apiv2.UbuntuSpec{
+						OperatingSystem: apiv1.OperatingSystemSpec{
+							Ubuntu: &apiv1.UbuntuSpec{
 								DistUpgradeOnBoot: false,
 							},
 						},
-						Versions: apiv2.NodeVersionInfo{
+						Versions: apiv1.NodeVersionInfo{
 							Kubelet: "v1.9.6",
 						},
 					},
-					Status: apiv2.NodeStatus{},
+					Status: apiv1.NodeStatus{},
 				},
 				Datacenter: provider.DatacenterMeta{
 					Location: "Frankfurt",
@@ -762,30 +850,31 @@ func TestExecute(t *testing.T) {
 						},
 					},
 				},
-				Node: &apiv2.Node{
-					Metadata: apiv2.ObjectMeta{
+				Node: &apiv1.Node{
+					ObjectMeta: apiv1.ObjectMeta{
 						Name: "openstackcluster-1a2b3c4d5e-te5s7",
 					},
-					Spec: apiv2.NodeSpec{
-						Cloud: apiv2.NodeCloudSpec{
-							Openstack: &apiv2.OpenstackNodeSpec{
+					Spec: apiv1.NodeSpec{
+						Cloud: apiv1.NodeCloudSpec{
+							Openstack: &apiv1.OpenstackNodeSpec{
 								Flavor: "os-flavor",
 								Image:  "os-image",
 								Tags: map[string]string{
 									"foo": "bar",
 								},
+								UseFloatingIP: true,
 							},
 						},
-						OperatingSystem: apiv2.OperatingSystemSpec{
-							Ubuntu: &apiv2.UbuntuSpec{
+						OperatingSystem: apiv1.OperatingSystemSpec{
+							Ubuntu: &apiv1.UbuntuSpec{
 								DistUpgradeOnBoot: false,
 							},
 						},
-						Versions: apiv2.NodeVersionInfo{
+						Versions: apiv1.NodeVersionInfo{
 							Kubelet: "v1.9.6",
 						},
 					},
-					Status: apiv2.NodeStatus{},
+					Status: apiv1.NodeStatus{},
 				},
 				Datacenter: provider.DatacenterMeta{
 					Location: "Frankfurt",
@@ -843,13 +932,13 @@ func TestExecute(t *testing.T) {
 						},
 					},
 				},
-				Node: &apiv2.Node{
-					Metadata: apiv2.ObjectMeta{
+				Node: &apiv1.Node{
+					ObjectMeta: apiv1.ObjectMeta{
 						Name: "azurecluster-1a2b3c4d5e-te5s7",
 					},
-					Spec: apiv2.NodeSpec{
-						Cloud: apiv2.NodeCloudSpec{
-							Azure: &apiv2.AzureNodeSpec{
+					Spec: apiv1.NodeSpec{
+						Cloud: apiv1.NodeCloudSpec{
+							Azure: &apiv1.AzureNodeSpec{
 								Size:           "Standard_B1ms",
 								AssignPublicIP: false,
 								Tags: map[string]string{
@@ -857,16 +946,16 @@ func TestExecute(t *testing.T) {
 								},
 							},
 						},
-						OperatingSystem: apiv2.OperatingSystemSpec{
-							ContainerLinux: &apiv2.ContainerLinuxSpec{
+						OperatingSystem: apiv1.OperatingSystemSpec{
+							ContainerLinux: &apiv1.ContainerLinuxSpec{
 								DisableAutoUpdate: true,
 							},
 						},
-						Versions: apiv2.NodeVersionInfo{
+						Versions: apiv1.NodeVersionInfo{
 							Kubelet: "v1.10.3",
 						},
 					},
-					Status: apiv2.NodeStatus{},
+					Status: apiv1.NodeStatus{},
 				},
 				Datacenter: provider.DatacenterMeta{
 					Location: "westeurope",
@@ -913,26 +1002,26 @@ func TestExecute(t *testing.T) {
 						},
 					},
 				},
-				Node: &apiv2.Node{
-					Metadata: apiv2.ObjectMeta{
+				Node: &apiv1.Node{
+					ObjectMeta: apiv1.ObjectMeta{
 						Name: "hetznercluster-1a2b3c4d5e-te5s7",
 					},
-					Spec: apiv2.NodeSpec{
-						Cloud: apiv2.NodeCloudSpec{
-							Hetzner: &apiv2.HetznerNodeSpec{
+					Spec: apiv1.NodeSpec{
+						Cloud: apiv1.NodeCloudSpec{
+							Hetzner: &apiv1.HetznerNodeSpec{
 								Type: "hetzner-type",
 							},
 						},
-						OperatingSystem: apiv2.OperatingSystemSpec{
-							Ubuntu: &apiv2.UbuntuSpec{
+						OperatingSystem: apiv1.OperatingSystemSpec{
+							Ubuntu: &apiv1.UbuntuSpec{
 								DistUpgradeOnBoot: false,
 							},
 						},
-						Versions: apiv2.NodeVersionInfo{
+						Versions: apiv1.NodeVersionInfo{
 							Kubelet: "v1.9.6",
 						},
 					},
-					Status: apiv2.NodeStatus{},
+					Status: apiv1.NodeStatus{},
 				},
 				Datacenter: provider.DatacenterMeta{
 					Location: "Frankfurt",
@@ -981,27 +1070,27 @@ func TestExecute(t *testing.T) {
 						},
 					},
 				},
-				Node: &apiv2.Node{
-					Metadata: apiv2.ObjectMeta{
+				Node: &apiv1.Node{
+					ObjectMeta: apiv1.ObjectMeta{
 						Name: "vsphere-1a2b3c4d5e-te5s7",
 					},
-					Spec: apiv2.NodeSpec{
-						Cloud: apiv2.NodeCloudSpec{
-							VSphere: &apiv2.VSphereNodeSpec{
+					Spec: apiv1.NodeSpec{
+						Cloud: apiv1.NodeCloudSpec{
+							VSphere: &apiv1.VSphereNodeSpec{
 								Memory: 2048,
 								CPUs:   2,
 							},
 						},
-						OperatingSystem: apiv2.OperatingSystemSpec{
-							Ubuntu: &apiv2.UbuntuSpec{
+						OperatingSystem: apiv1.OperatingSystemSpec{
+							Ubuntu: &apiv1.UbuntuSpec{
 								DistUpgradeOnBoot: false,
 							},
 						},
-						Versions: apiv2.NodeVersionInfo{
+						Versions: apiv1.NodeVersionInfo{
 							Kubelet: "v1.9.6",
 						},
 					},
-					Status: apiv2.NodeStatus{},
+					Status: apiv1.NodeStatus{},
 				},
 				Datacenter: provider.DatacenterMeta{
 					Location: "Frankfurt",

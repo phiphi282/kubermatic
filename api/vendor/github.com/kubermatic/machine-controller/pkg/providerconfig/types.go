@@ -38,6 +38,7 @@ const (
 	CloudProviderHetzner      CloudProvider = "hetzner"
 	CloudProviderVsphere      CloudProvider = "vsphere"
 	CloudProviderFake         CloudProvider = "fake"
+	CloudProviderKubeVirt     CloudProvider = "kubevirt"
 )
 
 // DNSConfig contains a machine's DNS configuration
@@ -261,7 +262,7 @@ func (configVarResolver *ConfigVarResolver) GetConfigVarStringValue(configVar Co
 			return "", fmt.Errorf("error retrieving configmap '%s' from namespace '%s': '%v'", configVar.ConfigMapKeyRef.Name, configVar.ConfigMapKeyRef.Namespace, err)
 		}
 		if val, ok := configMap.Data[configVar.ConfigMapKeyRef.Key]; ok {
-			return string(val), nil
+			return val, nil
 		}
 		return "", fmt.Errorf("configmap '%s' in namespace '%s' has no key '%s'", configVar.ConfigMapKeyRef.Name, configVar.ConfigMapKeyRef.Namespace, configVar.ConfigMapKeyRef.Key)
 	}
@@ -321,9 +322,9 @@ func NewConfigVarResolver(kubeClient kubernetes.Interface) *ConfigVarResolver {
 	return &ConfigVarResolver{kubeClient: kubeClient}
 }
 
-func GetConfig(r clusterv1alpha1.ProviderConfig) (*Config, error) {
+func GetConfig(r clusterv1alpha1.ProviderSpec) (*Config, error) {
 	if r.Value == nil {
-		return nil, fmt.Errorf("machine.spec.providerconfig.value is nil")
+		return nil, fmt.Errorf("machine.spec.providerSpec.value is nil")
 	}
 	p := new(Config)
 	if len(r.Value.Raw) == 0 {

@@ -69,10 +69,6 @@ func (cc *Controller) reconcileCluster(cluster *kubermaticv1.Cluster) (*kubermat
 			}
 		}
 
-		if err = cc.launchingCreateClusterInfoConfigMap(cluster); err != nil {
-			return nil, err
-		}
-
 		client, err := cc.userClusterConnProvider.GetClient(cluster)
 		if err != nil {
 			return nil, err

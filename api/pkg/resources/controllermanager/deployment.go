@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/Masterminds/semver"
-
 	kubermaticv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
 	"github.com/kubermatic/kubermatic/api/pkg/resources"
 	"github.com/kubermatic/kubermatic/api/pkg/resources/apiserver"
@@ -26,8 +24,8 @@ var (
 			corev1.ResourceCPU:    resource.MustParse("100m"),
 		},
 		Limits: corev1.ResourceList{
-			corev1.ResourceMemory: resource.MustParse("512Mi"),
-			corev1.ResourceCPU:    resource.MustParse("250m"),
+			corev1.ResourceMemory: resource.MustParse("2Gi"),
+			corev1.ResourceCPU:    resource.MustParse("2"),
 		},
 	}
 )
@@ -49,12 +47,7 @@ func Deployment(data resources.DeploymentDataProvider, existing *appsv1.Deployme
 	dep.OwnerReferences = []metav1.OwnerReference{data.GetClusterRef()}
 	dep.Labels = resources.BaseAppLabel(name, nil)
 
-	clusterSemverVersion, err := semver.NewVersion(data.Cluster().Spec.Version)
-	if err != nil {
-		return nil, fmt.Errorf("invalid version in cluster '%s': %v", data.Cluster().Spec.Version, err)
-	}
-
-	flags, err := getFlags(data.Cluster(), clusterSemverVersion)
+	flags, err := getFlags(data.Cluster())
 	if err != nil {
 		return nil, err
 	}
@@ -78,6 +71,7 @@ func Deployment(data resources.DeploymentDataProvider, existing *appsv1.Deployme
 			IntVal: 0,
 		},
 	}
+	dep.Spec.Template.Spec.ImagePullSecrets = []corev1.LocalObjectReference{{Name: resources.ImagePullSecretName}}
 
 	volumes := getVolumes()
 	podLabels, err := data.GetPodTemplateLabels(name, volumes, nil)
@@ -87,7 +81,7 @@ func Deployment(data resources.DeploymentDataProvider, existing *appsv1.Deployme
 
 	dep.Spec.Template.ObjectMeta = metav1.ObjectMeta{
 		Labels:      podLabels,
-		Annotations: getPodAnnotations(clusterSemverVersion),
+		Annotations: getPodAnnotations(data),
 	}
 
 	// Configure user cluster DNS resolver for this pod.
@@ -150,7 +144,7 @@ func Deployment(data resources.DeploymentDataProvider, existing *appsv1.Deployme
 		*openvpnSidecar,
 		{
 			Name:                     name,
-			Image:                    data.ImageRegistry(resources.RegistryGCR) + "/google_containers/hyperkube-amd64:v" + data.Cluster().Spec.Version,
+			Image:                    data.ImageRegistry(resources.RegistryGCR) + "/google_containers/hyperkube-amd64:v" + data.Cluster().Spec.Version.String(),
 			ImagePullPolicy:          corev1.PullIfNotPresent,
 			Command:                  []string{"/hyperkube", "controller-manager"},
 			Args:                     flags,
@@ -160,7 +154,7 @@ func Deployment(data resources.DeploymentDataProvider, existing *appsv1.Deployme
 			Resources:                resourceRequirements,
 			ReadinessProbe: &corev1.Probe{
 				Handler: corev1.Handler{
-					HTTPGet: getHealthGetAction(clusterSemverVersion),
+					HTTPGet: getHealthGetAction(data),
 				},
 				FailureThreshold: 3,
 				PeriodSeconds:    10,
@@ -170,7 +164,7 @@ func Deployment(data resources.DeploymentDataProvider, existing *appsv1.Deployme
 			LivenessProbe: &corev1.Probe{
 				FailureThreshold: 8,
 				Handler: corev1.Handler{
-					HTTPGet: getHealthGetAction(clusterSemverVersion),
+					HTTPGet: getHealthGetAction(data),
 				},
 				InitialDelaySeconds: 15,
 				PeriodSeconds:       10,
@@ -186,7 +180,7 @@ func Deployment(data resources.DeploymentDataProvider, existing *appsv1.Deployme
 	return dep, nil
 }
 
-func getFlags(cluster *kubermaticv1.Cluster, version *semver.Version) ([]string, error) {
+func getFlags(cluster *kubermaticv1.Cluster) ([]string, error) {
 	flags := []string{
 		"--kubeconfig", "/etc/kubernetes/kubeconfig/kubeconfig",
 		"--service-account-private-key-file", "/etc/kubernetes/service-account-key/sa.key",
@@ -207,7 +201,7 @@ func getFlags(cluster *kubermaticv1.Cluster, version *semver.Version) ([]string,
 	// TODO: Remove once we don't support Kube 1.10 anymore
 	// TODO: Before removing, add check that prevents upgrading to 1.12 when
 	// there is still a node < 1.11
-	if version.Minor() >= 12 {
+	if cluster.Spec.Version.Semver().Minor() >= 12 {
 		featureGates = append(featureGates, "ScheduleDaemonSetPods=false")
 	}
 	if len(featureGates) > 0 {
@@ -233,12 +227,12 @@ func getFlags(cluster *kubermaticv1.Cluster, version *semver.Version) ([]string,
 	}
 
 	// New flag in v1.12 which gets used to perform permission checks
-	if version.Minor() >= 12 {
+	if cluster.Spec.Version.Semver().Minor() >= 12 {
 		flags = append(flags, "--authentication-kubeconfig", "/etc/kubernetes/kubeconfig/kubeconfig")
 	}
 
 	// With 1.13 we're using the secure port for scraping metrics as the insecure port got marked deprecated
-	if version.Minor() >= 13 {
+	if cluster.Spec.Version.Semver().Minor() >= 13 {
 		flags = append(flags, "--authorization-kubeconfig", "/etc/kubernetes/kubeconfig/kubeconfig")
 		// We're going to use the https endpoints for scraping the metrics starting from 1.12. Thus we can deactivate the http endpoint
 		flags = append(flags, "--port", "0")
@@ -247,7 +241,7 @@ func getFlags(cluster *kubermaticv1.Cluster, version *semver.Version) ([]string,
 	// This is required in 1.12.0 as a workaround for
 	// https://github.com/kubernetes/kubernetes/issues/68986, the patch
 	// got cherry-picked onto 1.12.1
-	if version.Minor() == 12 && version.Patch() == 0 {
+	if cluster.Spec.Version.Semver().Minor() == 12 && cluster.Spec.Version.Semver().Patch() == 0 {
 		flags = append(flags, "--authentication-skip-lookup=true")
 	}
 
@@ -317,12 +311,12 @@ func getEnvVars(cluster *kubermaticv1.Cluster) []corev1.EnvVar {
 	return vars
 }
 
-func getPodAnnotations(version *semver.Version) map[string]string {
+func getPodAnnotations(data resources.DeploymentDataProvider) map[string]string {
 	annotations := map[string]string{
 		"prometheus.io/path": "/metrics",
 	}
 	// With 1.13 we're using the secure port for scraping metrics as the insecure port got marked deprecated
-	if version.Minor() >= 13 {
+	if data.Cluster().Spec.Version.Minor() >= 13 {
 		annotations["prometheus.io/scrape_with_kube_cert"] = "true"
 		annotations["prometheus.io/port"] = "10257"
 	} else {
@@ -333,12 +327,12 @@ func getPodAnnotations(version *semver.Version) map[string]string {
 	return annotations
 }
 
-func getHealthGetAction(version *semver.Version) *corev1.HTTPGetAction {
+func getHealthGetAction(data resources.DeploymentDataProvider) *corev1.HTTPGetAction {
 	action := &corev1.HTTPGetAction{
 		Path: "/healthz",
 	}
 	// With 1.13 we're using the secure port for scraping metrics as the insecure port got marked deprecated
-	if version.Minor() >= 13 {
+	if data.Cluster().Spec.Version.Minor() >= 13 {
 		action.Scheme = corev1.URISchemeHTTPS
 		action.Port = intstr.FromInt(10257)
 	} else {

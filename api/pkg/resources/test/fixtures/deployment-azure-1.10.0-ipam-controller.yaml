@@ -11,7 +11,7 @@ metadata:
     name: de-test-01
     uid: "1234567890"
 spec:
-  replicas: 3
+  replicas: 1
   selector:
     matchLabels:
       app: ipam-controller
@@ -29,15 +29,24 @@ spec:
       containers:
       - args:
         - --kubeconfig
-        - /etc/kubernetes/ipamcontroller/ipamcontroller-kubeconfig
+        - /etc/kubernetes/ipamcontroller/kubeconfig
         - -v
         - "4"
+        - -logtostderr
         command:
         - /usr/local/bin/ipam-controller
-        image: 'docker.io/kubermatic/api:'
+        image: 'quay.io/kubermatic/api:'
         imagePullPolicy: IfNotPresent
         name: ipam-controller
-        resources: {}
+        resources:
+          limits:
+            cpu: 100m
+            memory: 512Mi
+          requests:
+            cpu: 10m
+            memory: 32Mi
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
         volumeMounts:
         - mountPath: /etc/kubernetes/ipamcontroller
           name: ipamcontroller-kubeconfig

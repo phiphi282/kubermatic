@@ -1,13 +1,11 @@
 metadata:
   creationTimestamp: null
-  name: machine-azurecluster-1a2b3c4d5e-te5s7
+  generateName: machine-kubermatic-azurecluster-1a2b3c4d5e-
   namespace: kube-system
 spec:
   metadata:
     creationTimestamp: null
-    name: azurecluster-1a2b3c4d5e-te5s7
-  providerConfig:
-    ValueFrom: null
+  providerSpec:
     value:
       cloudProvider: azure
       cloudProviderSpec:
@@ -18,6 +16,7 @@ spec:
         location: westeurope
         resourceGroup: cluster-azurecluster-1a2b3c4d5e
         routeTableName: cluster-azurecluster-1a2b3c4d5e
+        securityGroupName: ""
         subnetName: cluster-azurecluster-1a2b3c4d5e
         subscriptionID: 32h9q8r8xqp3h9
         tags:
@@ -33,6 +32,4 @@ spec:
       - ssh-rsa TEST123test
   versions:
     kubelet: v1.10.3
-status:
-  lastUpdated: null
-  providerStatus: null
+status: {}

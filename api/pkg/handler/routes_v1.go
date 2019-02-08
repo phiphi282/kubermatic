@@ -6,20 +6,24 @@ import (
 	"github.com/go-kit/kit/endpoint"
 	httptransport "github.com/go-kit/kit/transport/http"
 	"github.com/gorilla/mux"
+
+	"github.com/kubermatic/kubermatic/api/pkg/handler/middleware"
+	"github.com/kubermatic/kubermatic/api/pkg/handler/v1/common"
+	"github.com/kubermatic/kubermatic/api/pkg/handler/v1/dc"
+	"github.com/kubermatic/kubermatic/api/pkg/handler/v1/project"
+	"github.com/kubermatic/kubermatic/api/pkg/handler/v1/provider"
 )
 
 // RegisterV1 declares all router paths for v1
 func (r Routing) RegisterV1(mux *mux.Router) {
-	// swagger:route GET /api/v1/healthz healthz
 	//
-	// Health endpoint
-	//
-	//     Responses:
-	//       default: empty
+	// no-op endpoint that always returns HTTP 200
 	mux.Methods(http.MethodGet).
 		Path("/healthz").
 		HandlerFunc(StatusOK)
 
+	//
+	// Defines endpoints for managing data centers
 	mux.Methods(http.MethodGet).
 		Path("/dc").
 		Handler(r.datacentersHandler())
@@ -28,114 +32,44 @@ func (r Routing) RegisterV1(mux *mux.Router) {
 		Path("/dc/{dc}").
 		Handler(r.datacenterHandler())
 
-	mux.Methods(http.MethodGet).
-		Path("/ssh-keys").
-		Handler(r.listSSHKeys())
-
-	mux.Methods(http.MethodPost).
-		Path("/ssh-keys").
-		Handler(r.createSSHKey())
-
-	mux.Methods(http.MethodDelete).
-		Path("/ssh-keys/{meta_name}").
-		Handler(r.deleteSSHKey())
-
+	//
+	// Defines a set of HTTP endpoint for interacting with
+	// various cloud providers
 	mux.Methods(http.MethodGet).
 		Path("/providers/digitalocean/sizes").
 		Handler(r.listDigitaloceanSizes())
-	mux.Methods(http.MethodGet).
-		Path("/digitalocean/sizes").
-		Handler(r.redirectTo("/api/v1/providers/digitalocean/sizes"))
 
 	mux.Methods(http.MethodGet).
 		Path("/providers/azure/sizes").
 		Handler(r.listAzureSizes())
-	mux.Methods(http.MethodGet).
-		Path("/azure/sizes").
-		Handler(r.redirectTo("/api/v1/providers/azure/sizes"))
 
 	mux.Methods(http.MethodGet).
 		Path("/providers/openstack/sizes").
 		Handler(r.listOpenstackSizes())
-	mux.Methods(http.MethodGet).
-		Path("/openstack/sizes").
-		Handler(r.redirectTo("/api/v1/providers/openstack/sizes"))
 
 	mux.Methods(http.MethodGet).
 		Path("/providers/openstack/tenants").
 		Handler(r.listOpenstackTenants())
-	mux.Methods(http.MethodGet).
-		Path("/openstack/tenants").
-		Handler(r.redirectTo("/api/v1/providers/openstack/tenants"))
 
 	mux.Methods(http.MethodGet).
 		Path("/providers/openstack/networks").
 		Handler(r.listOpenstackNetworks())
-	mux.Methods(http.MethodGet).
-		Path("/openstack/networks").
-		Handler(r.redirectTo("/api/v1/providers/openstack/networks"))
 
 	mux.Methods(http.MethodGet).
 		Path("/providers/openstack/securitygroups").
 		Handler(r.listOpenstackSecurityGroups())
-	mux.Methods(http.MethodGet).
-		Path("/openstack/securitygroups").
-		Handler(r.redirectTo("/api/v1/providers/openstack/securitygroups"))
 
 	mux.Methods(http.MethodGet).
 		Path("/providers/openstack/subnets").
 		Handler(r.listOpenstackSubnets())
-	mux.Methods(http.MethodGet).
-		Path("/openstack/subnets").
-		Handler(r.redirectTo("/api/v1/providers/openstack/subnets"))
 
 	mux.Methods(http.MethodGet).
 		Path("/versions").
 		Handler(r.getMasterVersions())
 
-	//
-	// VSphere related endpoints
 	mux.Methods(http.MethodGet).
 		Path("/providers/vsphere/networks").
 		Handler(r.listVSphereNetworks())
-	mux.Methods(http.MethodGet).
-		Path("/vsphere/networks").
-		Handler(r.redirectTo("/api/v1/providers/vsphere/networks"))
-
-	//
-	// legacy cloud providers endpoints that don't accept credentials on requests
-	// instead they read them from the associated cluster resource
-	mux.Methods(http.MethodGet).
-		Path("/dc/{dc}/cluster/{cluster}/digitalocean/sizes").
-		Handler(r.listLegacyDigitaloceanSizes())
-
-	mux.Methods(http.MethodGet).
-		Path("/dc/{dc}/cluster/{cluster}/azure/sizes").
-		Handler(r.listLegacyAzureSizes())
-
-	mux.Methods(http.MethodGet).
-		Path("/dc/{dc}/cluster/{cluster}/openstack/sizes").
-		Handler(r.listLegacyOpenstackSizes())
-
-	mux.Methods(http.MethodGet).
-		Path("/dc/{dc}/cluster/{cluster}/openstack/tenants").
-		Handler(r.listLegacyOpenstackTenants())
-
-	mux.Methods(http.MethodGet).
-		Path("/dc/{dc}/cluster/{cluster}/openstack/networks").
-		Handler(r.listLegacyOpenstackNetworks())
-
-	mux.Methods(http.MethodGet).
-		Path("/dc/{dc}/cluster/{cluster}/openstack/securitygroups").
-		Handler(r.listLegacyOpenstackSecurityGroups())
-
-	mux.Methods(http.MethodGet).
-		Path("/dc/{dc}/cluster/{cluster}/openstack/subnets").
-		Handler(r.listLegacyOpenstackSubnets())
-
-	mux.Methods(http.MethodGet).
-		Path("/dc/{dc}/cluster/{cluster}/vsphere/networks").
-		Handler(r.listLegacyVSphereNetworks())
 
 	//
 	// Defines a set of HTTP endpoints for project resource
@@ -163,45 +97,45 @@ func (r Routing) RegisterV1(mux *mux.Router) {
 	// Defines a set of HTTP endpoints for SSH Keys that belong to a project
 	mux.Methods(http.MethodPost).
 		Path("/projects/{project_id}/sshkeys").
-		Handler(r.newCreateSSHKey())
+		Handler(r.createSSHKey())
 
 	mux.Methods(http.MethodDelete).
 		Path("/projects/{project_id}/sshkeys/{key_id}").
-		Handler(r.newDeleteSSHKey())
+		Handler(r.deleteSSHKey())
 
 	mux.Methods(http.MethodGet).
 		Path("/projects/{project_id}/sshkeys").
-		Handler(r.newListSSHKeys())
+		Handler(r.listSSHKeys())
 
 	//
 	// Defines a set of HTTP endpoints for cluster that belong to a project.
 	mux.Methods(http.MethodPost).
 		Path("/projects/{project_id}/dc/{dc}/clusters").
-		Handler(r.newCreateCluster())
+		Handler(r.createCluster())
 
 	mux.Methods(http.MethodGet).
 		Path("/projects/{project_id}/dc/{dc}/clusters").
-		Handler(r.newListClusters())
+		Handler(r.listClusters())
 
 	mux.Methods(http.MethodGet).
 		Path("/projects/{project_id}/dc/{dc}/clusters/{cluster_id}").
-		Handler(r.newGetCluster())
+		Handler(r.getCluster())
 
-	mux.Methods(http.MethodPut).
+	mux.Methods(http.MethodPatch).
 		Path("/projects/{project_id}/dc/{dc}/clusters/{cluster_id}").
-		Handler(r.newUpdateCluster())
+		Handler(r.patchCluster())
 
 	mux.Methods(http.MethodGet).
 		Path("/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/kubeconfig").
-		Handler(r.newGetClusterKubeconfig())
+		Handler(r.getClusterKubeconfig())
 
 	mux.Methods(http.MethodDelete).
 		Path("/projects/{project_id}/dc/{dc}/clusters/{cluster_id}").
-		Handler(r.newDeleteCluster())
+		Handler(r.deleteCluster())
 
 	mux.Methods(http.MethodGet).
 		Path("/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/health").
-		Handler(r.newGetClusterHealth())
+		Handler(r.getClusterHealth())
 
 	mux.Methods(http.MethodGet).
 		Path("/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/upgrades").
@@ -209,46 +143,69 @@ func (r Routing) RegisterV1(mux *mux.Router) {
 
 	//
 	// Defines set of HTTP endpoints for SSH Keys that belong to a cluster
-
 	mux.Methods(http.MethodPut).
 		Path("/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/sshkeys/{key_id}").
-		Handler(r.newAssignSSHKeyToCluster())
+		Handler(r.assignSSHKeyToCluster())
 
 	mux.Methods(http.MethodGet).
 		Path("/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/sshkeys").
-		Handler(r.newListSSHKeysAssignedToCluster())
+		Handler(r.listSSHKeysAssignedToCluster())
 
 	mux.Methods(http.MethodDelete).
 		Path("/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/sshkeys/{key_id}").
-		Handler(r.newDetachSSHKeyFromCluster())
+		Handler(r.detachSSHKeyFromCluster())
 
 	//
 	// Defines a set of HTTP endpoints for nodes that belong to a cluster
 	mux.Methods(http.MethodGet).
 		Path("/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/nodes/{node_id}").
-		Handler(r.newGetNodeForCluster())
+		Handler(r.getNodeForClusterLegacy())
 
 	mux.Methods(http.MethodPost).
 		Path("/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/nodes").
-		Handler(r.newCreateNodeForCluster())
+		Handler(r.createNodeForClusterLegacy())
 
 	mux.Methods(http.MethodGet).
 		Path("/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/nodes").
-		Handler(r.newListNodesForCluster())
+		Handler(r.listNodesForClusterLegacy())
 
 	mux.Methods(http.MethodDelete).
 		Path("/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/nodes/{node_id}").
-		Handler(r.newDeleteNodeForCluster())
-
-	//
-	// Defines set of HTTP endpoints for the admin token that belongs to a cluster
-	mux.Methods(http.MethodGet).
-		Path("/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/token").
-		Handler(r.getClusterAdminToken())
+		Handler(r.deleteNodeForClusterLegacy())
 
 	mux.Methods(http.MethodPut).
 		Path("/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/token").
 		Handler(r.revokeClusterAdminToken())
+
+	//
+	// Defines a set of HTTP endpoint for node deployments that belong to a cluster
+	mux.Methods(http.MethodPost).
+		Path("/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/nodedeployments").
+		Handler(r.createNodeDeployment())
+
+	mux.Methods(http.MethodGet).
+		Path("/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/nodedeployments").
+		Handler(r.listNodeDeployments())
+
+	mux.Methods(http.MethodGet).
+		Path("/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/nodedeployments/{nodedeployment_id}").
+		Handler(r.getNodeDeployment())
+
+	mux.Methods(http.MethodGet).
+		Path("/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/nodedeployments/{nodedeployment_id}/nodes").
+		Handler(r.listNodeDeploymentNodes())
+
+	mux.Methods(http.MethodGet).
+		Path("/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/nodedeployments/{nodedeployment_id}/nodes/events").
+		Handler(r.listNodeDeploymentNodesEvents())
+
+	mux.Methods(http.MethodPatch).
+		Path("/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/nodedeployments/{nodedeployment_id}").
+		Handler(r.patchNodeDeployment())
+
+	mux.Methods(http.MethodDelete).
+		Path("/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/nodedeployments/{nodedeployment_id}").
+		Handler(r.deleteNodeDeployment())
 
 	//
 	// Defines a set of HTTP endpoints for various cloud providers
@@ -308,41 +265,9 @@ func (r Routing) RegisterV1(mux *mux.Router) {
 	mux.Methods(http.MethodGet).
 		Path("/me").
 		Handler(r.getCurrentUser())
-
-	mux.Methods(http.MethodGet).
-		Path("/projects/{project_id}/dc/{dc}/cluster/{cluster_id}/prometheus/{query_path}").
-		Handler(r.prometheusProxyHandler())
 }
 
-func (r Routing) redirectTo(path string) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		http.Redirect(w, r, path, http.StatusMovedPermanently)
-	})
-}
-
-// swagger:route GET /api/v1/ssh-keys ssh-keys listSSHKeys
-//
-// Lists SSH keys from the user
-//
-//     Produces:
-//     - application/json
-//
-//     Responses:
-//       default: errorResponse
-//       200: SSHKey
-func (r Routing) listSSHKeys() http.Handler {
-	return httptransport.NewServer(
-		endpoint.Chain(
-			r.authenticator.Verifier(),
-			r.userSaverMiddleware(),
-		)(listSSHKeyEndpoint(r.sshKeyProvider)),
-		decodeListSSHKeyReq,
-		encodeJSON,
-		r.defaultServerOptions()...,
-	)
-}
-
-// swagger:route GET /api/v1/projects/{project_id}/sshkeys project newListSSHKeys
+// swagger:route GET /api/v1/projects/{project_id}/sshkeys project listSSHKeys
 //
 //     Lists SSH Keys that belong to the given project.
 //     The returned collection is sorted by creation timestamp.
@@ -352,48 +277,23 @@ func (r Routing) listSSHKeys() http.Handler {
 //
 //     Responses:
 //       default: errorResponse
-//       200: []NewSSHKey
+//       200: []SSHKey
 //       401: empty
 //       403: empty
-func (r Routing) newListSSHKeys() http.Handler {
+func (r Routing) listSSHKeys() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			r.authenticator.Verifier(),
+			r.oidcAuthenticator.Verifier(),
 			r.userSaverMiddleware(),
 			r.userInfoMiddleware(),
-		)(newListSSHKeyEndpoint(r.newSSHKeyProvider, r.projectProvider)),
-		newDecodeListSSHKeyReq,
-		encodeJSON,
+		)(listSSHKeyEndpoint(r.sshKeyProvider, r.projectProvider)),
+		decodeListSSHKeyReq,
+		EncodeJSON,
 		r.defaultServerOptions()...,
 	)
 }
 
-// swagger:route POST /api/v1/sshkeys sshkeys createSSHKey
-//
-// Creates a SSH keys for the user
-//
-//     Consumes:
-//     - application/json
-//
-//     Produces:
-//     - application/json
-//
-//     Responses:
-//       default: errorResponse
-//       200: SSHKey
-func (r Routing) createSSHKey() http.Handler {
-	return httptransport.NewServer(
-		endpoint.Chain(
-			r.authenticator.Verifier(),
-			r.userSaverMiddleware(),
-		)(createSSHKeyEndpoint(r.sshKeyProvider)),
-		decodeCreateSSHKeyReq,
-		setStatusCreatedHeader(encodeJSON),
-		r.defaultServerOptions()...,
-	)
-}
-
-// swagger:route POST /api/v1/projects/{project_id}/sshkeys project newCreateSSHKey
+// swagger:route POST /api/v1/projects/{project_id}/sshkeys project createSSHKey
 //
 //    Adds the given SSH key to the specified project.
 //
@@ -405,45 +305,23 @@ func (r Routing) createSSHKey() http.Handler {
 //
 //     Responses:
 //       default: errorResponse
-//       200: NewSSHKey
+//       200: SSHKey
 //       401: empty
 //       403: empty
-func (r Routing) newCreateSSHKey() http.Handler {
+func (r Routing) createSSHKey() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			r.authenticator.Verifier(),
+			r.oidcAuthenticator.Verifier(),
 			r.userSaverMiddleware(),
 			r.userInfoMiddleware(),
-		)(newCreateSSHKeyEndpoint(r.newSSHKeyProvider, r.projectProvider)),
-		newDecodeCreateSSHKeyReq,
-		setStatusCreatedHeader(encodeJSON),
+		)(createSSHKeyEndpoint(r.sshKeyProvider, r.projectProvider)),
+		decodeCreateSSHKeyReq,
+		setStatusCreatedHeader(EncodeJSON),
 		r.defaultServerOptions()...,
 	)
 }
 
-// swagger:route DELETE /api/v1/ssh-keys/{meta_name} ssh-keys deleteSSHKey
-//
-// Deletes a SSH keys for the user
-//
-//     Produces:
-//     - application/json
-//
-//     Responses:
-//       default: errorResponse
-//       200: empty
-func (r Routing) deleteSSHKey() http.Handler {
-	return httptransport.NewServer(
-		endpoint.Chain(
-			r.authenticator.Verifier(),
-			r.userSaverMiddleware(),
-		)(deleteSSHKeyEndpoint(r.sshKeyProvider)),
-		decodeDeleteSSHKeyReq,
-		encodeJSON,
-		r.defaultServerOptions()...,
-	)
-}
-
-// swagger:route DELETE /api/v1/projects/{project_id}/sshkeys/{key_id} project newDeleteSSHKey
+// swagger:route DELETE /api/v1/projects/{project_id}/sshkeys/{key_id} project deleteSSHKey
 //
 //     Removes the given SSH Key from the system.
 //
@@ -455,15 +333,15 @@ func (r Routing) deleteSSHKey() http.Handler {
 //       200: empty
 //       401: empty
 //       403: empty
-func (r Routing) newDeleteSSHKey() http.Handler {
+func (r Routing) deleteSSHKey() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			r.authenticator.Verifier(),
+			r.oidcAuthenticator.Verifier(),
 			r.userSaverMiddleware(),
 			r.userInfoMiddleware(),
-		)(newDeleteSSHKeyEndpoint(r.newSSHKeyProvider, r.projectProvider)),
-		newDecodeDeleteSSHKeyReq,
-		encodeJSON,
+		)(deleteSSHKeyEndpoint(r.sshKeyProvider, r.projectProvider)),
+		decodeDeleteSSHKeyReq,
+		EncodeJSON,
 		r.defaultServerOptions()...,
 	)
 }
@@ -481,11 +359,11 @@ func (r Routing) newDeleteSSHKey() http.Handler {
 func (r Routing) listDigitaloceanSizes() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			r.authenticator.Verifier(),
+			r.oidcAuthenticator.Verifier(),
 			r.userSaverMiddleware(),
-		)(digitaloceanSizeEndpoint()),
-		decodeDoSizesReq,
-		encodeJSON,
+		)(provider.DigitaloceanSizeEndpoint()),
+		provider.DecodeDoSizesReq,
+		EncodeJSON,
 		r.defaultServerOptions()...,
 	)
 }
@@ -503,11 +381,11 @@ func (r Routing) listDigitaloceanSizes() http.Handler {
 func (r Routing) listAzureSizes() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			r.authenticator.Verifier(),
+			r.oidcAuthenticator.Verifier(),
 			r.userSaverMiddleware(),
-		)(azureSizeEndpoint()),
-		decodeAzureSizesReq,
-		encodeJSON,
+		)(provider.AzureSizeEndpoint()),
+		provider.DecodeAzureSizesReq,
+		EncodeJSON,
 		r.defaultServerOptions()...,
 	)
 }
@@ -525,11 +403,11 @@ func (r Routing) listAzureSizes() http.Handler {
 func (r Routing) listOpenstackSizes() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			r.authenticator.Verifier(),
+			r.oidcAuthenticator.Verifier(),
 			r.userSaverMiddleware(),
-		)(openstackSizeEndpoint(r.cloudProviders)),
-		decodeOpenstackReq,
-		encodeJSON,
+		)(provider.OpenstackSizeEndpoint(r.cloudProviders)),
+		provider.DecodeOpenstackReq,
+		EncodeJSON,
 		r.defaultServerOptions()...,
 	)
 }
@@ -547,11 +425,11 @@ func (r Routing) listOpenstackSizes() http.Handler {
 func (r Routing) listVSphereNetworks() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			r.authenticator.Verifier(),
+			r.oidcAuthenticator.Verifier(),
 			r.userSaverMiddleware(),
-		)(vsphereNetworksEndpoint(r.cloudProviders)),
-		decodeVSphereNetworksReq,
-		encodeJSON,
+		)(provider.VsphereNetworksEndpoint(r.cloudProviders)),
+		provider.DecodeVSphereNetworksReq,
+		EncodeJSON,
 		r.defaultServerOptions()...,
 	)
 }
@@ -569,11 +447,11 @@ func (r Routing) listVSphereNetworks() http.Handler {
 func (r Routing) listOpenstackTenants() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			r.authenticator.Verifier(),
+			r.oidcAuthenticator.Verifier(),
 			r.userSaverMiddleware(),
-		)(openstackTenantEndpoint(r.cloudProviders)),
-		decodeOpenstackTenantReq,
-		encodeJSON,
+		)(provider.OpenstackTenantEndpoint(r.cloudProviders)),
+		provider.DecodeOpenstackTenantReq,
+		EncodeJSON,
 		r.defaultServerOptions()...,
 	)
 }
@@ -591,11 +469,11 @@ func (r Routing) listOpenstackTenants() http.Handler {
 func (r Routing) listOpenstackNetworks() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			r.authenticator.Verifier(),
+			r.oidcAuthenticator.Verifier(),
 			r.userSaverMiddleware(),
-		)(openstackNetworkEndpoint(r.cloudProviders)),
-		decodeOpenstackReq,
-		encodeJSON,
+		)(provider.OpenstackNetworkEndpoint(r.cloudProviders)),
+		provider.DecodeOpenstackReq,
+		EncodeJSON,
 		r.defaultServerOptions()...,
 	)
 }
@@ -613,11 +491,11 @@ func (r Routing) listOpenstackNetworks() http.Handler {
 func (r Routing) listOpenstackSubnets() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			r.authenticator.Verifier(),
+			r.oidcAuthenticator.Verifier(),
 			r.userSaverMiddleware(),
-		)(openstackSubnetsEndpoint(r.cloudProviders)),
-		decodeOpenstackSubnetReq,
-		encodeJSON,
+		)(provider.OpenstackSubnetsEndpoint(r.cloudProviders)),
+		provider.DecodeOpenstackSubnetReq,
+		EncodeJSON,
 		r.defaultServerOptions()...,
 	)
 }
@@ -635,11 +513,11 @@ func (r Routing) listOpenstackSubnets() http.Handler {
 func (r Routing) listOpenstackSecurityGroups() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			r.authenticator.Verifier(),
+			r.oidcAuthenticator.Verifier(),
 			r.userSaverMiddleware(),
-		)(openstackSecurityGroupEndpoint(r.cloudProviders)),
-		decodeOpenstackReq,
-		encodeJSON,
+		)(provider.OpenstackSecurityGroupEndpoint(r.cloudProviders)),
+		provider.DecodeOpenstackReq,
+		EncodeJSON,
 		r.defaultServerOptions()...,
 	)
 }
@@ -655,11 +533,11 @@ func (r Routing) listOpenstackSecurityGroups() http.Handler {
 func (r Routing) datacentersHandler() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			r.authenticator.Verifier(),
+			r.oidcAuthenticator.Verifier(),
 			r.userSaverMiddleware(),
-		)(datacentersEndpoint(r.datacenters)),
-		decodeDatacentersReq,
-		encodeJSON,
+		)(dc.ListEndpoint(r.datacenters)),
+		dc.DecodeDatacentersReq,
+		EncodeJSON,
 		r.defaultServerOptions()...,
 	)
 }
@@ -676,11 +554,11 @@ func (r Routing) datacentersHandler() http.Handler {
 func (r Routing) datacenterHandler() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			r.authenticator.Verifier(),
+			r.oidcAuthenticator.Verifier(),
 			r.userSaverMiddleware(),
-		)(datacenterEndpoint(r.datacenters)),
-		decodeLegacyDcReq,
-		encodeJSON,
+		)(dc.GetEndpoint(r.datacenters)),
+		dc.DecodeLegacyDcReq,
+		EncodeJSON,
 		r.defaultServerOptions()...,
 	)
 }
@@ -698,11 +576,11 @@ func (r Routing) datacenterHandler() http.Handler {
 func (r Routing) getMasterVersions() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			r.authenticator.Verifier(),
+			r.oidcAuthenticator.Verifier(),
 			r.userSaverMiddleware(),
 		)(getMasterVersions(r.updateManager)),
 		decodeEmptyReq,
-		encodeJSON,
+		EncodeJSON,
 		r.defaultServerOptions()...,
 	)
 }
@@ -722,11 +600,12 @@ func (r Routing) getMasterVersions() http.Handler {
 func (r Routing) listProjects() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			r.authenticator.Verifier(),
+			r.oidcAuthenticator.Verifier(),
 			r.userSaverMiddleware(),
-		)(listProjectsEndpoint(r.projectProvider, r.userProjectMapper)),
+			r.userInfoMiddleware(),
+		)(project.ListEndpoint(r.projectProvider, r.userProjectMapper)),
 		decodeEmptyReq,
-		encodeJSON,
+		EncodeJSON,
 		r.defaultServerOptions()...,
 	)
 }
@@ -746,12 +625,12 @@ func (r Routing) listProjects() http.Handler {
 func (r Routing) getProject() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			r.authenticator.Verifier(),
+			r.oidcAuthenticator.Verifier(),
 			r.userSaverMiddleware(),
 			r.userInfoMiddleware(),
-		)(getProjectEndpoint(r.projectProvider)),
-		decodeGetProject,
-		encodeJSON,
+		)(project.GetEndpoint(r.projectProvider)),
+		common.DecodeGetProject,
+		EncodeJSON,
 		r.defaultServerOptions()...,
 	)
 }
@@ -776,11 +655,12 @@ func (r Routing) getProject() http.Handler {
 func (r Routing) createProject() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			r.authenticator.Verifier(),
+			r.oidcAuthenticator.Verifier(),
 			r.userSaverMiddleware(),
-		)(createProjectEndpoint(r.projectProvider)),
-		decodeCreateProject,
-		setStatusCreatedHeader(encodeJSON),
+			r.userInfoMiddleware(),
+		)(project.CreateEndpoint(r.projectProvider)),
+		project.DecodeCreate,
+		setStatusCreatedHeader(EncodeJSON),
 		r.defaultServerOptions()...,
 	)
 }
@@ -794,16 +674,20 @@ func (r Routing) createProject() http.Handler {
 //
 //     Responses:
 //       default: errorResponse
+//       201: Project
+//       400: empty
+//       404: empty
+//       500: empty
 //       501: empty
 func (r Routing) updateProject() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			r.authenticator.Verifier(),
+			r.oidcAuthenticator.Verifier(),
 			r.userSaverMiddleware(),
 			r.userInfoMiddleware(),
-		)(updateProjectEndpoint()),
-		decodeUpdateProject,
-		encodeJSON,
+		)(project.UpdateEndpoint(r.projectProvider)),
+		project.DecodeUpdateRq,
+		EncodeJSON,
 		r.defaultServerOptions()...,
 	)
 }
@@ -824,17 +708,17 @@ func (r Routing) updateProject() http.Handler {
 func (r Routing) deleteProject() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			r.authenticator.Verifier(),
+			r.oidcAuthenticator.Verifier(),
 			r.userSaverMiddleware(),
 			r.userInfoMiddleware(),
-		)(deleteProjectEndpoint(r.projectProvider)),
-		decodeDeleteProject,
-		encodeJSON,
+		)(project.DeleteEndpoint(r.projectProvider)),
+		project.DecodeDelete,
+		EncodeJSON,
 		r.defaultServerOptions()...,
 	)
 }
 
-// swagger:route POST /api/v1/projects/{project_id}/dc/{dc}/clusters project newCreateCluster
+// swagger:route POST /api/v1/projects/{project_id}/dc/{dc}/clusters project createCluster
 //
 //     Creates a cluster for the given project.
 //
@@ -849,21 +733,21 @@ func (r Routing) deleteProject() http.Handler {
 //       201: Cluster
 //       401: empty
 //       403: empty
-func (r Routing) newCreateCluster() http.Handler {
+func (r Routing) createCluster() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			r.authenticator.Verifier(),
+			r.oidcAuthenticator.Verifier(),
 			r.userSaverMiddleware(),
-			r.newDatacenterMiddleware(),
+			middleware.Datacenter(r.clusterProviders, r.datacenters),
 			r.userInfoMiddleware(),
-		)(newCreateClusterEndpoint(r.cloudProviders, r.projectProvider)),
-		newDecodeCreateClusterReq,
-		setStatusCreatedHeader(encodeJSON),
+		)(createClusterEndpoint(r.cloudProviders, r.projectProvider, r.datacenters)),
+		decodeCreateClusterReq,
+		setStatusCreatedHeader(EncodeJSON),
 		r.defaultServerOptions()...,
 	)
 }
 
-// swagger:route GET /api/v1/projects/{project_id}/dc/{dc}/clusters project newListClusters
+// swagger:route GET /api/v1/projects/{project_id}/dc/{dc}/clusters project listClusters
 //
 //     Lists clusters for the specified project.
 //
@@ -875,21 +759,21 @@ func (r Routing) newCreateCluster() http.Handler {
 //       200: ClusterList
 //       401: empty
 //       403: empty
-func (r Routing) newListClusters() http.Handler {
+func (r Routing) listClusters() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			r.authenticator.Verifier(),
+			r.oidcAuthenticator.Verifier(),
 			r.userSaverMiddleware(),
-			r.newDatacenterMiddleware(),
+			middleware.Datacenter(r.clusterProviders, r.datacenters),
 			r.userInfoMiddleware(),
-		)(newListClusters(r.projectProvider)),
-		newDecodeListClustersReq,
-		encodeJSON,
+		)(listClusters(r.projectProvider)),
+		decodeListClustersReq,
+		EncodeJSON,
 		r.defaultServerOptions()...,
 	)
 }
 
-// swagger:route GET /api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id} project newGetCluster
+// swagger:route GET /api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id} project getCluster
 //
 //     Gets the cluster with the given name
 //
@@ -901,23 +785,23 @@ func (r Routing) newListClusters() http.Handler {
 //       200: Cluster
 //       401: empty
 //       403: empty
-func (r Routing) newGetCluster() http.Handler {
+func (r Routing) getCluster() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			r.authenticator.Verifier(),
+			r.oidcAuthenticator.Verifier(),
 			r.userSaverMiddleware(),
-			r.newDatacenterMiddleware(),
+			middleware.Datacenter(r.clusterProviders, r.datacenters),
 			r.userInfoMiddleware(),
-		)(newGetCluster(r.projectProvider)),
-		newDecodeGetClusterReq,
-		encodeJSON,
+		)(getCluster(r.projectProvider)),
+		common.DecodeGetClusterReq,
+		EncodeJSON,
 		r.defaultServerOptions()...,
 	)
 }
 
-// swagger:route PUT /api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id} project newUpdateCluster
+// swagger:route PATCH /api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id} project patchCluster
 //
-//     Updates the given cluster.
+//     Patches the given cluster using JSON Merge Patch method (https://tools.ietf.org/html/rfc7396).
 //
 //     Produces:
 //     - application/json
@@ -927,22 +811,22 @@ func (r Routing) newGetCluster() http.Handler {
 //       200: Cluster
 //       401: empty
 //       403: empty
-func (r Routing) newUpdateCluster() http.Handler {
+func (r Routing) patchCluster() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			r.authenticator.Verifier(),
+			r.oidcAuthenticator.Verifier(),
 			r.userSaverMiddleware(),
-			r.newDatacenterMiddleware(),
+			middleware.Datacenter(r.clusterProviders, r.datacenters),
 			r.userInfoMiddleware(),
-		)(newUpdateCluster(r.cloudProviders, r.projectProvider)),
-		newDecodeUpdateClusterReq,
-		encodeJSON,
+		)(patchCluster(r.cloudProviders, r.projectProvider, r.datacenters)),
+		decodePatchClusterReq,
+		EncodeJSON,
 		r.defaultServerOptions()...,
 	)
 }
 
-// newGetClusterKubeconfig returns the kubeconfig for the cluster.
-// swagger:route GET /api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/kubeconfig project newGetClusterKubeconfig
+// getClusterKubeconfig returns the kubeconfig for the cluster.
+// swagger:route GET /api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/kubeconfig project getClusterKubeconfig
 //
 //     Gets the kubeconfig for the specified cluster.
 //
@@ -954,22 +838,22 @@ func (r Routing) newUpdateCluster() http.Handler {
 //       200: Kubeconfig
 //       401: empty
 //       403: empty
-func (r Routing) newGetClusterKubeconfig() http.Handler {
+func (r Routing) getClusterKubeconfig() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			r.authenticator.Verifier(),
+			r.oidcAuthenticator.Verifier(),
 			r.userSaverMiddleware(),
-			r.newDatacenterMiddleware(),
+			middleware.Datacenter(r.clusterProviders, r.datacenters),
 			r.userInfoMiddleware(),
-		)(newGetClusterKubeconfig(r.projectProvider)),
-		newDecodeGetClusterKubeconfig,
+		)(getClusterKubeconfig(r.projectProvider)),
+		decodeGetClusterKubeconfig,
 		encodeKubeconfig,
 		r.defaultServerOptions()...,
 	)
 }
 
 // Delete the cluster
-// swagger:route DELETE /api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id} project newDeleteCluster
+// swagger:route DELETE /api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id} project deleteCluster
 //
 //     Deletes the specified cluster
 //
@@ -981,21 +865,21 @@ func (r Routing) newGetClusterKubeconfig() http.Handler {
 //       200: empty
 //       401: empty
 //       403: empty
-func (r Routing) newDeleteCluster() http.Handler {
+func (r Routing) deleteCluster() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			r.authenticator.Verifier(),
+			r.oidcAuthenticator.Verifier(),
 			r.userSaverMiddleware(),
-			r.newDatacenterMiddleware(),
+			middleware.Datacenter(r.clusterProviders, r.datacenters),
 			r.userInfoMiddleware(),
-		)(newDeleteCluster(r.newSSHKeyProvider, r.projectProvider)),
-		newDecodeGetClusterReq,
-		encodeJSON,
+		)(deleteCluster(r.sshKeyProvider, r.projectProvider)),
+		DecodeDeleteClusterReq,
+		EncodeJSON,
 		r.defaultServerOptions()...,
 	)
 }
 
-// swagger:route GET /api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/health project newGetClusterHealth
+// swagger:route GET /api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/health project getClusterHealth
 //
 //     Returns the cluster's component health status
 //
@@ -1007,21 +891,21 @@ func (r Routing) newDeleteCluster() http.Handler {
 //       200: ClusterHealth
 //       401: empty
 //       403: empty
-func (r Routing) newGetClusterHealth() http.Handler {
+func (r Routing) getClusterHealth() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			r.authenticator.Verifier(),
+			r.oidcAuthenticator.Verifier(),
 			r.userSaverMiddleware(),
-			r.newDatacenterMiddleware(),
+			middleware.Datacenter(r.clusterProviders, r.datacenters),
 			r.userInfoMiddleware(),
 		)(getClusterHealth(r.projectProvider)),
-		newDecodeGetClusterReq,
-		encodeJSON,
+		common.DecodeGetClusterReq,
+		EncodeJSON,
 		r.defaultServerOptions()...,
 	)
 }
 
-// swagger:route PUT /api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/sshkeys/{key_id} project newAssignSSHKeyToCluster
+// swagger:route PUT /api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/sshkeys/{key_id} project assignSSHKeyToCluster
 //
 //     Assigns an existing ssh key to the given cluster
 //
@@ -1036,21 +920,21 @@ func (r Routing) newGetClusterHealth() http.Handler {
 //       201: empty
 //       401: empty
 //       403: empty
-func (r Routing) newAssignSSHKeyToCluster() http.Handler {
+func (r Routing) assignSSHKeyToCluster() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			r.authenticator.Verifier(),
+			r.oidcAuthenticator.Verifier(),
 			r.userSaverMiddleware(),
-			r.newDatacenterMiddleware(),
+			middleware.Datacenter(r.clusterProviders, r.datacenters),
 			r.userInfoMiddleware(),
-		)(assignSSHKeyToCluster(r.newSSHKeyProvider, r.projectProvider)),
+		)(assignSSHKeyToCluster(r.sshKeyProvider, r.projectProvider)),
 		decodeAssignSSHKeyToClusterReq,
-		setStatusCreatedHeader(encodeJSON),
+		setStatusCreatedHeader(EncodeJSON),
 		r.defaultServerOptions()...,
 	)
 }
 
-// swagger:route GET /api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/sshkeys project newListSSHKeysAssignedToCluster
+// swagger:route GET /api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/sshkeys project listSSHKeysAssignedToCluster
 //
 //     Lists ssh keys that are assigned to the cluster
 //     The returned collection is sorted by creation timestamp.
@@ -1063,24 +947,24 @@ func (r Routing) newAssignSSHKeyToCluster() http.Handler {
 //
 //     Responses:
 //       default: errorResponse
-//       200: []NewSSHKey
+//       200: []SSHKey
 //       401: empty
 //       403: empty
-func (r Routing) newListSSHKeysAssignedToCluster() http.Handler {
+func (r Routing) listSSHKeysAssignedToCluster() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			r.authenticator.Verifier(),
+			r.oidcAuthenticator.Verifier(),
 			r.userSaverMiddleware(),
-			r.newDatacenterMiddleware(),
+			middleware.Datacenter(r.clusterProviders, r.datacenters),
 			r.userInfoMiddleware(),
-		)(listSSHKeysAssingedToCluster(r.newSSHKeyProvider, r.projectProvider)),
+		)(listSSHKeysAssingedToCluster(r.sshKeyProvider, r.projectProvider)),
 		decodeListSSHKeysAssignedToCluster,
-		encodeJSON,
+		EncodeJSON,
 		r.defaultServerOptions()...,
 	)
 }
 
-// swagger:route DELETE /api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/sshkeys/{key_id} project newDetachSSHKeyFromCluster
+// swagger:route DELETE /api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/sshkeys/{key_id} project detachSSHKeyFromCluster
 //
 //     Unassignes an ssh key from the given cluster
 //
@@ -1095,75 +979,52 @@ func (r Routing) newListSSHKeysAssignedToCluster() http.Handler {
 //       200: empty
 //       401: empty
 //       403: empty
-func (r Routing) newDetachSSHKeyFromCluster() http.Handler {
+func (r Routing) detachSSHKeyFromCluster() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			r.authenticator.Verifier(),
+			r.oidcAuthenticator.Verifier(),
 			r.userSaverMiddleware(),
-			r.newDatacenterMiddleware(),
+			middleware.Datacenter(r.clusterProviders, r.datacenters),
 			r.userInfoMiddleware(),
-		)(detachSSHKeyFromCluster(r.newSSHKeyProvider, r.projectProvider)),
+		)(detachSSHKeyFromCluster(r.sshKeyProvider, r.projectProvider)),
 		decodeDetachSSHKeysFromCluster,
-		encodeJSON,
-		r.defaultServerOptions()...,
-	)
-}
-
-// swagger:route GET /api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/token project getClusterAdminToken
-//
-//     Returns the current admin token for the given cluster.
-//
-//     Produces:
-//     - application/json
-//
-//     Responses:
-//       default: errorResponse
-//       200: ClusterAdminToken
-//       401: empty
-//       403: empty
-func (r Routing) getClusterAdminToken() http.Handler {
-	return httptransport.NewServer(
-		endpoint.Chain(
-			r.authenticator.Verifier(),
-			r.userSaverMiddleware(),
-			r.newDatacenterMiddleware(),
-			r.userInfoMiddleware(),
-		)(getClusterAdminToken(r.projectProvider)),
-		decodeClusterAdminTokenReq,
-		encodeJSON,
+		EncodeJSON,
 		r.defaultServerOptions()...,
 	)
 }
 
 // swagger:route PUT /api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/token project revokeClusterAdminToken
 //
-//     Revokes the current admin token and returns a newly generated one.
+//     Revokes the current admin token
 //
 //     Produces:
 //     - application/json
 //
 //     Responses:
 //       default: errorResponse
-//       200: ClusterAdminToken
+//       200: empty
 //       401: empty
 //       403: empty
 func (r Routing) revokeClusterAdminToken() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			r.authenticator.Verifier(),
+			r.oidcAuthenticator.Verifier(),
 			r.userSaverMiddleware(),
-			r.newDatacenterMiddleware(),
+			middleware.Datacenter(r.clusterProviders, r.datacenters),
 			r.userInfoMiddleware(),
 		)(revokeClusterAdminToken(r.projectProvider)),
 		decodeClusterAdminTokenReq,
-		encodeJSON,
+		EncodeJSON,
 		r.defaultServerOptions()...,
 	)
 }
 
-// swagger:route GET /api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/nodes/{node_id} project newGetNodeForCluster
+// swagger:route GET /api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/nodes/{node_id} project getNodeForClusterLegacy
 //
+//     Deprecated:
 //     Gets a node that is assigned to the given cluster.
+//
+//     This endpoint is deprecated, please create a Node Deployment instead.
 //
 //     Consumes:
 //     - application/json
@@ -1176,23 +1037,27 @@ func (r Routing) revokeClusterAdminToken() http.Handler {
 //       200: Node
 //       401: empty
 //       403: empty
-func (r Routing) newGetNodeForCluster() http.Handler {
+func (r Routing) getNodeForClusterLegacy() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			r.authenticator.Verifier(),
+			r.oidcAuthenticator.Verifier(),
 			r.userSaverMiddleware(),
-			r.newDatacenterMiddleware(),
+			middleware.Datacenter(r.clusterProviders, r.datacenters),
 			r.userInfoMiddleware(),
-		)(newGetNodeForCluster(r.projectProvider)),
-		decodeGetNodeForCluster,
-		encodeJSON,
+		)(getNodeForClusterLegacy(r.projectProvider)),
+		decodeGetNodeForClusterLegacy,
+		EncodeJSON,
 		r.defaultServerOptions()...,
 	)
 }
 
-// swagger:route POST /api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/nodes project newCreateNodeForCluster
+// swagger:route POST /api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/nodes project createNodeForClusterLegacy
 //
+//     Deprecated:
 //     Creates a node that will belong to the given cluster
+//
+//     This endpoint is deprecated, please create a Node Deployment instead.
+//     Use POST /api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/nodedeployments
 //
 //     Consumes:
 //     - application/json
@@ -1205,24 +1070,26 @@ func (r Routing) newGetNodeForCluster() http.Handler {
 //       201: Node
 //       401: empty
 //       403: empty
-func (r Routing) newCreateNodeForCluster() http.Handler {
+func (r Routing) createNodeForClusterLegacy() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			r.authenticator.Verifier(),
+			r.oidcAuthenticator.Verifier(),
 			r.userSaverMiddleware(),
-			r.newDatacenterMiddleware(),
+			middleware.Datacenter(r.clusterProviders, r.datacenters),
 			r.userInfoMiddleware(),
-		)(newCreateNodeForCluster(r.newSSHKeyProvider, r.projectProvider, r.datacenters)),
-		decodeCreateNodeForCluster,
-		setStatusCreatedHeader(encodeJSON),
+		)(createNodeForClusterLegacy(r.sshKeyProvider, r.projectProvider, r.datacenters)),
+		decodeCreateNodeForClusterLegacy,
+		setStatusCreatedHeader(EncodeJSON),
 		r.defaultServerOptions()...,
 	)
 }
 
-// swagger:route GET /api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/nodes project newListNodesForCluster
+// swagger:route GET /api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/nodes project listNodesForClusterLegacy
 //
-//
+//     Deprecated:
 //     Lists nodes that belong to the given cluster
+//
+//     This endpoint is deprecated, please create a Node Deployment instead.
 //
 //     Produces:
 //     - application/json
@@ -1232,23 +1099,26 @@ func (r Routing) newCreateNodeForCluster() http.Handler {
 //       200: []Node
 //       401: empty
 //       403: empty
-func (r Routing) newListNodesForCluster() http.Handler {
+func (r Routing) listNodesForClusterLegacy() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			r.authenticator.Verifier(),
+			r.oidcAuthenticator.Verifier(),
 			r.userSaverMiddleware(),
-			r.newDatacenterMiddleware(),
+			middleware.Datacenter(r.clusterProviders, r.datacenters),
 			r.userInfoMiddleware(),
-		)(newListNodesForCluster(r.projectProvider)),
-		decodeListNodesForCluster,
-		encodeJSON,
+		)(listNodesForClusterLegacy(r.projectProvider)),
+		decodeListNodesForClusterLegacy,
+		EncodeJSON,
 		r.defaultServerOptions()...,
 	)
 }
 
-// swagger:route DELETE /api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/nodes/{node_id} project newDeleteNodeForCluster
+// swagger:route DELETE /api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/nodes/{node_id} project deleteNodeForClusterLegacy
 //
+//    Deprecated:
 //    Deletes the given node that belongs to the cluster.
+//
+//     This endpoint is deprecated, please create a Node Deployment instead.
 //
 //     Produces:
 //     - application/json
@@ -1258,16 +1128,16 @@ func (r Routing) newListNodesForCluster() http.Handler {
 //       200: empty
 //       401: empty
 //       403: empty
-func (r Routing) newDeleteNodeForCluster() http.Handler {
+func (r Routing) deleteNodeForClusterLegacy() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			r.authenticator.Verifier(),
+			r.oidcAuthenticator.Verifier(),
 			r.userSaverMiddleware(),
-			r.newDatacenterMiddleware(),
+			middleware.Datacenter(r.clusterProviders, r.datacenters),
 			r.userInfoMiddleware(),
-		)(newDeleteNodeForCluster(r.projectProvider)),
-		decodeDeleteNodeForCluster,
-		encodeJSON,
+		)(deleteNodeForClusterLegacy(r.projectProvider)),
+		decodeDeleteNodeForClusterLegacy,
+		EncodeJSON,
 		r.defaultServerOptions()...,
 	)
 }
@@ -1287,13 +1157,13 @@ func (r Routing) newDeleteNodeForCluster() http.Handler {
 func (r Routing) getClusterUpgrades() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			r.authenticator.Verifier(),
+			r.oidcAuthenticator.Verifier(),
 			r.userSaverMiddleware(),
-			r.newDatacenterMiddleware(),
+			middleware.Datacenter(r.clusterProviders, r.datacenters),
 			r.userInfoMiddleware(),
 		)(getClusterUpgrades(r.updateManager, r.projectProvider)),
-		decodeClusterReq,
-		encodeJSON,
+		common.DecodeGetClusterReq,
+		EncodeJSON,
 		r.defaultServerOptions()...,
 	)
 }
@@ -1316,12 +1186,12 @@ func (r Routing) getClusterUpgrades() http.Handler {
 func (r Routing) addUserToProject() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			r.authenticator.Verifier(),
+			r.oidcAuthenticator.Verifier(),
 			r.userSaverMiddleware(),
 			r.userInfoMiddleware(),
 		)(addUserToProject(r.projectProvider, r.userProvider, r.projectMemberProvider)),
 		decodeAddUserToProject,
-		setStatusCreatedHeader(encodeJSON),
+		setStatusCreatedHeader(EncodeJSON),
 		r.defaultServerOptions()...,
 	)
 }
@@ -1344,12 +1214,12 @@ func (r Routing) addUserToProject() http.Handler {
 func (r Routing) getUsersForProject() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			r.authenticator.Verifier(),
+			r.oidcAuthenticator.Verifier(),
 			r.userSaverMiddleware(),
 			r.userInfoMiddleware(),
-		)(listUsersFromProject(r.projectProvider, r.userProvider, r.projectMemberProvider)),
-		decodeGetProject,
-		encodeJSON,
+		)(listMembersOfProject(r.projectProvider, r.userProvider, r.projectMemberProvider)),
+		common.DecodeGetProject,
+		EncodeJSON,
 		r.defaultServerOptions()...,
 	)
 }
@@ -1372,12 +1242,12 @@ func (r Routing) getUsersForProject() http.Handler {
 func (r Routing) editUserInProject() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			r.authenticator.Verifier(),
+			r.oidcAuthenticator.Verifier(),
 			r.userSaverMiddleware(),
 			r.userInfoMiddleware(),
 		)(editMemberOfProject(r.projectProvider, r.userProvider, r.projectMemberProvider)),
 		decodeEditUserToProject,
-		encodeJSON,
+		EncodeJSON,
 		r.defaultServerOptions()...,
 	)
 }
@@ -1400,12 +1270,12 @@ func (r Routing) editUserInProject() http.Handler {
 func (r Routing) deleteUserFromProject() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			r.authenticator.Verifier(),
+			r.oidcAuthenticator.Verifier(),
 			r.userSaverMiddleware(),
 			r.userInfoMiddleware(),
 		)(deleteMemberFromProject(r.projectProvider, r.userProvider, r.projectMemberProvider)),
 		decodeDeleteUserFromProject,
-		encodeJSON,
+		EncodeJSON,
 		r.defaultServerOptions()...,
 	)
 }
@@ -1424,11 +1294,11 @@ func (r Routing) deleteUserFromProject() http.Handler {
 func (r Routing) getCurrentUser() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			r.authenticator.Verifier(),
+			r.oidcAuthenticator.Verifier(),
 			r.userSaverMiddleware(),
 		)(getCurrentUserEndpoint(r.userProvider, r.userProjectMapper)),
 		decodeEmptyReq,
-		encodeJSON,
+		EncodeJSON,
 		r.defaultServerOptions()...,
 	)
 }
@@ -1446,59 +1316,13 @@ func (r Routing) getCurrentUser() http.Handler {
 func (r Routing) listDigitaloceanSizesNoCredentials() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			r.authenticator.Verifier(),
+			r.oidcAuthenticator.Verifier(),
 			r.userSaverMiddleware(),
-			r.newDatacenterMiddleware(),
+			middleware.Datacenter(r.clusterProviders, r.datacenters),
 			r.userInfoMiddleware(),
-		)(digitaloceanSizeNoCredentialsEndpoint(r.projectProvider)),
-		decodeDoSizesNoCredentialsReq,
-		encodeJSON,
-		r.defaultServerOptions()...,
-	)
-}
-
-// swagger:route GET /api/v1/dc/{dc}/cluster/{cluster}/digitalocean/sizes digitalocean listLegacyDigitaloceanSizes
-//
-// Lists sizes from digitalocean
-//
-//     Produces:
-//     - application/json
-//
-//     Responses:
-//       default: errorResponse
-//       200: DigitaloceanSizeList
-func (r Routing) listLegacyDigitaloceanSizes() http.Handler {
-	return httptransport.NewServer(
-		endpoint.Chain(
-			r.authenticator.Verifier(),
-			r.userSaverMiddleware(),
-			r.datacenterMiddleware(),
-		)(legacyDigitaloceanSizeEndpoint()),
-		decodeLegacyDoSizesReq,
-		encodeJSON,
-		r.defaultServerOptions()...,
-	)
-}
-
-// swagger:route GET /api/v1/dc/{dc}/cluster/{cluster}/azure/sizes azure listLegacyAzureSizes
-//
-// Lists available VM sizes in an Azure region
-//
-//     Produces:
-//     - application/json
-//
-//     Responses:
-//       default: errorResponse
-//       200: AzureSizeList
-func (r Routing) listLegacyAzureSizes() http.Handler {
-	return httptransport.NewServer(
-		endpoint.Chain(
-			r.authenticator.Verifier(),
-			r.userSaverMiddleware(),
-			r.datacenterMiddleware(),
-		)(legacyAzureSizeEndpoint(r.datacenters)),
-		decodeLegacyAzureSizesReq,
-		encodeJSON,
+		)(provider.DigitaloceanSizeNoCredentialsEndpoint(r.projectProvider)),
+		provider.DecodeDoSizesNoCredentialsReq,
+		EncodeJSON,
 		r.defaultServerOptions()...,
 	)
 }
@@ -1516,13 +1340,13 @@ func (r Routing) listLegacyAzureSizes() http.Handler {
 func (r Routing) listAzureSizesNoCredentials() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			r.authenticator.Verifier(),
+			r.oidcAuthenticator.Verifier(),
 			r.userSaverMiddleware(),
-			r.newDatacenterMiddleware(),
+			middleware.Datacenter(r.clusterProviders, r.datacenters),
 			r.userInfoMiddleware(),
-		)(azureSizeNoCredentialsEndpoint(r.projectProvider, r.datacenters)),
-		decodeAzureSizesNoCredentialsReq,
-		encodeJSON,
+		)(provider.AzureSizeNoCredentialsEndpoint(r.projectProvider, r.datacenters)),
+		provider.DecodeAzureSizesNoCredentialsReq,
+		EncodeJSON,
 		r.defaultServerOptions()...,
 	)
 }
@@ -1540,36 +1364,13 @@ func (r Routing) listAzureSizesNoCredentials() http.Handler {
 func (r Routing) listOpenstackSizesNoCredentials() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			r.authenticator.Verifier(),
+			r.oidcAuthenticator.Verifier(),
 			r.userSaverMiddleware(),
-			r.newDatacenterMiddleware(),
+			middleware.Datacenter(r.clusterProviders, r.datacenters),
 			r.userInfoMiddleware(),
-		)(openstackSizeNoCredentialsEndpoint(r.projectProvider, r.cloudProviders)),
-		decodeOpenstackNoCredentialsReq,
-		encodeJSON,
-		r.defaultServerOptions()...,
-	)
-}
-
-// swagger:route GET /api/v1/dc/{dc}/cluster/{cluster}/openstack/sizes openstack listLegacyOpenstackSizes
-//
-// Lists sizes from openstack
-//
-//     Produces:
-//     - application/json
-//
-//     Responses:
-//       default: errorResponse
-//       200: []OpenstackSize
-func (r Routing) listLegacyOpenstackSizes() http.Handler {
-	return httptransport.NewServer(
-		endpoint.Chain(
-			r.authenticator.Verifier(),
-			r.userSaverMiddleware(),
-			r.datacenterMiddleware(),
-		)(legacyOpenstackSizeEndpoint(r.cloudProviders)),
-		decodeLegacyOpenstackReq,
-		encodeJSON,
+		)(provider.OpenstackSizeNoCredentialsEndpoint(r.projectProvider, r.cloudProviders)),
+		provider.DecodeOpenstackNoCredentialsReq,
+		EncodeJSON,
 		r.defaultServerOptions()...,
 	)
 }
@@ -1587,59 +1388,13 @@ func (r Routing) listLegacyOpenstackSizes() http.Handler {
 func (r Routing) listOpenstackTenantsNoCredentials() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			r.authenticator.Verifier(),
+			r.oidcAuthenticator.Verifier(),
 			r.userSaverMiddleware(),
-			r.newDatacenterMiddleware(),
+			middleware.Datacenter(r.clusterProviders, r.datacenters),
 			r.userInfoMiddleware(),
-		)(openstackTenantNoCredentialsEndpoint(r.projectProvider, r.cloudProviders)),
-		decodeOpenstackNoCredentialsReq,
-		encodeJSON,
-		r.defaultServerOptions()...,
-	)
-}
-
-// swagger:route GET /api/v1/dc/{dc}/cluster/{cluster}/openstack/tenants openstack listLegacyOpenstackTenants
-//
-// Lists tenants from openstack
-//
-//     Produces:
-//     - application/json
-//
-//     Responses:
-//       default: errorResponse
-//       200: []OpenstackTenant
-func (r Routing) listLegacyOpenstackTenants() http.Handler {
-	return httptransport.NewServer(
-		endpoint.Chain(
-			r.authenticator.Verifier(),
-			r.userSaverMiddleware(),
-			r.datacenterMiddleware(),
-		)(legacyOpenstackTenantEndpoint(r.cloudProviders)),
-		decodeLegacyOpenstackReq,
-		encodeJSON,
-		r.defaultServerOptions()...,
-	)
-}
-
-// swagger:route GET /api/v1/dc/{dc}/cluster/{cluster}/openstack/networks openstack listLegacyOpenstackNetworks
-//
-// Lists networks from openstack
-//
-//     Produces:
-//     - application/json
-//
-//     Responses:
-//       default: errorResponse
-//       200: []OpenstackNetwork
-func (r Routing) listLegacyOpenstackNetworks() http.Handler {
-	return httptransport.NewServer(
-		endpoint.Chain(
-			r.authenticator.Verifier(),
-			r.userSaverMiddleware(),
-			r.datacenterMiddleware(),
-		)(legacyOpenstackNetworkEndpoint(r.cloudProviders)),
-		decodeLegacyOpenstackReq,
-		encodeJSON,
+		)(provider.OpenstackTenantNoCredentialsEndpoint(r.projectProvider, r.cloudProviders)),
+		provider.DecodeOpenstackNoCredentialsReq,
+		EncodeJSON,
 		r.defaultServerOptions()...,
 	)
 }
@@ -1657,13 +1412,13 @@ func (r Routing) listLegacyOpenstackNetworks() http.Handler {
 func (r Routing) listOpenstackNetworksNoCredentials() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			r.authenticator.Verifier(),
+			r.oidcAuthenticator.Verifier(),
 			r.userSaverMiddleware(),
-			r.newDatacenterMiddleware(),
+			middleware.Datacenter(r.clusterProviders, r.datacenters),
 			r.userInfoMiddleware(),
-		)(openstackNetworkNoCredentialsEndpoint(r.projectProvider, r.cloudProviders)),
-		decodeOpenstackNoCredentialsReq,
-		encodeJSON,
+		)(provider.OpenstackNetworkNoCredentialsEndpoint(r.projectProvider, r.cloudProviders)),
+		provider.DecodeOpenstackNoCredentialsReq,
+		EncodeJSON,
 		r.defaultServerOptions()...,
 	)
 }
@@ -1681,59 +1436,13 @@ func (r Routing) listOpenstackNetworksNoCredentials() http.Handler {
 func (r Routing) listOpenstackSecurityGroupsNoCredentials() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			r.authenticator.Verifier(),
+			r.oidcAuthenticator.Verifier(),
 			r.userSaverMiddleware(),
-			r.newDatacenterMiddleware(),
+			middleware.Datacenter(r.clusterProviders, r.datacenters),
 			r.userInfoMiddleware(),
-		)(openstackSecurityGroupNoCredentialsEndpoint(r.projectProvider, r.cloudProviders)),
-		decodeOpenstackNoCredentialsReq,
-		encodeJSON,
-		r.defaultServerOptions()...,
-	)
-}
-
-// swagger:route GET /api/v1/dc/{dc}/cluster/{cluster}/openstack/securitygroups openstack listLegacyOpenstackSecurityGroups
-//
-// Lists security groups from openstack
-//
-//     Produces:
-//     - application/json
-//
-//     Responses:
-//       default: errorResponse
-//       200: []OpenstackSecurityGroup
-func (r Routing) listLegacyOpenstackSecurityGroups() http.Handler {
-	return httptransport.NewServer(
-		endpoint.Chain(
-			r.authenticator.Verifier(),
-			r.userSaverMiddleware(),
-			r.datacenterMiddleware(),
-		)(legacyOpenstackSecurityGroupEndpoint(r.cloudProviders)),
-		decodeLegacyOpenstackReq,
-		encodeJSON,
-		r.defaultServerOptions()...,
-	)
-}
-
-// swagger:route GET /api/v1/dc/{dc}/cluster/{cluster}/openstack/subnets openstack listLegacyOpenstackSubnets
-//
-// Lists subnets from openstack
-//
-//     Produces:
-//     - application/json
-//
-//     Responses:
-//       default: errorResponse
-//       200: []OpenstackSubnet
-func (r Routing) listLegacyOpenstackSubnets() http.Handler {
-	return httptransport.NewServer(
-		endpoint.Chain(
-			r.authenticator.Verifier(),
-			r.userSaverMiddleware(),
-			r.datacenterMiddleware(),
-		)(legacyOpenstackSubnetsEndpoint(r.cloudProviders)),
-		decodeLegacyOpenstackSubnetReq,
-		encodeJSON,
+		)(provider.OpenstackSecurityGroupNoCredentialsEndpoint(r.projectProvider, r.cloudProviders)),
+		provider.DecodeOpenstackNoCredentialsReq,
+		EncodeJSON,
 		r.defaultServerOptions()...,
 	)
 }
@@ -1751,36 +1460,13 @@ func (r Routing) listLegacyOpenstackSubnets() http.Handler {
 func (r Routing) listOpenstackSubnetsNoCredentials() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			r.authenticator.Verifier(),
+			r.oidcAuthenticator.Verifier(),
 			r.userSaverMiddleware(),
-			r.newDatacenterMiddleware(),
+			middleware.Datacenter(r.clusterProviders, r.datacenters),
 			r.userInfoMiddleware(),
-		)(openstackSubnetsNoCredentialsEndpoint(r.projectProvider, r.cloudProviders)),
-		decodeOpenstackSubnetNoCredentialsReq,
-		encodeJSON,
-		r.defaultServerOptions()...,
-	)
-}
-
-// swagger:route GET /api/v1/dc/{dc}/cluster/{cluster}/vsphere/networks vsphere listLegacyVSphereNetworks
-//
-// Lists networks from vsphere datacenter
-//
-//     Produces:
-//     - application/json
-//
-//     Responses:
-//       default: errorResponse
-//       200: []VSphereNetwork
-func (r Routing) listLegacyVSphereNetworks() http.Handler {
-	return httptransport.NewServer(
-		endpoint.Chain(
-			r.authenticator.Verifier(),
-			r.userSaverMiddleware(),
-			r.datacenterMiddleware(),
-		)(legacyVsphereNetworksEndpoint(r.cloudProviders)),
-		decodeLegacyVSphereNetworksReq,
-		encodeJSON,
+		)(provider.OpenstackSubnetsNoCredentialsEndpoint(r.projectProvider, r.cloudProviders)),
+		provider.DecodeOpenstackSubnetNoCredentialsReq,
+		EncodeJSON,
 		r.defaultServerOptions()...,
 	)
 }
@@ -1798,27 +1484,203 @@ func (r Routing) listLegacyVSphereNetworks() http.Handler {
 func (r Routing) listVSphereNetworksNoCredentials() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			r.authenticator.Verifier(),
+			r.oidcAuthenticator.Verifier(),
 			r.userSaverMiddleware(),
-			r.newDatacenterMiddleware(),
+			middleware.Datacenter(r.clusterProviders, r.datacenters),
 			r.userInfoMiddleware(),
-		)(vsphereNetworksNoCredentialsEndpoint(r.projectProvider, r.cloudProviders)),
-		decodeVSphereNetworksNoCredentialsReq,
-		encodeJSON,
+		)(provider.VsphereNetworksNoCredentialsEndpoint(r.projectProvider, r.cloudProviders)),
+		provider.DecodeVSphereNetworksNoCredentialsReq,
+		EncodeJSON,
 		r.defaultServerOptions()...,
 	)
 }
 
-func (r Routing) prometheusProxyHandler() http.Handler {
+// swagger:route POST /api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/nodedeployments project createNodeDeployment
+//
+//     Creates a node deployment that will belong to the given cluster
+//
+//     Consumes:
+//     - application/json
+//
+//     Produces:
+//     - application/json
+//
+//     Responses:
+//       default: errorResponse
+//       201: NodeDeployment
+//       401: empty
+//       403: empty
+func (r Routing) createNodeDeployment() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			r.authenticator.Verifier(),
+			r.oidcAuthenticator.Verifier(),
 			r.userSaverMiddleware(),
-			r.newDatacenterMiddleware(),
+			middleware.Datacenter(r.clusterProviders, r.datacenters),
 			r.userInfoMiddleware(),
-		)(getPrometheusProxyEndpoint()),
-		decodePrometheusProxyReq,
-		encodeRawResponse,
+		)(createNodeDeployment(r.sshKeyProvider, r.projectProvider, r.datacenters)),
+		decodeCreateNodeDeployment,
+		setStatusCreatedHeader(EncodeJSON),
+		r.defaultServerOptions()...,
+	)
+}
+
+// swagger:route GET /api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/nodedeployments project listNodeDeployments
+//
+//     Lists node deployments that belong to the given cluster
+//
+//     Produces:
+//     - application/json
+//
+//     Responses:
+//       default: errorResponse
+//       200: []NodeDeployment
+//       401: empty
+//       403: empty
+func (r Routing) listNodeDeployments() http.Handler {
+	return httptransport.NewServer(
+		endpoint.Chain(
+			r.oidcAuthenticator.Verifier(),
+			r.userSaverMiddleware(),
+			middleware.Datacenter(r.clusterProviders, r.datacenters),
+			r.userInfoMiddleware(),
+		)(listNodeDeployments(r.projectProvider)),
+		decodeListNodeDeployments,
+		EncodeJSON,
+		r.defaultServerOptions()...,
+	)
+}
+
+// swagger:route GET /api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/nodedeployments/{nodedeployment_id} project getNodeDeployment
+//
+//     Gets a node deployment that is assigned to the given cluster.
+//
+//     Produces:
+//     - application/json
+//
+//     Responses:
+//       default: errorResponse
+//       200: NodeDeployment
+//       401: empty
+//       403: empty
+func (r Routing) getNodeDeployment() http.Handler {
+	return httptransport.NewServer(
+		endpoint.Chain(
+			r.oidcAuthenticator.Verifier(),
+			r.userSaverMiddleware(),
+			middleware.Datacenter(r.clusterProviders, r.datacenters),
+			r.userInfoMiddleware(),
+		)(getNodeDeployment(r.projectProvider)),
+		decodeGetNodeDeployment,
+		EncodeJSON,
+		r.defaultServerOptions()...,
+	)
+}
+
+// swagger:route GET /api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/nodedeployments/{nodedeployment_id}/nodes project listNodeDeploymentNodes
+//
+//     Lists nodes that belong to the given node deployment.
+//
+//     Produces:
+//     - application/json
+//
+//     Responses:
+//       default: errorResponse
+//       200: []Node
+//       401: empty
+//       403: empty
+func (r Routing) listNodeDeploymentNodes() http.Handler {
+	return httptransport.NewServer(
+		endpoint.Chain(
+			r.oidcAuthenticator.Verifier(),
+			r.userSaverMiddleware(),
+			middleware.Datacenter(r.clusterProviders, r.datacenters),
+			r.userInfoMiddleware(),
+		)(listNodeDeploymentNodes(r.projectProvider)),
+		decodeListNodeDeploymentNodes,
+		EncodeJSON,
+		r.defaultServerOptions()...,
+	)
+}
+
+// swagger:route GET /api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/nodedeployments/{nodedeployment_id}/nodes/events project listNodeDeploymentNodesEvents
+//
+//     Lists node deployment events. If query parameter `type` is set to `warning` then only warning events are retrieved.
+//     If the value is 'normal' then normal events are returned. If the query parameter is missing method returns all events.
+//
+//     Produces:
+//     - application/json
+//
+//     Responses:
+//       default: errorResponse
+//       200: []Event
+//       401: empty
+//       403: empty
+func (r Routing) listNodeDeploymentNodesEvents() http.Handler {
+	return httptransport.NewServer(
+		endpoint.Chain(
+			r.oidcAuthenticator.Verifier(),
+			r.userSaverMiddleware(),
+			middleware.Datacenter(r.clusterProviders, r.datacenters),
+			r.userInfoMiddleware(),
+		)(listNodeDeploymentNodesEvents()),
+		decodeListNodeDeploymentNodesEvents,
+		EncodeJSON,
+		r.defaultServerOptions()...,
+	)
+}
+
+// swagger:route GET /api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/nodedeployments/{nodedeployment_id} project patchNodeDeployment
+//
+//     Patches a node deployment that is assigned to the given cluster. Please note that at the moment only
+//	   node deployment's spec can be updated by a patch, no other fields can be changed using this endpoint.
+//
+//     Consumes:
+//     - application/json
+//
+//     Produces:
+//     - application/json
+//
+//     Responses:
+//       default: errorResponse
+//       200: NodeDeployment
+//       401: empty
+//       403: empty
+func (r Routing) patchNodeDeployment() http.Handler {
+	return httptransport.NewServer(
+		endpoint.Chain(
+			r.oidcAuthenticator.Verifier(),
+			r.userSaverMiddleware(),
+			middleware.Datacenter(r.clusterProviders, r.datacenters),
+			r.userInfoMiddleware(),
+		)(patchNodeDeployment(r.sshKeyProvider, r.projectProvider, r.datacenters)),
+		decodePatchNodeDeployment,
+		EncodeJSON,
+		r.defaultServerOptions()...,
+	)
+}
+
+// swagger:route DELETE /api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/nodedeployments/{nodedeployment_id} project deleteNodeDeployment
+//
+//    Deletes the given node deployment that belongs to the cluster.
+//
+//     Produces:
+//     - application/json
+//
+//     Responses:
+//       default: errorResponse
+//       200: empty
+//       401: empty
+//       403: empty
+func (r Routing) deleteNodeDeployment() http.Handler {
+	return httptransport.NewServer(
+		endpoint.Chain(
+			r.oidcAuthenticator.Verifier(),
+			r.userSaverMiddleware(),
+			middleware.Datacenter(r.clusterProviders, r.datacenters),
+			r.userInfoMiddleware(),
+		)(deleteNodeDeployment(r.projectProvider)),
+		decodeDeleteNodeDeployment,
+		EncodeJSON,
 		r.defaultServerOptions()...,
 	)
 }

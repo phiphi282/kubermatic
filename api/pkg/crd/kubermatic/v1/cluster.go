@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"github.com/kubermatic/kubermatic/api/pkg/semver"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -73,7 +74,7 @@ type ClusterSpec struct {
 	MachineNetworks []MachineNetworkingConfig `json:"machineNetworks,omitempty"`
 
 	// Version defines the wanted version of the control plane
-	Version string `json:"version"`
+	Version semver.Semver `json:"version"`
 	// MasterVersion is Deprecated
 	MasterVersion string `json:"masterVersion"`
 
@@ -197,97 +198,6 @@ type CloudSpec struct {
 	Openstack    *OpenstackCloudSpec    `json:"openstack,omitempty"`
 	Hetzner      *HetznerCloudSpec      `json:"hetzner,omitempty"`
 	VSphere      *VSphereCloudSpec      `json:"vsphere,omitempty"`
-}
-
-// UpdateCloudSpec is a helper method for updating the cloud spec
-// since cloud credentials are removed from responses sometimes they will be empty
-// for example when a client wants to revoke a token it will send the whole cluster object
-// thus if credentials for specific cloud provider are empty rewrite from an existing object
-func UpdateCloudSpec(updatedShared, existingShared CloudSpec) CloudSpec {
-	updated := updatedShared.DeepCopy()
-
-	if updated.Digitalocean != nil && len(updated.Digitalocean.Token) == 0 {
-		updated.Digitalocean.Token = existingShared.Digitalocean.Token
-	}
-	if updated.AWS != nil {
-		if len(updated.AWS.AccessKeyID) == 0 {
-			updated.AWS.AccessKeyID = existingShared.AWS.AccessKeyID
-		}
-		if len(updated.AWS.SecretAccessKey) == 0 {
-			updated.AWS.SecretAccessKey = existingShared.AWS.SecretAccessKey
-		}
-	}
-	if updated.Azure != nil {
-		if len(updated.Azure.ClientID) == 0 {
-			updated.Azure.ClientID = existingShared.Azure.ClientID
-		}
-		if len(updated.Azure.ClientSecret) == 0 {
-			updated.Azure.ClientSecret = existingShared.Azure.ClientSecret
-		}
-	}
-	if updated.Openstack != nil {
-		if len(updated.Openstack.Username) == 0 {
-			updated.Openstack.Username = existingShared.Openstack.Username
-		}
-		if len(updated.Openstack.Password) == 0 {
-			updated.Openstack.Password = existingShared.Openstack.Password
-		}
-	}
-	if updated.Hetzner != nil && len(updated.Hetzner.Token) == 0 {
-		updated.Hetzner.Token = existingShared.Hetzner.Token
-	}
-	if updated.VSphere != nil {
-		if len(updated.VSphere.Username) == 0 {
-			updated.VSphere.Username = existingShared.VSphere.Username
-		}
-		if len(updated.VSphere.Password) == 0 {
-			updated.VSphere.Password = existingShared.VSphere.Password
-		}
-		if len(updated.VSphere.InfraManagementUser.Username) == 0 {
-			updated.VSphere.InfraManagementUser.Username = existingShared.VSphere.InfraManagementUser.Username
-		}
-		if len(updated.VSphere.InfraManagementUser.Password) == 0 {
-			updated.VSphere.InfraManagementUser.Password = existingShared.VSphere.InfraManagementUser.Password
-		}
-	}
-
-	if updated.Fake != nil {
-		if len(updated.Fake.Token) == 0 {
-			updated.Fake.Token = existingShared.Fake.Token
-		}
-	}
-
-	return *updated
-}
-
-// RemoveSensitiveDataFromCloudSpec remove credentials from cloud providers
-func RemoveSensitiveDataFromCloudSpec(spec CloudSpec) CloudSpec {
-	if spec.Digitalocean != nil {
-		spec.Digitalocean.Token = ""
-	}
-	if spec.AWS != nil {
-		spec.AWS.AccessKeyID = ""
-		spec.AWS.SecretAccessKey = ""
-	}
-	if spec.Azure != nil {
-		spec.Azure.ClientID = ""
-		spec.Azure.ClientSecret = ""
-	}
-	if spec.Openstack != nil {
-		spec.Openstack.Username = ""
-		spec.Openstack.Password = ""
-	}
-	if spec.Hetzner != nil {
-		spec.Hetzner.Token = ""
-	}
-	if spec.VSphere != nil {
-		spec.VSphere.Username = ""
-		spec.VSphere.Password = ""
-		spec.VSphere.InfraManagementUser.Username = ""
-		spec.VSphere.InfraManagementUser.Password = ""
-	}
-
-	return spec
 }
 
 // ClusterHealth stores health information of a cluster and the timestamp of the last change.

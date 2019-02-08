@@ -13,12 +13,14 @@ import (
 	"github.com/kubermatic/kubermatic/api/pkg/resources/etcd"
 	"github.com/kubermatic/kubermatic/api/pkg/resources/ipamcontroller"
 	"github.com/kubermatic/kubermatic/api/pkg/resources/machinecontroller"
+	metricsserver "github.com/kubermatic/kubermatic/api/pkg/resources/metrics-server"
 	"github.com/kubermatic/kubermatic/api/pkg/resources/openvpn"
 	"github.com/kubermatic/kubermatic/api/pkg/resources/scheduler"
-
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	autoscalingv1beta "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/apis/autoscaling.k8s.io/v1beta1"
 )
 
 const (
@@ -66,6 +68,11 @@ func (cc *Controller) ensureResourcesAreDeployed(cluster *kubermaticv1.Cluster) 
 		return err
 	}
 
+	// check that all StatefulSets are created
+	if err := cc.ensureVerticalPodAutoscalers(cluster, data); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -92,6 +99,9 @@ func (cc *Controller) getClusterTemplateData(c *kubermaticv1.Cluster) (*resource
 		cc.inClusterPrometheusDisableDefaultScrapingConfigs,
 		cc.inClusterPrometheusScrapingConfigsFile,
 		cc.dockerPullConfigJSON,
+		cc.oidcCAFile,
+		cc.oidcIssuerURL,
+		cc.oidcIssuerClientID,
 	), nil
 }
 
@@ -133,6 +143,7 @@ func GetServiceCreators() []resources.ServiceCreator {
 		etcd.Service,
 		dns.Service,
 		machinecontroller.Service,
+		metricsserver.Service,
 	}
 }
 
@@ -158,6 +169,7 @@ func GetDeploymentCreators(c *kubermaticv1.Cluster) []resources.DeploymentCreato
 		scheduler.Deployment,
 		controllermanager.Deployment,
 		dns.Deployment,
+		metricsserver.Deployment,
 	}
 
 	if c != nil && len(c.Spec.MachineNetworks) > 0 {
@@ -186,9 +198,10 @@ type SecretOperation struct {
 }
 
 // GetSecretCreatorOperations returns all SecretCreators that are currently in use
-func GetSecretCreatorOperations(dockerPullConfigJSON []byte) []SecretOperation {
-	return []SecretOperation{
+func GetSecretCreatorOperations(c *kubermaticv1.Cluster, dockerPullConfigJSON []byte, enableDexCA bool) []SecretOperation {
+	secrets := []SecretOperation{
 		{resources.CASecretName, certificates.RootCA},
+		{resources.OpenVPNCASecretName, openvpn.CertificateAuthority},
 		{resources.FrontProxyCASecretName, certificates.FrontProxyCA},
 		{resources.ImagePullSecretName, resources.ImagePullSecretCreator(resources.ImagePullSecretName, dockerPullConfigJSON)},
 		{resources.ApiserverFrontProxyClientCertificateSecretName, apiserver.FrontProxyClientCertificate},
@@ -207,11 +220,27 @@ func GetSecretCreatorOperations(dockerPullConfigJSON []byte) []SecretOperation {
 		{resources.ControllerManagerKubeconfigSecretName, resources.GetInternalKubeconfigCreator(resources.ControllerManagerKubeconfigSecretName, resources.ControllerManagerCertUsername, nil)},
 		{resources.KubeStateMetricsKubeconfigSecretName, resources.GetInternalKubeconfigCreator(resources.KubeStateMetricsKubeconfigSecretName, resources.KubeStateMetricsCertUsername, nil)},
 		{resources.MachineControllerWebhookServingCertSecretName, machinecontroller.TLSServingCertificate},
+		{resources.MetricsServerKubeconfigSecretName, resources.GetInternalKubeconfigCreator(resources.MetricsServerKubeconfigSecretName, resources.MetricsServerCertUsername, nil)},
 	}
+
+	if enableDexCA {
+		secrets = append(secrets, SecretOperation{name: resources.DexCASecretName, create: apiserver.DexCACertificate})
+	}
+
+	if len(c.Spec.MachineNetworks) > 0 {
+		secrets = append(secrets, SecretOperation{resources.IPAMControllerKubeconfigSecretName, resources.GetInternalKubeconfigCreator(resources.IPAMControllerKubeconfigSecretName, resources.IPAMControllerCertUsername, nil)})
+	}
+	return secrets
 }
 
 func (cc *Controller) ensureSecrets(c *kubermaticv1.Cluster, data *resources.TemplateData) error {
-	operations := GetSecretCreatorOperations(cc.dockerPullConfigJSON)
+
+	var enableDexCA bool
+	if len(data.OIDCCAFile()) > 0 {
+		enableDexCA = true
+	}
+
+	operations := GetSecretCreatorOperations(c, cc.dockerPullConfigJSON, enableDexCA)
 
 	for _, op := range operations {
 		if err := resources.EnsureSecret(op.name, data, op.create, cc.secretLister.Secrets(c.Status.NamespaceName), cc.kubeClient.CoreV1().Secrets(c.Status.NamespaceName)); err != nil {
@@ -244,22 +273,10 @@ func (cc *Controller) ensureConfigMaps(c *kubermaticv1.Cluster, data *resources.
 }
 
 // GetStatefulSetCreators returns all StatefulSetCreators that are currently in use
-func GetStatefulSetCreators() []resources.StatefulSetCreator {
+func GetStatefulSetCreators(data *resources.TemplateData) []resources.StatefulSetCreator {
 	return []resources.StatefulSetCreator{
-		etcd.StatefulSet,
+		etcd.StatefulSetCreator(data),
 	}
-}
-
-func (cc *Controller) ensureStatefulSets(c *kubermaticv1.Cluster, data *resources.TemplateData) error {
-	creators := GetStatefulSetCreators()
-
-	for _, create := range creators {
-		if err := resources.EnsureStatefulSet(data, create, cc.statefulSetLister.StatefulSets(c.Status.NamespaceName), cc.kubeClient.AppsV1().StatefulSets(c.Status.NamespaceName)); err != nil {
-			return fmt.Errorf("failed to ensure that the StatefulSet exists: %v", err)
-		}
-	}
-
-	return nil
 }
 
 // GetPodDisruptionBudgetCreators returns all PodDisruptionBudgetCreators that are currently in use
@@ -267,6 +284,7 @@ func GetPodDisruptionBudgetCreators() []resources.PodDisruptionBudgetCreator {
 	return []resources.PodDisruptionBudgetCreator{
 		etcd.PodDisruptionBudget,
 		apiserver.PodDisruptionBudget,
+		metricsserver.PodDisruptionBudget,
 	}
 }
 
@@ -299,4 +317,53 @@ func (cc *Controller) ensureCronJobs(c *kubermaticv1.Cluster, data *resources.Te
 	}
 
 	return nil
+}
+
+func (cc *Controller) ensureVerticalPodAutoscalers(c *kubermaticv1.Cluster, data *resources.TemplateData) error {
+	creators, err := resources.GetVerticalPodAutoscalersForAll([]string{
+		"apiserver",
+		"controller-manager",
+		"dns-resolver",
+		"machine-controller",
+		"machine-controller-webhook",
+		"metrics-server",
+		"openvpn-server",
+		"scheduler",
+	},
+		[]string{
+			"etcd",
+		}, c.Status.NamespaceName,
+		cc.dynamicCache)
+	if err != nil {
+		return fmt.Errorf("failed to create the functions to handle VPA resources: %v", err)
+	}
+
+	if !cc.enableVPA {
+		// If the feature is disabled, we just wrap the create function to disable the VPA.
+		// This is easier than passing a bool to all required functions.
+		for i, create := range creators {
+			creators[i] = func(existing *autoscalingv1beta.VerticalPodAutoscaler) (*autoscalingv1beta.VerticalPodAutoscaler, error) {
+				vpa, err := create(existing)
+				if err != nil {
+					return nil, err
+				}
+				if vpa.Spec.UpdatePolicy == nil {
+					vpa.Spec.UpdatePolicy = &autoscalingv1beta.PodUpdatePolicy{}
+				}
+				mode := autoscalingv1beta.UpdateModeOff
+				vpa.Spec.UpdatePolicy.UpdateMode = &mode
+
+				return vpa, nil
+			}
+		}
+	}
+
+	return resources.EnsureVerticalPodAutoscalers(creators, c.Status.NamespaceName, cc.dynamicClient, cc.dynamicCache)
+}
+
+func (cc *Controller) ensureStatefulSets(c *kubermaticv1.Cluster, data *resources.TemplateData) error {
+	data.GetClusterRef()
+	creators := GetStatefulSetCreators(data)
+
+	return resources.EnsureStatefulSets(creators, c.Status.NamespaceName, cc.dynamicClient, cc.dynamicCache, resources.ClusterRefWrapper(c))
 }

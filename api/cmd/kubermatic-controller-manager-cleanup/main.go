@@ -12,6 +12,7 @@ import (
 	kubermaticv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
 	kubermaticKubernetesProvider "github.com/kubermatic/kubermatic/api/pkg/provider/kubernetes"
 	"github.com/kubermatic/kubermatic/api/pkg/resources"
+	"github.com/kubermatic/kubermatic/api/pkg/semver"
 	"github.com/kubermatic/kubermatic/api/pkg/util/hash"
 	"github.com/kubermatic/kubermatic/api/pkg/util/workerlabel"
 
@@ -113,7 +114,7 @@ func cleanupClusters(workerName string, ctx *cleanupContext) error {
 }
 
 func cleanupKeys(ctx *cleanupContext) error {
-	keys, err := ctx.kubermaticClient.KubermaticV1().UserSSHKeies().List(metav1.ListOptions{})
+	keys, err := ctx.kubermaticClient.KubermaticV1().UserSSHKeys().List(metav1.ListOptions{})
 	if err != nil {
 		glog.Fatal(err)
 	}
@@ -198,6 +199,7 @@ func cleanupCluster(cluster *kubermaticv1.Cluster, ctx *cleanupContext) {
 		setVSphereInfraManagementUser,
 		combineCACertAndKey,
 		cleanupHeapsterAddon,
+		cleanupMetricsServerAddon,
 		migrateClusterUserLabel,
 	}
 
@@ -360,8 +362,12 @@ func removeDeprecatedFinalizers(cluster *kubermaticv1.Cluster, ctx *cleanupConte
 
 // We moved MasterVersion to Version
 func migrateVersion(cluster *kubermaticv1.Cluster, ctx *cleanupContext) error {
-	if cluster.Spec.Version == "" {
-		cluster.Spec.Version = cluster.Spec.MasterVersion
+	if cluster.Spec.Version.String() == "" {
+		ver, err := semver.NewSemver(cluster.Spec.MasterVersion)
+		if err != nil {
+			return err
+		}
+		cluster.Spec.Version = *ver
 		if _, err := ctx.kubermaticClient.KubermaticV1().Clusters().Update(cluster); err != nil {
 			return err
 		}
@@ -429,6 +435,12 @@ func cleanupHeapsterAddon(cluster *kubermaticv1.Cluster, ctx *cleanupContext) er
 	return deleteResourceIgnoreNonExistent(ns, "kubermatic.k8s.io", "v1", "addons", "heapster", ctx)
 }
 
+// We moved the metrics server into the seed
+func cleanupMetricsServerAddon(cluster *kubermaticv1.Cluster, ctx *cleanupContext) error {
+	ns := cluster.Status.NamespaceName
+	return deleteResourceIgnoreNonExistent(ns, "kubermatic.k8s.io", "v1", "addons", "metrics-server", ctx)
+}
+
 // We now hash all user ID's to avoid breaking the label requirements
 func migrateClusterUserLabel(cluster *kubermaticv1.Cluster, ctx *cleanupContext) error {
 	// If there is not label - nothing to migrate
@@ -468,7 +480,7 @@ func migrateSSHKeyOwner(key *kubermaticv1.UserSSHKey, ctx *cleanupContext) error
 			key.Labels = map[string]string{}
 		}
 		key.Labels[kubermaticKubernetesProvider.UserLabelKey+"_RAW"] = oldID
-		if _, err := ctx.kubermaticClient.KubermaticV1().UserSSHKeies().Update(key); err != nil {
+		if _, err := ctx.kubermaticClient.KubermaticV1().UserSSHKeys().Update(key); err != nil {
 			return err
 		}
 	}

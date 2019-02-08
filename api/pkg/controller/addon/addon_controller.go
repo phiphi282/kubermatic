@@ -205,36 +205,20 @@ func (c *Controller) processNextItem() bool {
 	}
 	defer c.queue.Done(key)
 
-	err := c.sync(key.(string))
-
-	c.handleErr(err, key)
-	return true
-}
-
-// handleErr checks if an error happened and makes sure we will retry later.
-func (c *Controller) handleErr(err error, key interface{}) {
-	if err == nil {
-		// Forget about the #AddRateLimited history of the key on every successful synchronization.
-		// This ensures that future processing of updates for this key is not delayed because of
-		// an outdated error history.
-		c.queue.Forget(key)
-		return
-	}
-
-	// This controller retries 5 times if something goes wrong. After that, it stops trying.
-	if c.queue.NumRequeues(key) < 5 {
+	if err := c.sync(key.(string)); err != nil {
 		glog.V(0).Infof("Error syncing %v: %v", key, err)
 
 		// Re-enqueue the key rate limited. Based on the rate limiter on the
 		// queue and the re-enqueue history, the key will be processed later again.
 		c.queue.AddRateLimited(key)
-		return
+		return true
 	}
 
+	// Forget about the #AddRateLimited history of the key on every successful synchronization.
+	// This ensures that future processing of updates for this key is not delayed because of
+	// an outdated error history.
 	c.queue.Forget(key)
-	// Report to an external entity that, even after several retries, we could not successfully process this key
-	utilruntime.HandleError(err)
-	glog.V(0).Infof("Dropping %q out of the queue: %v", key, err)
+	return true
 }
 
 func (c *Controller) enqueue(addon *kubermaticv1.Addon) {
@@ -264,14 +248,10 @@ func (c *Controller) sync(key string) error {
 	addon := addonFromCache.DeepCopy()
 	clusterFromCache, err := c.clusterLister.Get(addon.Spec.Cluster.Name)
 	if err != nil {
-		if kerrors.IsNotFound(err) {
-			//Cluster got deleted - directly remove the finalizer
-			finalizers := sets.NewString(addon.Finalizers...)
-			if finalizers.Has(cleanupFinalizerName) {
-				finalizers.Delete(cleanupFinalizerName)
-				addon.Finalizers = finalizers.List()
-				_, err := c.client.KubermaticV1().Addons(addon.Namespace).Update(addon)
-				return err
+		// Cluster does not exist anymore & the addon has the DeletionTimestamp set -> Just remove the finalizer
+		if kerrors.IsNotFound(err) && addon.DeletionTimestamp != nil {
+			if err := c.removeCleanupFinalizer(addon); err != nil {
+				return fmt.Errorf("failed to ensure that the cleanup finalizer got removed from the addon: %v", err)
 			}
 			return nil
 		}
@@ -279,13 +259,17 @@ func (c *Controller) sync(key string) error {
 	}
 	cluster := clusterFromCache.DeepCopy()
 
-	// When a cluster gets deleted - we can skip it - not worth the effort
+	// When a cluster gets deleted - we can skip it - not worth the effort.
+	// This could lead though to a potential leak of resources in case addons deploy LB's or PV's.
+	// The correct way of handling it though should be a optional cleanup routine in the cluster controller, which will delete all PV's and LB's inside the cluster cluster.
 	if cluster.DeletionTimestamp != nil {
+		glog.V(6).Infof("cluster %s is already being deleted - no need to cleanup the manifests", cluster.Name)
 		return nil
 	}
 
 	// When the apiserver is not healthy, we must skip it
 	if !cluster.Status.Health.Apiserver {
+		glog.V(6).Infof("API server of cluster %s is not running - not processing the addon", cluster.Name)
 		return nil
 	}
 
@@ -294,24 +278,34 @@ func (c *Controller) sync(key string) error {
 		if err := c.cleanupManifests(addon, cluster); err != nil {
 			return fmt.Errorf("failed to delete manifests from cluster: %v", err)
 		}
-		finalizers := sets.NewString(addon.Finalizers...)
-		if finalizers.Has(cleanupFinalizerName) {
-			finalizers.Delete(cleanupFinalizerName)
-			addon.Finalizers = finalizers.List()
-			_, err := c.client.KubermaticV1().Addons(addon.Namespace).Update(addon)
-			return err
+		if err := c.removeCleanupFinalizer(addon); err != nil {
+			return fmt.Errorf("failed to ensure that the cleanup finalizer got removed from the addon: %v", err)
 		}
+		return nil
 	}
 
 	// Reconciling
 	if err := c.ensureIsInstalled(addon, cluster); err != nil {
-		return err
+		return fmt.Errorf("failed to deploy the addon manifests into the cluster: %v", err)
 	}
 	if err := c.ensureFinalizerIsSet(addon); err != nil {
-		return err
+		return fmt.Errorf("failed to ensure that the cleanup finalizer existis on the addon: %v", err)
 	}
 
 	return err
+}
+
+func (c *Controller) removeCleanupFinalizer(addon *kubermaticv1.Addon) error {
+	finalizers := sets.NewString(addon.Finalizers...)
+	if finalizers.Has(cleanupFinalizerName) {
+		finalizers.Delete(cleanupFinalizerName)
+		addon.Finalizers = finalizers.List()
+		if _, err := c.client.KubermaticV1().Addons(addon.Namespace).Update(addon); err != nil {
+			return err
+		}
+		glog.V(6).Infof("removed the cleanup finalizer from the addon %s/%s", addon.Namespace, addon.Name)
+	}
+	return nil
 }
 
 type templateData struct {
@@ -389,7 +383,7 @@ func (c *Controller) getAddonManifests(addon *kubermaticv1.Addon, cluster *kuber
 			return nil, fmt.Errorf("failed to execute templating on file %s: %v", filename, err)
 		}
 
-		sd := strings.TrimSpace(string(bufferAll.String()))
+		sd := strings.TrimSpace(bufferAll.String())
 		if len(sd) == 0 {
 			glog.V(6).Infof("skipping %s/%s as its empty after parsing", cluster.Status.NamespaceName, addon.Name)
 			continue
@@ -613,7 +607,7 @@ func (c *Controller) cleanupManifests(addon *kubermaticv1.Addon, cluster *kuberm
 	out, err := cmd.CombinedOutput()
 	glog.V(8).Infof("executed '%s' for addon %s of cluster %s: \n%s", strings.Join(cmd.Args, " "), addon.Name, cluster.Name, string(out))
 	if err != nil {
-		if isKubectlDeleteAllNotFoundMessage(string(out), manifestFilename) {
+		if wasKubectlDeleteSuccessful(string(out)) {
 			return nil
 		}
 		return fmt.Errorf("failed to execute '%s' for addon %s of cluster %s: %v\n%s", strings.Join(cmd.Args, " "), addon.Name, cluster.Name, err, string(out))
@@ -621,18 +615,14 @@ func (c *Controller) cleanupManifests(addon *kubermaticv1.Addon, cluster *kuberm
 	return nil
 }
 
-func isKubectlDeleteAllNotFoundMessage(out, filename string) bool {
-	out = strings.TrimSpace(out)
-	if out == "" {
-		return false
-	}
-	lines := strings.Split(out, "\n")
+func wasKubectlDeleteSuccessful(out string) bool {
+	lines := strings.Split(strings.TrimSpace(out), "\n")
 	for _, rawLine := range lines {
 		line := strings.TrimSpace(rawLine)
 		if line == "" {
 			continue
 		}
-		if !isKubectlDeleteNotFoundMessage(line, filename) {
+		if !isKubectlDeleteSuccessful(line) {
 			return false
 		}
 	}
@@ -640,14 +630,17 @@ func isKubectlDeleteAllNotFoundMessage(out, filename string) bool {
 	return true
 }
 
-func isKubectlDeleteNotFoundMessage(message, filename string) bool {
-	if !strings.HasPrefix(message, fmt.Sprintf("Error from server (NotFound): error when deleting \"%s\"", filename)) {
-		return false
+func isKubectlDeleteSuccessful(message string) bool {
+	// Resource got successfully deleted. Something like: apiservice.apiregistration.k8s.io "v1beta1.metrics.k8s.io" deleted
+	if strings.HasSuffix(message, "\" deleted") {
+		return true
 	}
 
-	if !strings.HasSuffix(message, "not found") {
-		return false
+	// Something like: Error from server (NotFound): error when deleting "/tmp/cluster-rwhxp9j5j-metrics-server.yaml": serviceaccounts "metrics-server" not found
+	if strings.HasSuffix(message, "\" not found") {
+		return true
 	}
 
-	return true
+	fmt.Printf("fail: %v", message)
+	return false
 }

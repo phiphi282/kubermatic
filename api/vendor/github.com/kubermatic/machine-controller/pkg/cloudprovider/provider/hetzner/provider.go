@@ -19,7 +19,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/types"
 
-	common "sigs.k8s.io/cluster-api/pkg/apis/cluster/common"
+	"sigs.k8s.io/cluster-api/pkg/apis/cluster/common"
 	"sigs.k8s.io/cluster-api/pkg/apis/cluster/v1alpha1"
 )
 
@@ -64,7 +64,7 @@ func getClient(token string) *hcloud.Client {
 	return hcloud.NewClient(hcloud.WithToken(token))
 }
 
-func (p *provider) getConfig(s v1alpha1.ProviderConfig) (*Config, *providerconfig.Config, error) {
+func (p *provider) getConfig(s v1alpha1.ProviderSpec) (*Config, *providerconfig.Config, error) {
 	if s.Value == nil {
 		return nil, nil, fmt.Errorf("machine.spec.providerconfig.value is nil")
 	}
@@ -100,7 +100,7 @@ func (p *provider) getConfig(s v1alpha1.ProviderConfig) (*Config, *providerconfi
 }
 
 func (p *provider) Validate(spec v1alpha1.MachineSpec) error {
-	c, pc, err := p.getConfig(spec.ProviderConfig)
+	c, pc, err := p.getConfig(spec.ProviderSpec)
 	if err != nil {
 		return fmt.Errorf("failed to parse config: %v", err)
 	}
@@ -140,8 +140,8 @@ func (p *provider) Validate(spec v1alpha1.MachineSpec) error {
 	return nil
 }
 
-func (p *provider) Create(machine *v1alpha1.Machine, _ cloud.MachineUpdater, userdata string) (instance.Instance, error) {
-	c, pc, err := p.getConfig(machine.Spec.ProviderConfig)
+func (p *provider) Create(machine *v1alpha1.Machine, _ *cloud.MachineCreateDeleteData, userdata string) (instance.Instance, error) {
+	c, pc, err := p.getConfig(machine.Spec.ProviderSpec)
 	if err != nil {
 		return nil, cloudprovidererrors.TerminalError{
 			Reason:  common.InvalidConfigurationMachineError,
@@ -226,18 +226,18 @@ func (p *provider) Create(machine *v1alpha1.Machine, _ cloud.MachineUpdater, use
 	return &hetznerServer{server: serverCreateRes.Server}, nil
 }
 
-func (p *provider) Delete(machine *v1alpha1.Machine, _ cloud.MachineUpdater) error {
+func (p *provider) Cleanup(machine *v1alpha1.Machine, _ *cloud.MachineCreateDeleteData) (bool, error) {
 	instance, err := p.Get(machine)
 	if err != nil {
 		if err == cloudprovidererrors.ErrInstanceNotFound {
-			return nil
+			return true, nil
 		}
-		return err
+		return false, err
 	}
 
-	c, _, err := p.getConfig(machine.Spec.ProviderConfig)
+	c, _, err := p.getConfig(machine.Spec.ProviderSpec)
 	if err != nil {
-		return cloudprovidererrors.TerminalError{
+		return false, cloudprovidererrors.TerminalError{
 			Reason:  common.InvalidConfigurationMachineError,
 			Message: fmt.Sprintf("Failed to parse MachineSpec, due to %v", err),
 		}
@@ -248,20 +248,20 @@ func (p *provider) Delete(machine *v1alpha1.Machine, _ cloud.MachineUpdater) err
 
 	res, err := client.Server.Delete(ctx, instance.(*hetznerServer).server)
 	if err != nil {
-		return hzErrorToTerminalError(err, "failed to delete the server")
+		return false, hzErrorToTerminalError(err, "failed to delete the server")
 	}
 	if res.StatusCode != http.StatusOK && res.StatusCode != http.StatusNotFound {
-		return fmt.Errorf("invalid status code returned. expected=%d got=%d", http.StatusOK, res.StatusCode)
+		return false, fmt.Errorf("invalid status code returned. expected=%d got=%d", http.StatusOK, res.StatusCode)
 	}
-	return nil
+	return false, nil
 }
 
-func (p *provider) AddDefaults(spec v1alpha1.MachineSpec) (v1alpha1.MachineSpec, bool, error) {
-	return spec, false, nil
+func (p *provider) AddDefaults(spec v1alpha1.MachineSpec) (v1alpha1.MachineSpec, error) {
+	return spec, nil
 }
 
 func (p *provider) Get(machine *v1alpha1.Machine) (instance.Instance, error) {
-	c, _, err := p.getConfig(machine.Spec.ProviderConfig)
+	c, _, err := p.getConfig(machine.Spec.ProviderSpec)
 	if err != nil {
 		return nil, cloudprovidererrors.TerminalError{
 			Reason:  common.InvalidConfigurationMachineError,
@@ -292,7 +292,7 @@ func (p *provider) MigrateUID(machine *v1alpha1.Machine, new types.UID) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	c, _, err := p.getConfig(machine.Spec.ProviderConfig)
+	c, _, err := p.getConfig(machine.Spec.ProviderSpec)
 	if err != nil {
 		return cloudprovidererrors.TerminalError{
 			Reason:  common.InvalidConfigurationMachineError,
@@ -335,7 +335,7 @@ func (p *provider) GetCloudConfig(spec v1alpha1.MachineSpec) (config string, nam
 func (p *provider) MachineMetricsLabels(machine *v1alpha1.Machine) (map[string]string, error) {
 	labels := make(map[string]string)
 
-	c, _, err := p.getConfig(machine.Spec.ProviderConfig)
+	c, _, err := p.getConfig(machine.Spec.ProviderSpec)
 	if err == nil {
 		labels["size"] = c.ServerType
 		labels["dc"] = c.Datacenter
@@ -400,4 +400,8 @@ func hzErrorToTerminalError(err error, msg string) error {
 	}
 
 	return err
+}
+
+func (p *provider) SetMetricsForMachines(machines v1alpha1.MachineList) error {
+	return nil
 }

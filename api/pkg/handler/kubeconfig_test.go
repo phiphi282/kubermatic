@@ -1,94 +1,237 @@
 package handler
 
 import (
+	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"strings"
 	"testing"
 
-	"github.com/ghodss/yaml"
-	kubermaticv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
-	"github.com/kubermatic/kubermatic/api/pkg/resources"
+	"github.com/stretchr/testify/assert"
 
-	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	apiv1 "github.com/kubermatic/kubermatic/api/pkg/api/v1"
+	"github.com/kubermatic/kubermatic/api/pkg/handler/test"
+
 	"k8s.io/apimachinery/pkg/runtime"
-	cmdv1 "k8s.io/client-go/tools/clientcmd/api/v1"
 )
 
-var config = `apiVersion: v1
+const (
+	testDatacenter          = "us-central1"
+	testExpectedRedirectURI = "/api/v1/kubeconfig"
+	testClusterName         = "AbcCluster"
+)
+
+const testKubeconfig = `apiVersion: v1
 clusters:
 - cluster:
-    certificate-authority-data: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSURDekNDQWZPZ0F3SUJBZ0lRVXd4d09OY2FER3M4NHVZNXZLbWsxekFOQmdrcWhraUc5dzBCQVFzRkFEQXYKTVMwd0t3WURWUVFERXlSaFpXVXlPR05oT1MwNU9EWTVMVFF6TVRRdFlqVmxNUzB4WWpNNE56VXpPR1l6Wm1JdwpIaGNOTVRjeE1ERTVNVFF6T0RNNFdoY05Nakl4TURFNE1UVXpPRE00V2pBdk1TMHdLd1lEVlFRREV5UmhaV1V5Ck9HTmhPUzA1T0RZNUxUUXpNVFF0WWpWbE1TMHhZak00TnpVek9HWXpabUl3Z2dFaU1BMEdDU3FHU0liM0RRRUIKQVFVQUE0SUJEd0F3Z2dFS0FvSUJBUUNmMmVNeU9iNzc1cWdJdG80SlNJcXRqa2RKMDI1bTk3ZFI1R0wraC9iRQo1SGdaZUo2YWhHNDBFZHl5TGdlTWZMT0RPRjRFcndwRFZ0Zk91U3FCRGI4NVdsVHVaUjJZdFdqVWk0eUxJNTdqCk95SmtHUTZPb041REJuVjVZRWl4STMvYjBSSnJjVlFiK0JtMENwRk1LTDlTMkRaQkFUQm1qMW5xY1JrVjRSMlgKOHM3YXI0RVg5OHRkVjgwbkpleGlNUENBTGdyTE54TGdCZmM4b25xNjFFQjJsS1AwOW5aSStkYkpHUjNMWW0wRApmc0NhdWxlN1k0VkwzSGRzWEFaZnFxbXhCZnREeVhTNEttb1ZuV0RjVHRMYVY4OE51SW9FV0YyWTdjR21DRzhNClpMSWJUU3FwNWRyOWx3emt3TlQ1d3d3RmRsbFF6cy9TLzdUWk93Q0FtcXh4QWdNQkFBR2pJekFoTUE0R0ExVWQKRHdFQi93UUVBd0lDQkRBUEJnTlZIUk1CQWY4RUJUQURBUUgvTUEwR0NTcUdTSWIzRFFFQkN3VUFBNElCQVFBMQpWY2RwVkNrM29GRCtGQmh0TTJSTCswWHRLRkhkeTd6cEJNVFpFN0IyUkhQVnRtUXUvNUFiNGp0UU5xL05oTk1VCnUvM0hTYUJZM1l5ckNkUWx5QWl3S0EwM1ErK0xLY01tUUdFUHdLYlgwVzdGcEJ6OGpxMDRLcnVkRm9oeGZuazMKVkFBVXYxU2NPRzVFUTdpTkI2MG5LREtVRHhxYnRJOG5xTXRKaHFZZWJtTWhhdGdQMkFEeFg5aFB6VEJmRURSeQp5Zmw4MEpYM2N2UVZDMkQwZ1RqbUJReWNkTVVva3NIblZUcHo5cnRYc2htNmlpS0tSRDVrc0J2VEFXWkhiREw4Cmp6SFJQRmJoREU4VDR3MGVPTURkRjhDU1RUWXRGb0NsOGRvM2dQbEw2MzViUkhTR01KT3FpbFltVHdhSFBFSG8KcFVwU1pEemFTMDAxNnFTVHdHWjYKLS0tLS1FTkQgQ0VSVElGSUNBVEUtLS0tLQo=
-    server: https://35.198.89.109
-  name: europe-west3-c
+    server: test.fake.io
+  name: AbcClusterID
 contexts:
 - context:
-    cluster: europe-west3-c
-    user: europe-west3-c
-  name: europe-west3-c
-current-context: europe-west3-c
+    cluster: AbcClusterID
+    user: bob@acme.com
+  name: default
+current-context: default
 kind: Config
 preferences: {}
 users:
-- name: europe-west3-c
+- name: bob@acme.com
   user:
-    password: FOOOOO
-    username: admin
+    auth-provider:
+      config:
+        client-id: kubermatic
+        client-secret: secret
+        id-token: fakeTokenId
+        idp-issuer-url: url://dex
+        refresh-token: fakeRefreshToken
+      name: oidc
 `
 
-func TestKubeConfigEndpoint(t *testing.T) {
-	req := httptest.NewRequest("GET", "/api/v3/dc/us-central1/cluster/foo/kubeconfig", nil)
-	apiUser := getUser(testUserEmail, testUserID, testUserName, false)
+type ExpectedKubeconfigResp struct {
+	BodyResponse string
+	HTTPStatus   int
+}
 
-	res := httptest.NewRecorder()
-	cluster := &kubermaticv1.Cluster{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:   "foo",
-			Labels: map[string]string{"user": testUserID},
+func TestCreateOIDCKubeconfig(t *testing.T) {
+	t.Parallel()
+	testcases := []struct {
+		Name                      string
+		ClusterID                 string
+		ProjectID                 string
+		UserID                    string
+		Datacenter                string
+		Nonce                     string
+		HTTPStatusInitPhase       int
+		ExistingKubermaticObjects []runtime.Object
+		ExpectedRedirectURI       string
+		ExpectedExchangeCodePhase ExpectedKubeconfigResp
+	}{
+		{
+			Name:                      "scenario 1, no parameters for url",
+			HTTPStatusInitPhase:       http.StatusInternalServerError,
+			ExistingKubermaticObjects: genTestKubeconfigKubermaticObjects(),
+			ExpectedExchangeCodePhase: ExpectedKubeconfigResp{},
 		},
-		Status: kubermaticv1.ClusterStatus{
-			NamespaceName: "cluster-foo",
+		{
+			Name:                "scenario 2, incorrect user ID in state",
+			ClusterID:           test.ClusterID,
+			ProjectID:           test.GenDefaultProject().Name,
+			UserID:              "0000",
+			Datacenter:          testDatacenter,
+			HTTPStatusInitPhase: http.StatusNotFound,
 		},
-		Address: kubermaticv1.ClusterAddress{
-			AdminToken: "admintoken",
-			URL:        "https://foo.bar:8443",
+		{
+			Name:                      "scenario 3, exchange phase error: incorrect state parameter: invalid nonce",
+			ClusterID:                 test.ClusterID,
+			ProjectID:                 test.GenDefaultProject().Name,
+			UserID:                    test.GenDefaultUser().Name,
+			Datacenter:                testDatacenter,
+			Nonce:                     "abc", // incorrect length
+			HTTPStatusInitPhase:       http.StatusSeeOther,
+			ExistingKubermaticObjects: genTestKubeconfigKubermaticObjects(),
+			ExpectedRedirectURI:       testExpectedRedirectURI,
+			ExpectedExchangeCodePhase: ExpectedKubeconfigResp{
+				BodyResponse: fmt.Sprintf(`{"error":{"code":400,"message":"incorrect value of state parameter = abc"}}%c`, '\n'),
+				HTTPStatus:   http.StatusBadRequest,
+			},
 		},
-		Spec: kubermaticv1.ClusterSpec{},
+		{
+			Name:                      "scenario 4, successful scenario",
+			ClusterID:                 test.ClusterID,
+			ProjectID:                 test.GenDefaultProject().Name,
+			UserID:                    test.GenDefaultUser().Name,
+			Datacenter:                testDatacenter,
+			HTTPStatusInitPhase:       http.StatusSeeOther,
+			ExistingKubermaticObjects: genTestKubeconfigKubermaticObjects(),
+			ExpectedRedirectURI:       testExpectedRedirectURI,
+			ExpectedExchangeCodePhase: ExpectedKubeconfigResp{
+				BodyResponse: testKubeconfig,
+				HTTPStatus:   http.StatusOK,
+			},
+		},
 	}
 
-	secret := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      resources.AdminKubeconfigSecretName,
-			Namespace: "cluster-foo",
-		},
-		Data: map[string][]byte{
-			resources.KubeconfigSecretKey: []byte(config),
-		},
-	}
+	for _, tc := range testcases {
+		t.Run(tc.Name, func(t *testing.T) {
+			reqURL := fmt.Sprintf("/api/v1/kubeconfig?cluster_id=%s&project_id=%s&user_id=%s&datacenter=%s", tc.ClusterID, tc.ProjectID, tc.UserID, tc.Datacenter)
+			req := httptest.NewRequest("GET", reqURL, strings.NewReader(""))
+			res := httptest.NewRecorder()
+			ep, err := createTestEndpoint(apiv1.User{}, []runtime.Object{}, tc.ExistingKubermaticObjects, nil, nil)
+			if err != nil {
+				t.Fatalf("failed to create test endpoint due to %v", err)
+			}
 
-	ep, err := createTestEndpoint(apiUser, []runtime.Object{secret}, []runtime.Object{cluster, apiUserToKubermaticUser(apiUser)}, nil, nil)
+			// act
+			ep.ServeHTTP(res, req)
+
+			// validate
+			assert.Equal(t, tc.HTTPStatusInitPhase, res.Code)
+
+			// Redirection to dex provider
+			if res.Code == http.StatusSeeOther {
+				location, err := res.Result().Location()
+				if err != nil {
+					t.Fatalf("expected url for redirection %v", err)
+				}
+
+				// validate
+				redirectURI := location.Query().Get("redirect_uri")
+				assert.Equal(t, tc.ExpectedRedirectURI, redirectURI)
+
+				encodedState, err := url.QueryUnescape(location.Query().Get("state"))
+				if err != nil {
+					t.Fatalf("incorrect state format %v", err)
+				}
+				decodeState, err := base64.StdEncoding.DecodeString(encodedState)
+				if err != nil {
+					t.Fatalf("error decoding state %v", err)
+				}
+
+				state, err := unmarshalState(decodeState)
+				if err != nil {
+					t.Fatalf("error unmarshal state %v", err)
+				}
+
+				// validate
+				assert.Equal(t, tc.ClusterID, state.ClusterID)
+				assert.Equal(t, tc.Datacenter, state.Datacenter)
+				assert.Equal(t, tc.ProjectID, state.ProjectID)
+				assert.Equal(t, tc.UserID, state.UserID)
+
+				// copy generated nonce to cookie
+				cookieValue := state.Nonce
+
+				// override the Nonce if test scenario set the value
+				// if not use generated by server
+				if tc.Nonce != "" {
+					state.Nonce = tc.Nonce
+				}
+
+				encodedState, err = marshalEncodeState(state)
+				if err != nil {
+					t.Fatalf("error marshal state %v", err)
+				}
+				urlExchangeCodePhase := fmt.Sprintf("/api/v1/kubeconfig?code=%s&state=%s", test.AuthorizationCode, encodedState)
+
+				// call kubeconfig endpoint after authentication
+				// exchange code phase
+				req = httptest.NewRequest("GET", urlExchangeCodePhase, strings.NewReader(""))
+				res = httptest.NewRecorder()
+
+				// create secure cookie
+				if encoded, err := secureCookie.Encode(csrfCookieName, cookieValue); err == nil {
+					// Drop a cookie on the recorder.
+					http.SetCookie(res, &http.Cookie{Name: "csrf_token", Value: encoded})
+
+					// Copy the Cookie over to a new Request
+					req.Header.Add("Cookie", res.HeaderMap["Set-Cookie"][0])
+				}
+
+				// act
+				ep.ServeHTTP(res, req)
+
+				// validate
+				assert.Equal(t, tc.ExpectedExchangeCodePhase.HTTPStatus, res.Code)
+
+				// validate
+				assert.Equal(t, tc.ExpectedExchangeCodePhase.BodyResponse, res.Body.String())
+
+			}
+		})
+	}
+}
+
+func genTestKubeconfigKubermaticObjects() []runtime.Object {
+	return []runtime.Object{
+		// add some project
+		test.GenDefaultProject(),
+		// add a user
+		test.GenDefaultUser(),
+		// make the user the owner of the first project and the editor of the second
+		test.GenDefaultOwnerBinding(),
+		// add a cluster
+		test.GenCluster(test.ClusterID, testClusterName, test.GenDefaultProject().Name, test.DefaultCreationTimestamp()),
+	}
+}
+
+func marshalEncodeState(oidcState state) (string, error) {
+
+	rawState, err := json.Marshal(oidcState)
 	if err != nil {
-		t.Fatalf("failed to create test endpoint due to %v", err)
+		return "", err
 	}
+	encodedState := base64.StdEncoding.EncodeToString(rawState)
+	return url.QueryEscape(encodedState), nil
 
-	ep.ServeHTTP(res, req)
-	checkStatusCode(http.StatusOK, res, t)
+}
 
-	b, err := yaml.YAMLToJSON(res.Body.Bytes())
-	if err != nil {
-		t.Error(err)
-		return
+func unmarshalState(rawState []byte) (state, error) {
+	oidcState := state{}
+	if err := json.Unmarshal(rawState, &oidcState); err != nil {
+		return state{}, err
 	}
-
-	var c *cmdv1.Config
-	if err := json.Unmarshal(b, &c); err != nil {
-		t.Error(res.Body.String())
-		t.Error(err)
-		return
-	}
-
-	if res.Body.String() != config {
-		t.Error("invalid kubeconfig returned")
-	}
+	return oidcState, nil
 }

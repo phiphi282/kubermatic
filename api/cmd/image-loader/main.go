@@ -17,8 +17,10 @@ import (
 	clusterv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
 	"github.com/kubermatic/kubermatic/api/pkg/provider"
 	"github.com/kubermatic/kubermatic/api/pkg/resources"
+	ksemver "github.com/kubermatic/kubermatic/api/pkg/semver"
 	"github.com/kubermatic/kubermatic/api/pkg/version"
 
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -157,8 +159,8 @@ func getImagesForVersion(versions []*version.MasterVersion, requestedVersion str
 }
 
 func getImagesFromCreators(templateData *resources.TemplateData) (images []string, err error) {
-	statefulsetCreators := cluster.GetStatefulSetCreators()
-	statefulsetCreators = append(statefulsetCreators, monitoring.GetStatefulSetCreators()...)
+	statefulsetCreators := cluster.GetStatefulSetCreators(templateData)
+	statefulsetCreators = append(statefulsetCreators, monitoring.GetStatefulSetCreators(templateData)...)
 
 	deploymentCreators := cluster.GetDeploymentCreators(nil)
 	deploymentCreators = append(deploymentCreators, monitoring.GetDeploymentCreators(nil)...)
@@ -166,7 +168,7 @@ func getImagesFromCreators(templateData *resources.TemplateData) (images []strin
 	cronjobCreators := cluster.GetCronJobCreators()
 
 	for _, createFunc := range statefulsetCreators {
-		statefulset, err := createFunc(templateData, nil)
+		statefulset, err := createFunc(&appsv1.StatefulSet{})
 		if err != nil {
 			return nil, err
 		}
@@ -300,6 +302,7 @@ func getTemplateData(versions []*version.MasterVersion, requestedVersion string)
 		},
 	}
 	secretList := createNamedSecrets([]string{
+		resources.DexCASecretName,
 		resources.CASecretName,
 		resources.TokensSecretName,
 		resources.ApiserverTLSSecretName,
@@ -312,11 +315,13 @@ func getTemplateData(versions []*version.MasterVersion, requestedVersion string)
 		resources.ControllerManagerKubeconfigSecretName,
 		resources.SchedulerKubeconfigSecretName,
 		resources.KubeStateMetricsKubeconfigSecretName,
+		resources.OpenVPNCASecretName,
 		resources.OpenVPNServerCertificatesSecretName,
 		resources.OpenVPNClientCertificatesSecretName,
 		resources.FrontProxyCASecretName,
 		resources.KubeletDnatControllerKubeconfigSecretName,
 		resources.PrometheusApiserverClientCertificateSecretName,
+		resources.MetricsServerKubeconfigSecretName,
 		resources.MachineControllerWebhookServingCertSecretName,
 	})
 	objects := []runtime.Object{configMapList, secretList, serviceList}
@@ -330,9 +335,13 @@ func getTemplateData(versions []*version.MasterVersion, requestedVersion string)
 	serviceInformer := kubeInformerFactory.Core().V1().Services()
 	serviceLister := serviceInformer.Lister()
 
+	clusterVersion, err := ksemver.NewSemver(masterVersion.Version.String())
+	if err != nil {
+		return nil, err
+	}
 	fakeCluster := &clusterv1.Cluster{}
 	fakeCluster.Spec.Cloud = clusterv1.CloudSpec{}
-	fakeCluster.Spec.Version = masterVersion.Version.String()
+	fakeCluster.Spec.Version = *clusterVersion
 	fakeCluster.Spec.ClusterNetwork.Pods.CIDRBlocks = []string{"172.25.0.0/16"}
 	fakeCluster.Spec.ClusterNetwork.Services.CIDRBlocks = []string{"10.10.10.0/24"}
 	fakeCluster.Spec.ClusterNetwork.DNSDomain = "cluster.local"
@@ -358,7 +367,10 @@ func getTemplateData(versions []*version.MasterVersion, requestedVersion string)
 		false,
 		false,
 		"",
-		nil), nil
+		nil,
+		"",
+		"",
+		""), nil
 }
 
 func createNamedSecrets(secretNames []string) *corev1.SecretList {

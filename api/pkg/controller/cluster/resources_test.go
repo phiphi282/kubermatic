@@ -1,11 +1,18 @@
 package cluster
 
 import (
+	"io/ioutil"
+	"log"
+	"os"
 	"testing"
+
+	"github.com/golang/glog"
 
 	kubermaticv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
 	"github.com/kubermatic/kubermatic/api/pkg/provider"
 	"github.com/kubermatic/kubermatic/api/pkg/resources"
+	"github.com/kubermatic/kubermatic/api/pkg/resources/certificates"
+	"github.com/kubermatic/kubermatic/api/pkg/semver"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -84,9 +91,9 @@ func TestConfigMapCreatorsKeepAdditionalData(t *testing.T) {
 	cluster := &kubermaticv1.Cluster{}
 	cluster.Spec.ClusterNetwork.Pods.CIDRBlocks = []string{"10.10.0.0/8"}
 	cluster.Spec.ClusterNetwork.Services.CIDRBlocks = []string{"10.11.0.0/8"}
-	cluster.Spec.Version = "v1.11.0"
+	cluster.Spec.Version = *semver.NewSemverOrDie("v1.11.1")
 	dc := &provider.DatacenterMeta{}
-	templateData := resources.NewTemplateData(cluster, dc, "", nil, nil, nil, "", "", "10.12.0.0/8", resource.Quantity{}, "", "", false, false, "", nil)
+	templateData := resources.NewTemplateData(cluster, dc, "", nil, nil, nil, "", "", "10.12.0.0/8", resource.Quantity{}, "", "", false, false, "", nil, "", "", "")
 
 	for _, create := range GetConfigMapCreators(templateData) {
 		existing := &corev1.ConfigMap{
@@ -105,9 +112,12 @@ func TestConfigMapCreatorsKeepAdditionalData(t *testing.T) {
 
 func TestSecretV2CreatorsKeepAdditionalData(t *testing.T) {
 	cluster := &kubermaticv1.Cluster{}
-	cluster.Status.NamespaceName = "test-ns"
-	cluster.Address.IP = "1.2.3.4"
+	testNamespace := "test-ns"
+	clusterIP := "1.2.3.4"
+	cluster.Status.NamespaceName = testNamespace
+	cluster.Address.IP = clusterIP
 	cluster.Spec.ClusterNetwork.Services.CIDRBlocks = []string{"10.10.10.0/24"}
+	cluster.Spec.MachineNetworks = []kubermaticv1.MachineNetworkingConfig{{CIDR: "10.11.11.0/24", Gateway: "10.11.11.1", DNSServers: []string{"10.11.11.2"}}}
 	dc := &provider.DatacenterMeta{}
 
 	keyPair, err := triple.NewCA("test-ca")
@@ -116,7 +126,7 @@ func TestSecretV2CreatorsKeepAdditionalData(t *testing.T) {
 	}
 	caSecret := &corev1.Secret{}
 	caSecret.Name = resources.CASecretName
-	caSecret.Namespace = "test-ns"
+	caSecret.Namespace = testNamespace
 	caSecret.Data = map[string][]byte{
 		resources.CACertSecretKey: certutil.EncodeCertPEM(keyPair.Cert),
 		resources.CAKeySecretKey:  certutil.EncodePrivateKeyPEM(keyPair.Key),
@@ -124,16 +134,28 @@ func TestSecretV2CreatorsKeepAdditionalData(t *testing.T) {
 
 	frontProxyCASecret := &corev1.Secret{}
 	frontProxyCASecret.Name = resources.FrontProxyCASecretName
-	frontProxyCASecret.Namespace = "test-ns"
+	frontProxyCASecret.Namespace = testNamespace
 	frontProxyCASecret.Data = map[string][]byte{
 		resources.CACertSecretKey: certutil.EncodeCertPEM(keyPair.Cert),
 		resources.CAKeySecretKey:  certutil.EncodePrivateKeyPEM(keyPair.Key),
 	}
 
+	openVPNCAcert, openVPNCAkey, err := certificates.GetECDSACACertAndKey()
+	if err != nil {
+		t.Fatalf("Failed to generate test openVPN ca: %v", err)
+	}
+	openVPNCASecret := &corev1.Secret{}
+	openVPNCASecret.Name = resources.OpenVPNCASecretName
+	openVPNCASecret.Namespace = testNamespace
+	openVPNCASecret.Data = map[string][]byte{
+		resources.OpenVPNCACertKey: openVPNCAcert,
+		resources.OpenVPNCAKeyKey:  openVPNCAkey,
+	}
+
 	apiserverExternalService := &corev1.Service{}
 	apiserverExternalService.Name = resources.ApiserverExternalServiceName
-	apiserverExternalService.Namespace = "test-ns"
-	apiserverExternalService.Spec.ClusterIP = "1.2.3.4"
+	apiserverExternalService.Namespace = testNamespace
+	apiserverExternalService.Spec.ClusterIP = clusterIP
 	apiserverExternalService.Spec.Ports = []corev1.ServicePort{
 		{
 			Name:     "external",
@@ -143,8 +165,8 @@ func TestSecretV2CreatorsKeepAdditionalData(t *testing.T) {
 
 	apiserverService := &corev1.Service{}
 	apiserverService.Name = resources.ApiserverInternalServiceName
-	apiserverService.Namespace = "test-ns"
-	apiserverService.Spec.ClusterIP = "1.2.3.4"
+	apiserverService.Namespace = testNamespace
+	apiserverService.Spec.ClusterIP = clusterIP
 
 	secretIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
 	if err := secretIndexer.Add(caSecret); err != nil {
@@ -152,6 +174,9 @@ func TestSecretV2CreatorsKeepAdditionalData(t *testing.T) {
 	}
 	if err := secretIndexer.Add(frontProxyCASecret); err != nil {
 		t.Fatalf("Error adding secret to indexer: %v", err)
+	}
+	if err := secretIndexer.Add(openVPNCASecret); err != nil {
+		t.Fatalf("Error adding openVPN ca secret to indexer: %v", err)
 	}
 	secretLister := listerscorev1.NewSecretLister(secretIndexer)
 
@@ -164,9 +189,21 @@ func TestSecretV2CreatorsKeepAdditionalData(t *testing.T) {
 	}
 	serviceLister := listerscorev1.NewServiceLister(serviceIndexer)
 
-	templateData := resources.NewTemplateData(cluster, dc, "", secretLister, nil, serviceLister, "", "", "", resource.Quantity{}, "", "", false, false, "", nil)
+	file, err := ioutil.TempFile("", "caBundle.pem")
+	if err != nil {
+		log.Fatal(err)
+	}
 
-	for _, op := range GetSecretCreatorOperations([]byte{}) {
+	_, err = file.Write(certutil.EncodeCertPEM(keyPair.Cert))
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	defer removeCloseFile(file)
+
+	templateData := resources.NewTemplateData(cluster, dc, "", secretLister, nil, serviceLister, "", "", "", resource.Quantity{}, "", "", false, false, "", nil, file.Name(), "", "")
+
+	for _, op := range GetSecretCreatorOperations(cluster, []byte{}, true) {
 		existing := &corev1.Secret{
 			Data: map[string][]byte{"Test": []byte("Data")},
 		}
@@ -178,5 +215,16 @@ func TestSecretV2CreatorsKeepAdditionalData(t *testing.T) {
 		if val, exists := new.Data["Test"]; !exists || string(val) != "Data" {
 			t.Fatalf("Secret creator for %s removed additional data!", new.Name)
 		}
+	}
+}
+
+func removeCloseFile(file *os.File) {
+	err := os.Remove(file.Name())
+	if err != nil {
+		log.Fatal(err)
+	}
+	err = file.Close()
+	if err != nil {
+		glog.Fatal(err)
 	}
 }

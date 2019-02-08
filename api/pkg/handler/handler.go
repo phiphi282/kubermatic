@@ -6,8 +6,6 @@ import (
 	"net/http"
 	"reflect"
 
-	goerrors "errors"
-
 	"github.com/golang/glog"
 	"github.com/kubermatic/kubermatic/api/pkg/util/errors"
 )
@@ -31,36 +29,37 @@ type ErrorDetails struct {
 	// The error code
 	//
 	// Required: true
-	ErrorCode int `json:"code"`
+	Code int `json:"code"`
 	// The error message
 	//
 	// Required: true
-	ErrorMessage string `json:"message"`
-}
-
-// RawResponse is the default representation of a raw (proxied) HTTP response
-type RawResponse struct {
-	Header http.Header
-	Body   []byte
+	Message string `json:"message"`
+	// Additional error message
+	//
+	// Required: false
+	Additional string `json:"details,omitempty"`
 }
 
 func errorEncoder(ctx context.Context, err error, w http.ResponseWriter) {
 	errorCode := http.StatusInternalServerError
 	msg := err.Error()
+	additional := ""
 	if h, ok := err.(errors.HTTPError); ok {
 		errorCode = h.StatusCode()
 		msg = h.Error()
+		additional = h.Details()
 	}
 	e := ErrorResponse{
 		Error: ErrorDetails{
-			ErrorCode:    errorCode,
-			ErrorMessage: msg,
+			Code:       errorCode,
+			Message:    msg,
+			Additional: additional,
 		},
 	}
 
 	w.Header().Set(headerContentType, contentTypeJSON)
 	w.WriteHeader(errorCode)
-	err = encodeJSON(ctx, w, e)
+	err = EncodeJSON(ctx, w, e)
 	if err != nil {
 		glog.Info(err)
 	}
@@ -82,7 +81,8 @@ func setStatusCreatedHeader(f func(context.Context, http.ResponseWriter, interfa
 	}
 }
 
-func encodeJSON(c context.Context, w http.ResponseWriter, response interface{}) (err error) {
+// EncodeJSON writes the JSON encoding of response to the http response writer
+func EncodeJSON(c context.Context, w http.ResponseWriter, response interface{}) (err error) {
 	w.Header().Set(headerContentType, contentTypeJSON)
 
 	// As long as we pipe the response from the listers we need this.
@@ -105,17 +105,4 @@ func encodeJSON(c context.Context, w http.ResponseWriter, response interface{}) 
 	}
 
 	return json.NewEncoder(w).Encode(response)
-}
-
-func encodeRawResponse(c context.Context, w http.ResponseWriter, response interface{}) error {
-	if resp, ok := response.(RawResponse); ok {
-		for field, values := range resp.Header {
-			for _, value := range values {
-				w.Header().Set(field, value)
-			}
-		}
-		_, err := w.Write(resp.Body)
-		return err
-	}
-	return goerrors.New("internal error (unexpected raw response object)")
 }

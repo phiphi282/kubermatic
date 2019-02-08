@@ -10,8 +10,6 @@ import (
 	"github.com/kubermatic/kubermatic/api/pkg/resources/etcd"
 	"github.com/kubermatic/kubermatic/api/pkg/resources/vpnsidecar"
 
-	"github.com/Masterminds/semver"
-
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -26,8 +24,8 @@ var (
 			corev1.ResourceCPU:    resource.MustParse("100m"),
 		},
 		Limits: corev1.ResourceList{
-			corev1.ResourceMemory: resource.MustParse("1Gi"),
-			corev1.ResourceCPU:    resource.MustParse("500m"),
+			corev1.ResourceMemory: resource.MustParse("4Gi"),
+			corev1.ResourceCPU:    resource.MustParse("2"),
 		},
 	}
 )
@@ -41,6 +39,12 @@ const (
 // Deployment returns the kubernetes Apiserver Deployment
 func Deployment(data resources.DeploymentDataProvider, existing *appsv1.Deployment) (*appsv1.Deployment, error) {
 	var dep *appsv1.Deployment
+	var enableDexCA bool
+
+	if len(data.OIDCCAFile()) > 0 {
+		enableDexCA = true
+	}
+
 	if existing != nil {
 		dep = existing
 	} else {
@@ -70,8 +74,14 @@ func Deployment(data resources.DeploymentDataProvider, existing *appsv1.Deployme
 			IntVal: 0,
 		},
 	}
+	dep.Spec.Template.Spec.ImagePullSecrets = []corev1.LocalObjectReference{{Name: resources.ImagePullSecretName}}
 
 	volumes := getVolumes()
+
+	if len(data.OIDCCAFile()) > 0 {
+		volumes = append(volumes, getDexCASecretVolume())
+	}
+
 	podLabels, err := data.GetPodTemplateLabels(name, volumes, nil)
 	if err != nil {
 		return nil, err
@@ -92,12 +102,6 @@ func Deployment(data resources.DeploymentDataProvider, existing *appsv1.Deployme
 	}
 
 	etcdEndpoints := etcd.GetClientEndpoints(data.Cluster().Status.NamespaceName)
-
-	dep.Spec.Template.Spec.ImagePullSecrets = []corev1.LocalObjectReference{
-		{
-			Name: resources.ImagePullSecretName,
-		},
-	}
 
 	// Configure user cluster DNS resolver for this pod.
 	dep.Spec.Template.Spec.DNSPolicy, dep.Spec.Template.Spec.DNSConfig, err = resources.UserClusterDNSPolicyAndConfig(data)
@@ -142,9 +146,9 @@ func Deployment(data resources.DeploymentDataProvider, existing *appsv1.Deployme
 		return nil, err
 	}
 
-	resourceRequirements := defaultResourceRequirements
+	resourceRequirements := defaultResourceRequirements.DeepCopy()
 	if data.Cluster().Spec.ComponentsOverride.Apiserver.Resources != nil {
-		resourceRequirements = *data.Cluster().Spec.ComponentsOverride.Apiserver.Resources
+		resourceRequirements = data.Cluster().Spec.ComponentsOverride.Apiserver.Resources
 	}
 
 	dep.Spec.Template.Spec.Containers = []corev1.Container{
@@ -152,14 +156,14 @@ func Deployment(data resources.DeploymentDataProvider, existing *appsv1.Deployme
 		*dnatControllerSidecar,
 		{
 			Name:                     name,
-			Image:                    data.ImageRegistry(resources.RegistryGCR) + "/google_containers/hyperkube-amd64:v" + data.Cluster().Spec.Version,
+			Image:                    data.ImageRegistry(resources.RegistryGCR) + "/google_containers/hyperkube-amd64:v" + data.Cluster().Spec.Version.String(),
 			ImagePullPolicy:          corev1.PullIfNotPresent,
 			Command:                  []string{"/hyperkube", "apiserver"},
 			Env:                      getEnvVars(data.Cluster()),
 			Args:                     flags,
 			TerminationMessagePath:   corev1.TerminationMessagePathDefault,
 			TerminationMessagePolicy: corev1.TerminationMessageReadFile,
-			Resources:                resourceRequirements,
+			Resources:                *resourceRequirements,
 			Ports: []corev1.ContainerPort{
 				{
 					ContainerPort: externalNodePort,
@@ -193,53 +197,7 @@ func Deployment(data resources.DeploymentDataProvider, existing *appsv1.Deployme
 				SuccessThreshold:    1,
 				TimeoutSeconds:      15,
 			},
-			VolumeMounts: []corev1.VolumeMount{
-				{
-					MountPath: "/etc/kubernetes/tls",
-					Name:      resources.ApiserverTLSSecretName,
-					ReadOnly:  true,
-				},
-				{
-					Name:      resources.TokensSecretName,
-					MountPath: "/etc/kubernetes/tokens",
-					ReadOnly:  true,
-				},
-				{
-					Name:      resources.KubeletClientCertificatesSecretName,
-					MountPath: "/etc/kubernetes/kubelet",
-					ReadOnly:  true,
-				},
-				{
-					Name:      resources.CASecretName,
-					MountPath: "/etc/kubernetes/pki/ca",
-					ReadOnly:  true,
-				},
-				{
-					Name:      resources.ServiceAccountKeySecretName,
-					MountPath: "/etc/kubernetes/service-account-key",
-					ReadOnly:  true,
-				},
-				{
-					Name:      resources.CloudConfigConfigMapName,
-					MountPath: "/etc/kubernetes/cloud",
-					ReadOnly:  true,
-				},
-				{
-					Name:      resources.ApiserverEtcdClientCertificateSecretName,
-					MountPath: "/etc/etcd/pki/client",
-					ReadOnly:  true,
-				},
-				{
-					Name:      resources.ApiserverFrontProxyClientCertificateSecretName,
-					MountPath: "/etc/kubernetes/pki/front-proxy/client",
-					ReadOnly:  true,
-				},
-				{
-					Name:      resources.FrontProxyCASecretName,
-					MountPath: "/etc/kubernetes/pki/front-proxy/ca",
-					ReadOnly:  true,
-				},
-			},
+			VolumeMounts: getVolumeMounts(enableDexCA),
 		},
 	}
 
@@ -252,11 +210,6 @@ func getApiserverFlags(data resources.DeploymentDataProvider, externalNodePort i
 	nodePortRange := data.NodePortRange()
 	if nodePortRange == "" {
 		nodePortRange = defaultNodePortRange
-	}
-
-	clusterVersionSemVer, err := semver.NewVersion(data.Cluster().Spec.Version)
-	if err != nil {
-		return nil, err
 	}
 
 	admissionControlFlagName, admissionControlFlagValue := getAdmissionControlFlags(data)
@@ -300,11 +253,11 @@ func getApiserverFlags(data resources.DeploymentDataProvider, externalNodePort i
 	}
 	var featureGates []string
 
-	if clusterVersionSemVer.Minor() >= 9 {
+	if data.Cluster().Spec.Version.Semver().Minor() >= 9 {
 		featureGates = append(featureGates, "Initializers=true")
 		flags = append(flags, "--runtime-config", "admissionregistration.k8s.io/v1alpha1")
 	}
-	if clusterVersionSemVer.Minor() == 10 {
+	if data.Cluster().Spec.Version.Semver().Minor() == 10 {
 		featureGates = append(featureGates, "CustomResourceSubresources=true")
 	}
 	if len(featureGates) > 0 {
@@ -329,6 +282,15 @@ func getApiserverFlags(data resources.DeploymentDataProvider, externalNodePort i
 		flags = append(flags, "--cloud-config", "/etc/kubernetes/cloud/config")
 	}
 
+	if data.OIDCAuthPluginEnabled() {
+		flags = append(flags, "--oidc-issuer-url", data.OIDCIssuerURL())
+		flags = append(flags, "--oidc-client-id", data.OIDCIssuerClientID())
+		flags = append(flags, "--oidc-username-claim", "email")
+		if len(data.OIDCCAFile()) > 0 {
+			flags = append(flags, "--oidc-ca-file", "/etc/kubernetes/dex/ca/caBundle.pem")
+		}
+	}
+
 	return flags, nil
 }
 
@@ -337,18 +299,13 @@ func getAdmissionControlFlags(data resources.DeploymentDataProvider) (string, st
 	admissionControlFlagValue := "NamespaceLifecycle,LimitRanger,ServiceAccount,DefaultStorageClass,DefaultTolerationSeconds,NodeRestriction"
 	admissionControlFlagName := "--admission-control"
 
-	clusterVersionSemVer, err := semver.NewVersion(data.Cluster().Spec.Version)
-	if err != nil {
-		return admissionControlFlagName, admissionControlFlagValue
-	}
-
 	// Enable {Mutating,Validating}AdmissionWebhook for 1.9+
-	if clusterVersionSemVer.Minor() >= 9 {
+	if data.Cluster().Spec.Version.Semver().Minor() >= 9 {
 		admissionControlFlagValue += ",Initializers,MutatingAdmissionWebhook,ValidatingAdmissionWebhook"
 	}
 
 	// Use the newer "--enable-admission-plugins" which doesn't care about order for 1.10+
-	if clusterVersionSemVer.Minor() >= 10 {
+	if data.Cluster().Spec.Version.Semver().Minor() >= 10 {
 		admissionControlFlagName = "--enable-admission-plugins"
 	}
 
@@ -357,6 +314,66 @@ func getAdmissionControlFlags(data resources.DeploymentDataProvider) (string, st
 	admissionControlFlagValue += ",ResourceQuota"
 
 	return admissionControlFlagName, admissionControlFlagValue
+}
+
+func getVolumeMounts(enableDexCA bool) []corev1.VolumeMount {
+	volumesMounts := []corev1.VolumeMount{
+		{
+			MountPath: "/etc/kubernetes/tls",
+			Name:      resources.ApiserverTLSSecretName,
+			ReadOnly:  true,
+		},
+		{
+			Name:      resources.TokensSecretName,
+			MountPath: "/etc/kubernetes/tokens",
+			ReadOnly:  true,
+		},
+		{
+			Name:      resources.KubeletClientCertificatesSecretName,
+			MountPath: "/etc/kubernetes/kubelet",
+			ReadOnly:  true,
+		},
+		{
+			Name:      resources.CASecretName,
+			MountPath: "/etc/kubernetes/pki/ca",
+			ReadOnly:  true,
+		},
+		{
+			Name:      resources.ServiceAccountKeySecretName,
+			MountPath: "/etc/kubernetes/service-account-key",
+			ReadOnly:  true,
+		},
+		{
+			Name:      resources.CloudConfigConfigMapName,
+			MountPath: "/etc/kubernetes/cloud",
+			ReadOnly:  true,
+		},
+		{
+			Name:      resources.ApiserverEtcdClientCertificateSecretName,
+			MountPath: "/etc/etcd/pki/client",
+			ReadOnly:  true,
+		},
+		{
+			Name:      resources.ApiserverFrontProxyClientCertificateSecretName,
+			MountPath: "/etc/kubernetes/pki/front-proxy/client",
+			ReadOnly:  true,
+		},
+		{
+			Name:      resources.FrontProxyCASecretName,
+			MountPath: "/etc/kubernetes/pki/front-proxy/ca",
+			ReadOnly:  true,
+		},
+	}
+
+	if enableDexCA {
+		volumesMounts = append(volumesMounts, corev1.VolumeMount{
+			Name:      resources.DexCASecretName,
+			MountPath: "/etc/kubernetes/dex/ca",
+			ReadOnly:  true,
+		})
+	}
+
+	return volumesMounts
 }
 
 func getVolumes() []corev1.Volume {
@@ -480,4 +497,17 @@ func getEnvVars(cluster *kubermaticv1.Cluster) []corev1.EnvVar {
 		vars = append(vars, corev1.EnvVar{Name: "AWS_AVAILABILITY_ZONE", Value: cluster.Spec.Cloud.AWS.AvailabilityZone})
 	}
 	return vars
+}
+
+func getDexCASecretVolume() corev1.Volume {
+
+	return corev1.Volume{
+		Name: resources.DexCASecretName,
+		VolumeSource: corev1.VolumeSource{
+			Secret: &corev1.SecretVolumeSource{
+				SecretName:  resources.DexCASecretName,
+				DefaultMode: resources.Int32(resources.DefaultOwnerReadOnlyMode),
+			},
+		},
+	}
 }

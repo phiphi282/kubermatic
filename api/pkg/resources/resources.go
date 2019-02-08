@@ -1,17 +1,23 @@
 package resources
 
 import (
+	"bufio"
+	"crypto/ecdsa"
 	"crypto/rsa"
 	"crypto/x509"
 	"errors"
 	"fmt"
+	"io/ioutil"
 	"net"
 	"net/url"
+	"os"
 	"time"
 
-	"github.com/Masterminds/semver"
-
 	kubermaticv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
+	"github.com/kubermatic/kubermatic/api/pkg/semver"
+
+	"github.com/golang/glog"
+
 	admissionv1alpha1 "k8s.io/api/admissionregistration/v1alpha1"
 	admissionregistrationv1beta1 "k8s.io/api/admissionregistration/v1beta1"
 	appsv1 "k8s.io/api/apps/v1"
@@ -21,10 +27,14 @@ import (
 	rbacv1 "k8s.io/api/rbac/v1"
 	apiextensionsv1beta1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1beta1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
 	corev1lister "k8s.io/client-go/listers/core/v1"
 	certutil "k8s.io/client-go/util/cert"
 	"k8s.io/client-go/util/cert/triple"
+	apiregistrationv1beta1 "k8s.io/kube-aggregator/pkg/apis/apiregistration/v1beta1"
+
+	autoscalingv1beta "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/apis/autoscaling.k8s.io/v1beta1"
 )
 
 // KUBERMATICCOMMIT is a magic variable containing the git commit hash of the current (as in currently executing) kubermatic api. It gets feeded by Makefile as a ldflag.
@@ -43,6 +53,8 @@ const (
 	MachineControllerDeploymentName = "machine-controller"
 	// MachineControllerWebhookDeploymentName is the name for the machine-controller webhook deployment
 	MachineControllerWebhookDeploymentName = "machine-controller-webhook"
+	//MetricsServerDeploymentName is the name for the metrics-server deployment
+	MetricsServerDeploymentName = "metrics-server"
 	//OpenVPNServerDeploymentName is the name for the openvpn server deployment
 	OpenVPNServerDeploymentName = "openvpn-server"
 	//DNSResolverDeploymentName is the name of the dns resolver deployment
@@ -51,6 +63,8 @@ const (
 	DNSResolverConfigMapName = "dns-resolver"
 	//DNSResolverServiceName is the name of the dns resolvers service
 	DNSResolverServiceName = "dns-resolver"
+	//DNSResolverVPAName is the name of the dns resolvers VerticalPodAutoscaler
+	DNSResolverVPAName = "dns-resolver"
 	//KubeStateMetricsDeploymentName is the name for the kube-state-metrics deployment
 	KubeStateMetricsDeploymentName = "kube-state-metrics"
 
@@ -67,6 +81,10 @@ const (
 	PrometheusServiceName = "prometheus"
 	// KubeStateMetricsServiceName is the name for the kube-state-metrics service
 	KubeStateMetricsServiceName = "kube-state-metrics"
+	// MetricsServerServiceName is the name for the metrics-server service
+	MetricsServerServiceName = "metrics-server"
+	// MetricsServerExternalNameServiceName is the name for the metrics-server service inside the user cluster
+	MetricsServerExternalNameServiceName = "metrics-server"
 	//EtcdServiceName is the name for the etcd service
 	EtcdServiceName = "etcd"
 	//EtcdDefragCronJobName is the name for the defrag cronjob deployment
@@ -76,6 +94,9 @@ const (
 	//MachineControllerWebhookServiceName is the name of the machine-controller webhook service
 	MachineControllerWebhookServiceName = "machine-controller-webhook"
 
+	// MetricsServerAPIServiceName is the name for the metrics-server APIService
+	MetricsServerAPIServiceName = "v1beta1.metrics.k8s.io"
+
 	//AdminKubeconfigSecretName is the name for the secret containing the private ca key
 	AdminKubeconfigSecretName = "admin-kubeconfig"
 	//SchedulerKubeconfigSecretName is the name for the secret containing the kubeconfig used by the scheduler
@@ -84,6 +105,8 @@ const (
 	KubeletDnatControllerKubeconfigSecretName = "kubeletdnatcontroller-kubeconfig"
 	//KubeStateMetricsKubeconfigSecretName is the name for the secret containing the kubeconfig used by kube-state-metrics
 	KubeStateMetricsKubeconfigSecretName = "kube-state-metrics-kubeconfig"
+	//MetricsServerKubeconfigSecretName is the name for the secret containing the kubeconfig used by the metrics-server
+	MetricsServerKubeconfigSecretName = "metrics-server"
 	//ControllerManagerKubeconfigSecretName is the name of the secret containing the kubeconfig used by controller manager
 	ControllerManagerKubeconfigSecretName = "controllermanager-kubeconfig"
 	//MachineControllerKubeconfigSecretName is the name for the secret containing the kubeconfig used by the machinecontroller
@@ -115,6 +138,8 @@ const (
 	ServiceAccountKeySecretName = "service-account-key"
 	//TokensSecretName is the name for the secret containing the user tokens
 	TokensSecretName = "tokens"
+	// OpenVPNCASecretName is the name of the secret that contains the OpenVPN CA
+	OpenVPNCASecretName = "openvpn-ca"
 	//OpenVPNServerCertificatesSecretName is the name for the secret containing the openvpn server certificates
 	OpenVPNServerCertificatesSecretName = "openvpn-server-certificates"
 	//OpenVPNClientCertificatesSecretName is the name for the secret containing the openvpn client certificates
@@ -125,6 +150,10 @@ const (
 	ApiserverEtcdClientCertificateSecretName = "apiserver-etcd-client-certificate"
 	//ApiserverFrontProxyClientCertificateSecretName is the name for the secret containing the apiserver's client certificate for proxy auth
 	ApiserverFrontProxyClientCertificateSecretName = "apiserver-proxy-client-certificate"
+	// DexCASecretName is the name of the secret that contains the Dex CA bundle
+	DexCASecretName = "dex-ca"
+	// DexCAFileName is the name of Dex CA bundle file
+	DexCAFileName = "caBundle.pem"
 
 	//CloudConfigConfigMapName is the name for the configmap containing the cloud-config
 	CloudConfigConfigMapName = "cloud-config"
@@ -132,6 +161,8 @@ const (
 	OpenVPNClientConfigsConfigMapName = "openvpn-client-configs"
 	//OpenVPNClientConfigConfigMapName is the name for the ConfigMap containing the OpenVPN client config used by the client inside the user cluster
 	OpenVPNClientConfigConfigMapName = "openvpn-client-config"
+	//ClusterInfoConfigMapName is the name for the ConfigMap containing the cluster-info used by the bootstrap token machanism
+	ClusterInfoConfigMapName = "cluster-info"
 	//PrometheusConfigConfigMapName is the name for the configmap containing the prometheus config
 	PrometheusConfigConfigMapName = "prometheus"
 
@@ -148,6 +179,8 @@ const (
 	MachineControllerCertUsername = "machine-controller"
 	//KubeStateMetricsCertUsername is the name of the user coming from kubeconfig cert
 	KubeStateMetricsCertUsername = "kube-state-metrics"
+	//MetricsServerCertUsername is the name of the user coming from kubeconfig cert
+	MetricsServerCertUsername = "metrics-server"
 	//ControllerManagerCertUsername is the name of the user coming from kubeconfig cert
 	ControllerManagerCertUsername = "system:kube-controller-manager"
 	//SchedulerCertUsername is the name of the user coming from kubeconfig cert
@@ -166,10 +199,6 @@ const (
 	// IPAMControllerDeploymentName is the name of the ipam controller's deployment
 	IPAMControllerDeploymentName = "ipam-controller"
 
-	// IPAMControllerRoleName is the name for the IPAMController roles
-	IPAMControllerRoleName = "ipam-controller"
-	// IPAMControllerRoleBindingName is the name for the IPAMController rolebinding
-	IPAMControllerRoleBindingName = "ipam-controller"
 	// IPAMControllerClusterRoleName is the name for the IPAMController cluster role
 	IPAMControllerClusterRoleName = "system:kubermatic-ipam-controller"
 	// IPAMControllerClusterRoleBindingName is the name for the IPAMController clusterrolebinding
@@ -180,27 +209,41 @@ const (
 	// KubeletDnatControllerClusterRoleBindingName is the name for the KubeletDnatController clusterrolebinding
 	KubeletDnatControllerClusterRoleBindingName = "system:kubermatic-kubeletdnat-controller"
 
+	//ClusterInfoReaderRoleName is the name for the role which allows reading the cluster-info ConfigMap
+	ClusterInfoReaderRoleName = "cluster-info"
 	//MachineControllerRoleName is the name for the MachineController roles
 	MachineControllerRoleName = "machine-controller"
 	//MachineControllerRoleBindingName is the name for the MachineController rolebinding
 	MachineControllerRoleBindingName = "machine-controller"
+	//ClusterInfoAnonymousRoleBindingName is the name for the RoleBinding giving access to the cluster-info ConfigMap to anonymous users
+	ClusterInfoAnonymousRoleBindingName = "cluster-info"
+	//MetricsServerAuthReaderRoleName is the name for the metrics server role
+	MetricsServerAuthReaderRoleName = "metrics-server-auth-reader"
 	//MachineControllerClusterRoleName is the name for the MachineController cluster role
 	MachineControllerClusterRoleName = "system:kubermatic-machine-controller"
 	//KubeStateMetricsClusterRoleName is the name for the KubeStateMetrics cluster role
 	KubeStateMetricsClusterRoleName = "system:kubermatic-kube-state-metrics"
+	//MetricsServerClusterRoleName is the name for the metrics server cluster role
+	MetricsServerClusterRoleName = "system:metrics-server"
 	//PrometheusClusterRoleName is the name for the Prometheus cluster role
 	PrometheusClusterRoleName = "external-prometheus"
-	//MachineControllerClusterRoleBindingName is the name for the MachineController clusterrolebinding
+	//MachineControllerClusterRoleBindingName is the name for the MachineController ClusterRoleBinding
 	MachineControllerClusterRoleBindingName = "system:kubermatic-machine-controller"
-	//KubeStateMetricsClusterRoleBindingName is the name for the KubeStateMetrics clusterrolebinding
+	//KubeStateMetricsClusterRoleBindingName is the name for the KubeStateMetrics ClusterRoleBinding
 	KubeStateMetricsClusterRoleBindingName = "system:kubermatic-kube-state-metrics"
-	//PrometheusClusterRoleBindingName is the name for the Prometheus cluster rolebinding
+	//PrometheusClusterRoleBindingName is the name for the Prometheus ClusterRoleBinding
 	PrometheusClusterRoleBindingName = "system:external-prometheus"
+	//MetricsServerAuthDelegatorClusterRoleBindingName is the name for the metrics server ClusterRoleBinding used for token access review
+	MetricsServerAuthDelegatorClusterRoleBindingName = "metrics-server:system:auth-delegator"
+	//MetricsServerResourceReaderClusterRoleBindingName is the name for the metrics server ClusterRoleBinding
+	MetricsServerResourceReaderClusterRoleBindingName = "system:metrics-server"
 
-	// EtcdPodDisruptionBudgetName is the name of the PDB for the etcd statefulset
+	// EtcdPodDisruptionBudgetName is the name of the PDB for the etcd StatefulSet
 	EtcdPodDisruptionBudgetName = "etcd"
 	// ApiserverPodDisruptionBudgetName is the name of the PDB for the apiserver deployment
 	ApiserverPodDisruptionBudgetName = "apiserver"
+	// MetricsServerPodDisruptionBudgetName is the name of the PDB for the metrics-server deployment
+	MetricsServerPodDisruptionBudgetName = "metrics-server"
 
 	// DefaultOwnerReadOnlyMode represents file mode with read permission for owner only
 	DefaultOwnerReadOnlyMode = 0400
@@ -257,6 +300,12 @@ const (
 	KubeconfigSecretKey = "kubeconfig"
 	// TokensSecretKey tokens.csv
 	TokensSecretKey = "tokens.csv"
+	// OpenVPNCACertKey cert.pem, must match CACertSecretKey, otherwise getClusterCAFromLister doesnt work as it has
+	// the key hardcoded
+	OpenVPNCACertKey = CACertSecretKey
+	// OpenVPNCAKeyKey key.pem, must match CAKeySecretKey, otherwise getClusterCAFromLister doesnt work as it has
+	// the key hardcoded
+	OpenVPNCAKeyKey = CAKeySecretKey
 	// OpenVPNServerKeySecretKey server.key
 	OpenVPNServerKeySecretKey = "server.key"
 	// OpenVPNServerCertSecretKey server.crt
@@ -298,6 +347,12 @@ const (
 	minimumCertValidity30d = 30 * 24 * time.Hour
 )
 
+// ECDSAKeyPair is a ECDSA x509 certifcate and private key
+type ECDSAKeyPair struct {
+	Key  *ecdsa.PrivateKey
+	Cert *x509.Certificate
+}
+
 // ConfigMapCreator defines an interface to create/update ConfigMap's
 type ConfigMapCreator = func(*corev1.ConfigMap) (*corev1.ConfigMap, error)
 
@@ -305,7 +360,10 @@ type ConfigMapCreator = func(*corev1.ConfigMap) (*corev1.ConfigMap, error)
 type SecretCreator = func(data SecretDataProvider, existing *corev1.Secret) (*corev1.Secret, error)
 
 // StatefulSetCreator defines an interface to create/update StatefulSet
-type StatefulSetCreator = func(data StatefulSetDataProvider, existing *appsv1.StatefulSet) (*appsv1.StatefulSet, error)
+type StatefulSetCreator = func(existing *appsv1.StatefulSet) (*appsv1.StatefulSet, error)
+
+// VerticalPodAutoscalerCreator defines an interface to create/update a VerticalPodAutoscaler
+type VerticalPodAutoscalerCreator = func(existing *autoscalingv1beta.VerticalPodAutoscaler) (*autoscalingv1beta.VerticalPodAutoscaler, error)
 
 // ServiceCreator defines an interface to create/update Services
 type ServiceCreator = func(data ServiceDataProvider, existing *corev1.Service) (*corev1.Service, error)
@@ -338,10 +396,19 @@ type PodDisruptionBudgetCreator = func(data *TemplateData, existing *policyv1bet
 type CronJobCreator = func(data *TemplateData, existing *batchv1beta1.CronJob) (*batchv1beta1.CronJob, error)
 
 // CRDCreateor defines an interface to create/update CustomRessourceDefinitions
-type CRDCreateor = func(version semver.Version, existing *apiextensionsv1beta1.CustomResourceDefinition) (*apiextensionsv1beta1.CustomResourceDefinition, error)
+type CRDCreateor = func(version semver.Semver, existing *apiextensionsv1beta1.CustomResourceDefinition) (*apiextensionsv1beta1.CustomResourceDefinition, error)
+
+// APIServiceCreator defines an interface to create/update APIService's
+type APIServiceCreator = func(existing *apiregistrationv1beta1.APIService) (*apiregistrationv1beta1.APIService, error)
 
 // MutatingWebhookConfigurationCreator defines an interface to create/update MutatingWebhookConfigurations
 type MutatingWebhookConfigurationCreator = func(cluster *kubermaticv1.Cluster, data *TemplateData, existing *admissionregistrationv1beta1.MutatingWebhookConfiguration) (*admissionregistrationv1beta1.MutatingWebhookConfiguration, error)
+
+// ObjectCreator defines an interface to create/update a runtime.Object
+type ObjectCreator = func(existing runtime.Object) (runtime.Object, error)
+
+// ObjectModifier is a wrapper function which modifies the object which gets returned by the passed in ObjectCreator
+type ObjectModifier func(create ObjectCreator) ObjectCreator
 
 // GetClusterApiserverAddress returns the apiserver address for the given Cluster
 func GetClusterApiserverAddress(cluster *kubermaticv1.Cluster, lister corev1lister.ServiceLister) (string, error) {
@@ -490,7 +557,7 @@ func CertWillExpireSoon(cert *x509.Certificate) bool {
 }
 
 // IsServerCertificateValidForAllOf validates if the given data is present in the given server certificate
-func IsServerCertificateValidForAllOf(cert *x509.Certificate, commonName string, altNames certutil.AltNames) bool {
+func IsServerCertificateValidForAllOf(cert *x509.Certificate, commonName string, altNames certutil.AltNames, ca *x509.Certificate) bool {
 	if CertWillExpireSoon(cert) {
 		return false
 	}
@@ -517,12 +584,24 @@ func IsServerCertificateValidForAllOf(cert *x509.Certificate, commonName string,
 	wantDNSNames := sets.NewString(altNames.DNSNames...)
 	certDNSNames := sets.NewString(cert.DNSNames...)
 
-	return wantDNSNames.Equal(certDNSNames)
+	if !wantDNSNames.Equal(certDNSNames) {
+		return false
+	}
+
+	certPool := x509.NewCertPool()
+	certPool.AddCert(ca)
+	if _, err := cert.Verify(x509.VerifyOptions{Roots: certPool,
+		KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}}); err != nil {
+		glog.V(4).Infof("Certificate verification for CN %s failed due to: %v", commonName, err)
+		return false
+	}
+
+	return true
 }
 
 // IsClientCertificateValidForAllOf validates if the given data matches exactly the given client certificate
 // (It also returns true if all given data is in the cert, but the cert has more organizations)
-func IsClientCertificateValidForAllOf(cert *x509.Certificate, commonName string, organizations []string) bool {
+func IsClientCertificateValidForAllOf(cert *x509.Certificate, commonName string, organizations []string, ca *x509.Certificate) bool {
 	if CertWillExpireSoon(cert) {
 		return false
 	}
@@ -534,40 +613,109 @@ func IsClientCertificateValidForAllOf(cert *x509.Certificate, commonName string,
 	wantOrganizations := sets.NewString(organizations...)
 	certOrganizations := sets.NewString(cert.Subject.Organization...)
 
-	return wantOrganizations.Equal(certOrganizations)
+	if !wantOrganizations.Equal(certOrganizations) {
+		return false
+	}
+
+	certPool := x509.NewCertPool()
+	certPool.AddCert(ca)
+	if _, err := cert.Verify(x509.VerifyOptions{Roots: certPool,
+		KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}}); err != nil {
+		glog.V(4).Infof("Certificate verification for CN %s failed due to: %v", commonName, err)
+		return false
+	}
+
+	return true
+}
+
+func getECDSAClusterCAFromLister(name string, cluster *kubermaticv1.Cluster, lister corev1lister.SecretLister) (*ECDSAKeyPair, error) {
+	cert, key, err := getClusterCAFromLister(name, cluster, lister)
+	if err != nil {
+		return nil, err
+	}
+	ecdsaKey, isECDSAKey := key.(*ecdsa.PrivateKey)
+	if !isECDSAKey {
+		return nil, errors.New("key is not a ECDSA key")
+	}
+	return &ECDSAKeyPair{Cert: cert, Key: ecdsaKey}, nil
+}
+
+func getRSAClusterCAFromLister(name string, cluster *kubermaticv1.Cluster, lister corev1lister.SecretLister) (*triple.KeyPair, error) {
+	cert, key, err := getClusterCAFromLister(name, cluster, lister)
+	if err != nil {
+		return nil, err
+	}
+	rsaKey, isRSAKey := key.(*rsa.PrivateKey)
+	if !isRSAKey {
+		return nil, errors.New("key is not a RSA key")
+	}
+	return &triple.KeyPair{Cert: cert, Key: rsaKey}, nil
 }
 
 // getClusterCAFromLister returns the CA of the cluster from the lister
-func getClusterCAFromLister(name string, cluster *kubermaticv1.Cluster, lister corev1lister.SecretLister) (*triple.KeyPair, error) {
+func getClusterCAFromLister(name string, cluster *kubermaticv1.Cluster, lister corev1lister.SecretLister) (*x509.Certificate, interface{}, error) {
 	caCertSecret, err := lister.Secrets(cluster.Status.NamespaceName).Get(name)
 	if err != nil {
-		return nil, fmt.Errorf("unable to check if a CA cert already exists: %v", err)
+		return nil, nil, fmt.Errorf("unable to check if a CA cert already exists: %v", err)
 	}
 
 	certs, err := certutil.ParseCertsPEM(caCertSecret.Data[CACertSecretKey])
 	if err != nil {
-		return nil, fmt.Errorf("got an invalid cert from the CA secret %s: %v", CASecretName, err)
+		return nil, nil, fmt.Errorf("got an invalid cert from the CA secret %s: %v", CASecretName, err)
+	}
+
+	if len(certs) != 1 {
+		return nil, nil, fmt.Errorf("did not find exactly one but %v certificates in the CA secret", len(certs))
 	}
 
 	key, err := certutil.ParsePrivateKeyPEM(caCertSecret.Data[CAKeySecretKey])
 	if err != nil {
-		return nil, fmt.Errorf("got an invalid private key from the CA secret %s: %v", CASecretName, err)
+		return nil, nil, fmt.Errorf("got an invalid private key from the CA secret %s: %v", CASecretName, err)
 	}
 
-	return &triple.KeyPair{
-		Cert: certs[0],
-		Key:  key.(*rsa.PrivateKey),
-	}, nil
+	return certs[0], key, nil
+}
+
+// GetDexCAFromFile returns the Dex CA from the lister
+func GetDexCAFromFile(caBundleFilePath string) ([]*x509.Certificate, error) {
+
+	f, err := os.Open(caBundleFilePath)
+	if err != nil {
+		return nil, fmt.Errorf("got an invalid CA bundle file %v", err)
+	}
+	defer func() {
+		err := f.Close()
+		if err != nil {
+			glog.Fatal(err)
+		}
+	}()
+
+	bytes, err := ioutil.ReadAll(bufio.NewReader(f))
+	if err != nil {
+		return nil, err
+	}
+
+	dexCACerts, err := certutil.ParseCertsPEM(bytes)
+	if err != nil {
+		return nil, fmt.Errorf("got an invalid cert: %v", err)
+	}
+
+	return dexCACerts, nil
 }
 
 // GetClusterRootCA returns the root CA of the cluster from the lister
 func GetClusterRootCA(cluster *kubermaticv1.Cluster, lister corev1lister.SecretLister) (*triple.KeyPair, error) {
-	return getClusterCAFromLister(CASecretName, cluster, lister)
+	return getRSAClusterCAFromLister(CASecretName, cluster, lister)
 }
 
 // GetClusterFrontProxyCA returns the frontproxy CA of the cluster from the lister
 func GetClusterFrontProxyCA(cluster *kubermaticv1.Cluster, lister corev1lister.SecretLister) (*triple.KeyPair, error) {
-	return getClusterCAFromLister(FrontProxyCASecretName, cluster, lister)
+	return getRSAClusterCAFromLister(FrontProxyCASecretName, cluster, lister)
+}
+
+// GetOpenVPNCA returns the OpenVPN CA of the cluster from the lister
+func GetOpenVPNCA(cluster *kubermaticv1.Cluster, lister corev1lister.SecretLister) (*ECDSAKeyPair, error) {
+	return getECDSAClusterCAFromLister(OpenVPNCASecretName, cluster, lister)
 }
 
 // ClusterIPForService returns the cluster ip for the given service
@@ -592,4 +740,26 @@ func ClusterIPForService(name, namespace string, serviceLister corev1lister.Serv
 // GetAbsoluteServiceDNSName returns the absolute DNS name for the given service and the given cluster. Absolute means a trailing dot will be appended to the DNS name
 func GetAbsoluteServiceDNSName(service, namespace string) string {
 	return fmt.Sprintf("%s.%s.svc.cluster.local.", service, namespace)
+}
+
+// StatefulSetObjectWrapper adds a wrapper so the StatefulSetCreator matches ObjectCreator
+// This is needed as golang does not support function interface matching
+func StatefulSetObjectWrapper(create StatefulSetCreator) ObjectCreator {
+	return func(existing runtime.Object) (runtime.Object, error) {
+		if existing != nil {
+			return create(existing.(*appsv1.StatefulSet))
+		}
+		return create(&appsv1.StatefulSet{})
+	}
+}
+
+// VerticalPodAutocalerObjectWrapper adds a wrapper so the VerticalPodAutoscalerCreator matches ObjectCreator
+// This is needed as golang does not support function interface matching
+func VerticalPodAutocalerObjectWrapper(create VerticalPodAutoscalerCreator) ObjectCreator {
+	return func(existing runtime.Object) (runtime.Object, error) {
+		if existing != nil {
+			return create(existing.(*autoscalingv1beta.VerticalPodAutoscaler))
+		}
+		return create(nil)
+	}
 }

@@ -20,16 +20,15 @@ var (
 			corev1.ResourceCPU:    resource.MustParse("10m"),
 		},
 		Limits: corev1.ResourceList{
-			corev1.ResourceMemory: resource.MustParse("128Mi"),
+			corev1.ResourceMemory: resource.MustParse("1Gi"),
 			corev1.ResourceCPU:    resource.MustParse("100m"),
 		},
 	}
 )
 
 const (
-	name = "kube-state-metrics"
-
-	version = "v1.3.1"
+	name    = "kube-state-metrics"
+	version = "v1.5.0"
 )
 
 // Deployment returns the kube-state-metrics Deployment
@@ -49,6 +48,7 @@ func Deployment(data resources.DeploymentDataProvider, existing *appsv1.Deployme
 	dep.Spec.Selector = &metav1.LabelSelector{
 		MatchLabels: resources.BaseAppLabel(name, nil),
 	}
+	dep.Spec.Template.Spec.ImagePullSecrets = []corev1.LocalObjectReference{{Name: resources.ImagePullSecretName}}
 
 	volumes := getVolumes()
 	podLabels, err := data.GetPodTemplateLabels(name, volumes, nil)
@@ -104,8 +104,9 @@ func Deployment(data resources.DeploymentDataProvider, existing *appsv1.Deployme
 			ReadinessProbe: &corev1.Probe{
 				Handler: corev1.Handler{
 					HTTPGet: &corev1.HTTPGetAction{
-						Path: "/healthz",
-						Port: intstr.FromInt(8080),
+						Path:   "/healthz",
+						Port:   intstr.FromInt(8080),
+						Scheme: corev1.URISchemeHTTP,
 					},
 				},
 				FailureThreshold: 3,

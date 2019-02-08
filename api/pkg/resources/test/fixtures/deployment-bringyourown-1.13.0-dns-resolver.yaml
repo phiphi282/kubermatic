@@ -57,7 +57,7 @@ spec:
         - --connect-retry
         - "1"
         - --ca
-        - /etc/kubernetes/pki/ca/ca.crt
+        - /etc/openvpn/pki/client/ca.crt
         - --cert
         - /etc/openvpn/pki/client/client.crt
         - --key
@@ -85,11 +85,11 @@ spec:
         name: openvpn-client
         resources:
           limits:
-            cpu: 40m
-            memory: 64Mi
+            cpu: 100m
+            memory: 32Mi
           requests:
-            cpu: 10m
-            memory: 30Mi
+            cpu: 5m
+            memory: 5Mi
         securityContext:
           privileged: true
         terminationMessagePath: /dev/termination-log
@@ -97,9 +97,6 @@ spec:
         volumeMounts:
         - mountPath: /etc/openvpn/pki/client
           name: openvpn-client-certificates
-          readOnly: true
-        - mountPath: /etc/kubernetes/pki/ca
-          name: ca
           readOnly: true
       - args:
         - -conf
@@ -112,14 +109,15 @@ spec:
           httpGet:
             path: /health
             port: 8080
+            scheme: HTTP
           initialDelaySeconds: 2
           periodSeconds: 10
           successThreshold: 1
           timeoutSeconds: 15
         resources:
           limits:
-            cpu: 20m
-            memory: 20Mi
+            cpu: 100m
+            memory: 128Mi
           requests:
             cpu: 5m
             memory: 20Mi
@@ -129,8 +127,11 @@ spec:
         - mountPath: /etc/coredns
           name: dns-resolver
           readOnly: true
+      imagePullSecrets:
+      - name: dockercfg
       volumes:
       - configMap:
+          defaultMode: 256
           name: dns-resolver
         name: dns-resolver
       - name: openvpn-client-certificates

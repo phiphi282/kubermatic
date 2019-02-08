@@ -33,6 +33,9 @@ func (c *Controller) getClusterTemplateData(cluster *kubermaticv1.Cluster) (*res
 		c.inClusterPrometheusDisableDefaultScrapingConfigs,
 		c.inClusterPrometheusScrapingConfigsFile,
 		c.dockerPullConfigJSON,
+		"",
+		"",
+		"",
 	), nil
 }
 
@@ -153,22 +156,17 @@ func (c *Controller) ensureConfigMaps(cluster *kubermaticv1.Cluster, data *resou
 }
 
 // GetStatefulSetCreators returns all StatefulSetCreators that are currently in use
-func GetStatefulSetCreators() []resources.StatefulSetCreator {
+func GetStatefulSetCreators(data *resources.TemplateData) []resources.StatefulSetCreator {
 	return []resources.StatefulSetCreator{
-		prometheus.StatefulSet,
+		prometheus.StatefulSetCreator(data),
 	}
 }
 
 func (c *Controller) ensureStatefulSets(cluster *kubermaticv1.Cluster, data *resources.TemplateData) error {
-	creators := GetStatefulSetCreators()
+	data.GetClusterRef()
+	creators := GetStatefulSetCreators(data)
 
-	for _, create := range creators {
-		if err := resources.EnsureStatefulSet(data, create, c.statefulSetLister.StatefulSets(cluster.Status.NamespaceName), c.kubeClient.AppsV1().StatefulSets(cluster.Status.NamespaceName)); err != nil {
-			return fmt.Errorf("failed to ensure that the StatefulSet exists: %v", err)
-		}
-	}
-
-	return nil
+	return resources.EnsureStatefulSets(creators, cluster.Status.NamespaceName, c.dynamicClient, c.dynamicCache, resources.ClusterRefWrapper(cluster))
 }
 
 // GetServiceCreators returns all service creators that are currently in use
@@ -189,4 +187,18 @@ func (c *Controller) ensureServices(cluster *kubermaticv1.Cluster, data *resourc
 	}
 
 	return nil
+}
+
+func (c *Controller) ensureVerticalPodAutoscalers(cluster *kubermaticv1.Cluster) error {
+	creators, err := resources.GetVerticalPodAutoscalersForAll([]string{
+		"kube-state-metrics",
+	},
+		[]string{
+			"prometheus",
+		}, cluster.Status.NamespaceName,
+		c.dynamicCache)
+	if err != nil {
+		return fmt.Errorf("failed to create the functions to handle VPA resources: %v", err)
+	}
+	return resources.EnsureVerticalPodAutoscalers(creators, cluster.Status.NamespaceName, c.dynamicClient, c.dynamicCache)
 }

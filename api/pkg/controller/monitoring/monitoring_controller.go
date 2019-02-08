@@ -6,6 +6,7 @@ import (
 
 	"github.com/golang/glog"
 
+	k8cuserclusterclient "github.com/kubermatic/kubermatic/api/pkg/cluster/client"
 	kubermaticv1informers "github.com/kubermatic/kubermatic/api/pkg/crd/client/informers/externalversions/kubermatic/v1"
 	kubermaticv1lister "github.com/kubermatic/kubermatic/api/pkg/crd/client/listers/kubermatic/v1"
 	kubermaticv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
@@ -26,6 +27,9 @@ import (
 	rbacb1lister "k8s.io/client-go/listers/rbac/v1"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/util/workqueue"
+
+	ctrlruntimecache "sigs.k8s.io/controller-runtime/pkg/cache"
+	ctrlruntimeclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 const (
@@ -36,13 +40,15 @@ const (
 
 // userClusterConnectionProvider offers functions to retrieve clients for the given user clusters
 type userClusterConnectionProvider interface {
-	GetClient(*kubermaticv1.Cluster) (kubernetes.Interface, error)
+	GetClient(*kubermaticv1.Cluster, ...k8cuserclusterclient.ConfigOption) (kubernetes.Interface, error)
 }
 
 // Controller stores all components required for monitoring
 type Controller struct {
 	kubeClient              kubernetes.Interface
+	dynamicClient           ctrlruntimeclient.Client
 	userClusterConnProvider userClusterConnectionProvider
+	dynamicCache            ctrlruntimecache.Cache
 
 	dcs                                              map[string]provider.DatacenterMeta
 	dc                                               string
@@ -77,6 +83,7 @@ type Controller struct {
 // operating the monitoring components for all managed user clusters
 func New(
 	kubeClient kubernetes.Interface,
+	dynamicClient ctrlruntimeclient.Client,
 	userClusterConnProvider userClusterConnectionProvider,
 
 	dc string,
@@ -92,6 +99,7 @@ func New(
 	inClusterPrometheusScrapingConfigsFile string,
 	dockerPullConfigJSON []byte,
 
+	dynamicCache ctrlruntimecache.Cache,
 	clusterInformer kubermaticv1informers.ClusterInformer,
 	serviceAccountInformer corev1informers.ServiceAccountInformer,
 	configMapInformer corev1informers.ConfigMapInformer,
@@ -105,7 +113,9 @@ func New(
 ) (*Controller, error) {
 	c := &Controller{
 		kubeClient:              kubeClient,
+		dynamicClient:           dynamicClient,
 		userClusterConnProvider: userClusterConnProvider,
+		dynamicCache:            dynamicCache,
 
 		queue: workqueue.NewNamedRateLimitingQueue(
 			workqueue.NewItemExponentialFailureRateLimiter(1*time.Second, 5*time.Minute),
@@ -224,36 +234,20 @@ func (c *Controller) processNextItem() bool {
 	}
 	defer c.queue.Done(key)
 
-	err := c.sync(key.(string))
-	c.handleErr(err, key)
-
-	return true
-}
-
-// handleErr checks if an error happened and makes sure we will retry later.
-func (c *Controller) handleErr(err error, key interface{}) {
-	if err == nil {
-		// Forget about the #AddRateLimited history of the key on every successful synchronization.
-		// This ensures that future processing of updates for this key is not delayed because of
-		// an outdated error history.
-		c.queue.Forget(key)
-		return
-	}
-
-	// This controller retries 5 times if something goes wrong. After that, it stops trying.
-	if c.queue.NumRequeues(key) < 5 {
+	if err := c.sync(key.(string)); err != nil {
 		glog.V(0).Infof("Error syncing %v: %v", key, err)
 
 		// Re-enqueue the key rate limited. Based on the rate limiter on the
 		// queue and the re-enqueue history, the key will be processed later again.
 		c.queue.AddRateLimited(key)
-		return
+		return true
 	}
 
+	// Forget about the #AddRateLimited history of the key on every successful synchronization.
+	// This ensures that future processing of updates for this key is not delayed because of
+	// an outdated error history.
 	c.queue.Forget(key)
-	// Report to an external entity that, even after several retries, we could not successfully process this key
-	runtime.HandleError(err)
-	glog.V(0).Infof("Dropping %q out of the monitoring controller queue after exceeding max retries: %v", key, err)
+	return true
 }
 
 func (c *Controller) enqueueAfter(cluster *kubermaticv1.Cluster, duration time.Duration) {
@@ -373,5 +367,10 @@ func (c *Controller) sync(key string) error {
 	}
 
 	// check that all StatefulSets are created
-	return c.ensureStatefulSets(cluster, data)
+	if err := c.ensureStatefulSets(cluster, data); err != nil {
+		return err
+	}
+
+	// check that all VerticalPodAutoscaler's are created
+	return c.ensureVerticalPodAutoscalers(cluster)
 }

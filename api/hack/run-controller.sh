@@ -4,11 +4,11 @@ set -o errexit
 set -o nounset
 set -o pipefail
 
-make -C $(dirname $0)/.. kubermatic-controller-manager
+cd $(go env GOPATH)/src/github.com/kubermatic/kubermatic/api
+make kubermatic-controller-manager
 
 KUBERMATIC_WORKERNAME=${KUBERMATIC_WORKERNAME:-$(uname -n)}
 
-cd $(go env GOPATH)/src/github.com/kubermatic/kubermatic/api
 ./_build/kubermatic-controller-manager \
   -datacenters=../../secrets/seed-clusters/dev.kubermatic.io/datacenters.yaml \
   -datacenter-name=europe-west3-c \
@@ -22,6 +22,7 @@ cd $(go env GOPATH)/src/github.com/kubermatic/kubermatic/api
   -backup-container=../config/kubermatic/static/backup-container.yaml \
   -cleanup-container=../config/kubermatic/static/cleanup-container.yaml \
   -docker-pull-config-json-file=../../secrets/seed-clusters/dev.kubermatic.io/.dockerconfigjson \
+  -oidc-ca-file=../../secrets/seed-clusters/dev.kubermatic.io/caBundle.pem \
   -monitoring-scrape-annotation-prefix='kubermatic.io' \
   -logtostderr=1 \
-  -v=6 $@
+  -v=6 $@ 2>&1|tee /tmp/kubermatic-controller-manager.log

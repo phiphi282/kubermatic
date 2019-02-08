@@ -2,6 +2,7 @@ package openstack
 
 import (
 	"fmt"
+	"net"
 	"strings"
 
 	"github.com/gophercloud/gophercloud"
@@ -10,14 +11,27 @@ import (
 	osprojects "github.com/gophercloud/gophercloud/openstack/identity/v3/projects"
 	ossecuritygroups "github.com/gophercloud/gophercloud/openstack/networking/v2/extensions/security/groups"
 	ossubnets "github.com/gophercloud/gophercloud/openstack/networking/v2/subnets"
+	"github.com/gophercloud/gophercloud/pagination"
 	kubermaticv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
 	"github.com/kubermatic/kubermatic/api/pkg/kubernetes"
 	"github.com/kubermatic/kubermatic/api/pkg/provider"
 )
 
 const (
-	securityGroupCleanupFinalizer = "kubermatic.io/cleanup-openstack-security-group"
-	networkCleanupFinalizer       = "kubermatic.io/cleanup-openstack-network"
+	// SecurityGroupCleanupFinalizer will instruct the deletion of the security group
+	SecurityGroupCleanupFinalizer = "kubermatic.io/cleanup-openstack-security-group"
+	// OldNetworkCleanupFinalizer will instruct the deletion of all network components. Router, Network, Subnet
+	// Deprecated: Got splitted into dedicated finalizers
+	OldNetworkCleanupFinalizer = "kubermatic.io/cleanup-openstack-network"
+
+	// NetworkCleanupFinalizer will instruct the deletion of the network
+	NetworkCleanupFinalizer = "kubermatic.io/cleanup-openstack-network-v2"
+	// SubnetCleanupFinalizer will instruct the deletion of the subnet
+	SubnetCleanupFinalizer = "kubermatic.io/cleanup-openstack-subnet-v2"
+	// RouterCleanupFinalizer will instruct the deletion of the router
+	RouterCleanupFinalizer = "kubermatic.io/cleanup-openstack-router-v2"
+	// RouterSubnetLinkCleanupFinalizer will instruct the deletion of the link between the router and the subnet
+	RouterSubnetLinkCleanupFinalizer = "kubermatic.io/cleanup-openstack-router-subnet-link-v2"
 	// LoadBalancerCleanupFinalizer for cleaning up load balancers, used in deleting.go
 	LoadBalancerCleanupFinalizer = "kubermatic.io/cleanup-load-balancers"
 )
@@ -53,9 +67,17 @@ func (os *Provider) ValidateCloudSpec(spec kubermaticv1.CloudSpec) error {
 	}
 
 	if spec.Openstack.Network != "" {
-		_, err := getNetworkByName(netClient, spec.Openstack.Network, false)
+		network, err := getNetworkByName(netClient, spec.Openstack.Network, false)
 		if err != nil {
 			return fmt.Errorf("failed to get network %q: %v", spec.Openstack.Network, err)
+		}
+
+		// If we're going to create a subnet in an existing network,
+		// let's check whether any existing subnets collide with our range.
+		if spec.Openstack.SubnetID == "" {
+			if err = validateExistingSubnetOverlap(network.ID, netClient); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -67,6 +89,36 @@ func (os *Provider) ValidateCloudSpec(spec kubermaticv1.CloudSpec) error {
 	}
 
 	return nil
+}
+
+// validateExistingSubnetOverlap checks whether any subnets in the given network overlap with the default subnet CIDR
+func validateExistingSubnetOverlap(networkID string, netClient *gophercloud.ServiceClient) error {
+	_, defaultCIDR, err := net.ParseCIDR(subnetCIDR)
+	if err != nil {
+		return err
+	}
+
+	pager := ossubnets.List(netClient, ossubnets.ListOpts{NetworkID: networkID})
+	return pager.EachPage(func(page pagination.Page) (bool, error) {
+		subnets, extractErr := ossubnets.ExtractSubnets(page)
+		if extractErr != nil {
+			return false, extractErr
+		}
+
+		for _, sn := range subnets {
+			_, currentCIDR, parseErr := net.ParseCIDR(sn.CIDR)
+			if parseErr != nil {
+				return false, parseErr
+			}
+
+			// do the CIDRs overlap?
+			if currentCIDR.Contains(defaultCIDR.IP) || defaultCIDR.Contains(currentCIDR.IP) {
+				return false, fmt.Errorf("existing subnetwork %q holds a CIDR %q which overlaps with default CIDR %q", sn.Name, sn.CIDR, subnetCIDR)
+			}
+		}
+
+		return true, nil
+	})
 }
 
 // InitializeCloudProvider initializes a cluster, in particular
@@ -89,6 +141,7 @@ func (os *Provider) InitializeCloudProvider(cluster *kubermaticv1.Cluster, updat
 		}
 		cluster, err = update(cluster.Name, func(cluster *kubermaticv1.Cluster) {
 			cluster.Spec.Cloud.Openstack.FloatingIPPool = extNetwork.Name
+			// We're just searching for the floating ip pool here & don't create anything. Thus no need to create a finalizer
 		})
 		if err != nil {
 			return nil, err
@@ -102,7 +155,7 @@ func (os *Provider) InitializeCloudProvider(cluster *kubermaticv1.Cluster, updat
 		}
 		cluster, err = update(cluster.Name, func(cluster *kubermaticv1.Cluster) {
 			cluster.Spec.Cloud.Openstack.SecurityGroups = g.Name
-			cluster.Finalizers = append(cluster.Finalizers, securityGroupCleanupFinalizer)
+			cluster.Finalizers = kubernetes.AddFinalizer(cluster.Finalizers, SecurityGroupCleanupFinalizer)
 		})
 		if err != nil {
 			return nil, err
@@ -116,39 +169,75 @@ func (os *Provider) InitializeCloudProvider(cluster *kubermaticv1.Cluster, updat
 		}
 		cluster, err = update(cluster.Name, func(cluster *kubermaticv1.Cluster) {
 			cluster.Spec.Cloud.Openstack.Network = network.Name
+			cluster.Finalizers = kubernetes.AddFinalizer(cluster.Finalizers, NetworkCleanupFinalizer)
 		})
 		if err != nil {
 			return nil, err
 		}
+	}
 
+	network, err := getNetworkByName(netClient, cluster.Spec.Cloud.Openstack.Network, false)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get network '%s': %v", cluster.Spec.Cloud.Openstack.Network, err)
+	}
+
+	if cluster.Spec.Cloud.Openstack.SubnetID == "" {
 		subnet, err := createKubermaticSubnet(netClient, cluster.Name, network.ID, dc.Spec.Openstack.DNSServers)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create the kubermatic subnet: %v", err)
 		}
+
 		cluster, err = update(cluster.Name, func(cluster *kubermaticv1.Cluster) {
 			cluster.Spec.Cloud.Openstack.SubnetID = subnet.ID
+			cluster.Finalizers = kubernetes.AddFinalizer(cluster.Finalizers, SubnetCleanupFinalizer)
 		})
 		if err != nil {
 			return nil, err
 		}
+	}
 
-		router, err := createKubermaticRouter(netClient, cluster.Name, cluster.Spec.Cloud.Openstack.FloatingIPPool)
+	if cluster.Spec.Cloud.Openstack.RouterID == "" {
+		// Check if the subnet has already a router
+		routerID, err := getRouterIDForSubnet(netClient, cluster.Spec.Cloud.Openstack.SubnetID, network.ID)
 		if err != nil {
-			return nil, fmt.Errorf("failed to create the kubermatic router: %v", err)
+			if err == errNotFound {
+				// No Router exists -> Create a router
+				router, err := createKubermaticRouter(netClient, cluster.Name, cluster.Spec.Cloud.Openstack.FloatingIPPool)
+				if err != nil {
+					return nil, fmt.Errorf("failed to create the kubermatic router: %v", err)
+				}
+				cluster, err = update(cluster.Name, func(cluster *kubermaticv1.Cluster) {
+					cluster.Spec.Cloud.Openstack.RouterID = router.ID
+					cluster.Finalizers = kubernetes.AddFinalizer(cluster.Finalizers, RouterCleanupFinalizer)
+				})
+				if err != nil {
+					return nil, err
+				}
+			} else {
+				return nil, fmt.Errorf("failed to verify that the subnet '%s' has a router attached: %v", cluster.Spec.Cloud.Openstack.SubnetID, err)
+			}
+		} else {
+			// A router already exists -> Reuse it but don't clean it up
+			cluster, err = update(cluster.Name, func(cluster *kubermaticv1.Cluster) {
+				cluster.Spec.Cloud.Openstack.RouterID = routerID
+			})
+			if err != nil {
+				return nil, err
+			}
 		}
-		cluster, err = update(cluster.Name, func(cluster *kubermaticv1.Cluster) {
-			cluster.Spec.Cloud.Openstack.RouterID = router.ID
-		})
-		if err != nil {
-			return nil, err
-		}
+	}
 
-		if _, err = attachSubnetToRouter(netClient, subnet.ID, router.ID); err != nil {
+	// If we created the subnet, but have not created the router-subnet-link finalizer, we need to attach the subnet to the router
+	// Otherwise the vm's won't have connectivity
+	if kubernetes.HasFinalizer(cluster, SubnetCleanupFinalizer) && !kubernetes.HasFinalizer(cluster, RouterSubnetLinkCleanupFinalizer) {
+		if _, err = attachSubnetToRouter(netClient, cluster.Spec.Cloud.Openstack.SubnetID, cluster.Spec.Cloud.Openstack.RouterID); err != nil {
 			return nil, fmt.Errorf("failed to attach subnet to router: %v", err)
 		}
 
 		cluster, err = update(cluster.Name, func(cluster *kubermaticv1.Cluster) {
-			cluster.Finalizers = append(cluster.Finalizers, networkCleanupFinalizer, LoadBalancerCleanupFinalizer)
+			cluster.Finalizers = kubernetes.AddFinalizer(cluster.Finalizers, RouterSubnetLinkCleanupFinalizer)
+			cluster.Finalizers = kubernetes.AddFinalizer(cluster.Finalizers, LoadBalancerCleanupFinalizer)
+
 		})
 		if err != nil {
 			return nil, err
@@ -166,7 +255,7 @@ func (os *Provider) CleanUpCloudProvider(cluster *kubermaticv1.Cluster, update p
 		return nil, fmt.Errorf("failed to create a authenticated openstack client: %v", err)
 	}
 
-	if kubernetes.HasFinalizer(cluster, securityGroupCleanupFinalizer) {
+	if kubernetes.HasFinalizer(cluster, SecurityGroupCleanupFinalizer) {
 		for _, g := range strings.Split(cluster.Spec.Cloud.Openstack.SecurityGroups, ",") {
 			if err := deleteSecurityGroup(netClient, strings.TrimSpace(g)); err != nil {
 				return nil, fmt.Errorf("failed to delete security group %q: %v", g, err)
@@ -174,33 +263,72 @@ func (os *Provider) CleanUpCloudProvider(cluster *kubermaticv1.Cluster, update p
 		}
 
 		cluster, err = update(cluster.Name, func(cluster *kubermaticv1.Cluster) {
-			cluster.Finalizers = kubernetes.RemoveFinalizer(cluster.Finalizers, securityGroupCleanupFinalizer)
+			cluster.Finalizers = kubernetes.RemoveFinalizer(cluster.Finalizers, SecurityGroupCleanupFinalizer)
 		})
 		if err != nil {
 			return nil, err
 		}
 	}
 
-	if kubernetes.HasFinalizer(cluster, networkCleanupFinalizer) {
+	if kubernetes.HasFinalizer(cluster, RouterSubnetLinkCleanupFinalizer) || kubernetes.HasFinalizer(cluster, OldNetworkCleanupFinalizer) {
 		if _, err = detachSubnetFromRouter(netClient, cluster.Spec.Cloud.Openstack.SubnetID, cluster.Spec.Cloud.Openstack.RouterID); err != nil {
-			if _, ok := err.(gophercloud.ErrDefault404); !ok {
+			if !isNotFoundErr(err) {
 				return nil, fmt.Errorf("failed to detach subnet from router: %v", err)
 			}
 		}
-
-		if err = deleteNetworkByName(netClient, cluster.Spec.Cloud.Openstack.Network); err != nil {
-			if _, ok := err.(gophercloud.ErrDefault404); !ok {
-				return nil, fmt.Errorf("failed delete network %q: %v", cluster.Spec.Cloud.Openstack.Network, err)
-			}
+		cluster, err = update(cluster.Name, func(cluster *kubermaticv1.Cluster) {
+			cluster.Finalizers = kubernetes.RemoveFinalizer(cluster.Finalizers, RouterSubnetLinkCleanupFinalizer)
+		})
+		if err != nil {
+			return nil, err
 		}
+	}
 
-		if err = deleteRouter(netClient, cluster.Spec.Cloud.Openstack.RouterID); err != nil {
-			if _, ok := err.(gophercloud.ErrDefault404); !ok {
-				return nil, fmt.Errorf("failed delete router %q: %v", cluster.Spec.Cloud.Openstack.RouterID, err)
-			}
+	if kubernetes.HasFinalizer(cluster, SubnetCleanupFinalizer) || kubernetes.HasFinalizer(cluster, OldNetworkCleanupFinalizer) {
+		if err := deleteSubnet(netClient, cluster.Spec.Cloud.Openstack.SubnetID); err != nil {
+			return nil, fmt.Errorf("failed to delete subnet '%s': %v", cluster.Spec.Cloud.Openstack.SubnetID, err)
 		}
 		cluster, err = update(cluster.Name, func(cluster *kubermaticv1.Cluster) {
-			cluster.Finalizers = kubernetes.RemoveFinalizer(cluster.Finalizers, networkCleanupFinalizer)
+			cluster.Finalizers = kubernetes.RemoveFinalizer(cluster.Finalizers, SubnetCleanupFinalizer)
+		})
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	if kubernetes.HasFinalizer(cluster, NetworkCleanupFinalizer) || kubernetes.HasFinalizer(cluster, OldNetworkCleanupFinalizer) {
+		if err = deleteNetworkByName(netClient, cluster.Spec.Cloud.Openstack.Network); err != nil {
+			if !isNotFoundErr(err) {
+				return nil, fmt.Errorf("failed to delete network '%s': %v", cluster.Spec.Cloud.Openstack.Network, err)
+			}
+		}
+
+		cluster, err = update(cluster.Name, func(cluster *kubermaticv1.Cluster) {
+			cluster.Finalizers = kubernetes.RemoveFinalizer(cluster.Finalizers, NetworkCleanupFinalizer)
+		})
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	if kubernetes.HasFinalizer(cluster, RouterCleanupFinalizer) || kubernetes.HasFinalizer(cluster, OldNetworkCleanupFinalizer) {
+		if err = deleteRouter(netClient, cluster.Spec.Cloud.Openstack.RouterID); err != nil {
+			if !isNotFoundErr(err) {
+				return nil, fmt.Errorf("failed to delete router '%s': %v", cluster.Spec.Cloud.Openstack.RouterID, err)
+			}
+		}
+
+		cluster, err = update(cluster.Name, func(cluster *kubermaticv1.Cluster) {
+			cluster.Finalizers = kubernetes.RemoveFinalizer(cluster.Finalizers, RouterCleanupFinalizer)
+		})
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	if kubernetes.HasFinalizer(cluster, OldNetworkCleanupFinalizer) {
+		cluster, err = update(cluster.Name, func(cluster *kubermaticv1.Cluster) {
+			cluster.Finalizers = kubernetes.RemoveFinalizer(cluster.Finalizers, OldNetworkCleanupFinalizer)
 		})
 		if err != nil {
 			return nil, err

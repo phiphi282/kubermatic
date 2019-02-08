@@ -3,29 +3,29 @@ package main
 import (
 	"fmt"
 
-	"github.com/Masterminds/semver"
-	"github.com/kubermatic/kubermatic/api/pkg/api/v2"
+	kubermaticapiv1 "github.com/kubermatic/kubermatic/api/pkg/api/v1"
 	"github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
+	"github.com/kubermatic/kubermatic/api/pkg/semver"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // Returns a matrix of (version x operating system)
-func getAzureScenarios(versions []*semver.Version) []testScenario {
+func getAzureScenarios(versions []*semver.Semver) []testScenario {
 	var scenarios []testScenario
 	for _, v := range versions {
 		// Ubuntu
 		scenarios = append(scenarios, &azureScenario{
 			version: v,
-			nodeOsSpec: v2.OperatingSystemSpec{
-				Ubuntu: &v2.UbuntuSpec{},
+			nodeOsSpec: kubermaticapiv1.OperatingSystemSpec{
+				Ubuntu: &kubermaticapiv1.UbuntuSpec{},
 			},
 		})
 		// CoreOS
 		scenarios = append(scenarios, &azureScenario{
 			version: v,
-			nodeOsSpec: v2.OperatingSystemSpec{
-				ContainerLinux: &v2.ContainerLinuxSpec{
+			nodeOsSpec: kubermaticapiv1.OperatingSystemSpec{
+				ContainerLinux: &kubermaticapiv1.ContainerLinuxSpec{
 					// Otherwise the nodes restart directly after creation - bad for tests
 					DisableAutoUpdate: true,
 				},
@@ -44,8 +44,8 @@ func getAzureScenarios(versions []*semver.Version) []testScenario {
 }
 
 type azureScenario struct {
-	version    *semver.Version
-	nodeOsSpec v2.OperatingSystemSpec
+	version    *semver.Semver
+	nodeOsSpec kubermaticapiv1.OperatingSystemSpec
 }
 
 func (s *azureScenario) Name() string {
@@ -56,7 +56,7 @@ func (s *azureScenario) Cluster(secrets secrets) *v1.Cluster {
 	return &v1.Cluster{
 		ObjectMeta: metav1.ObjectMeta{},
 		Spec: v1.ClusterSpec{
-			Version:           s.version.String(),
+			Version:           *s.version,
 			HumanReadableName: s.Name(),
 			ClusterNetwork: v1.ClusterNetworkingConfig{
 				Services: v1.NetworkRanges{
@@ -80,18 +80,18 @@ func (s *azureScenario) Cluster(secrets secrets) *v1.Cluster {
 	}
 }
 
-func (s *azureScenario) Nodes(num int) []*v2.Node {
-	var nodes []*v2.Node
+func (s *azureScenario) Nodes(num int) []*kubermaticapiv1.Node {
+	var nodes []*kubermaticapiv1.Node
 	for i := 0; i < num; i++ {
-		node := &v2.Node{
-			Metadata: v2.ObjectMeta{},
-			Spec: v2.NodeSpec{
-				Cloud: v2.NodeCloudSpec{
-					Azure: &v2.AzureNodeSpec{
+		node := &kubermaticapiv1.Node{
+			ObjectMeta: kubermaticapiv1.ObjectMeta{},
+			Spec: kubermaticapiv1.NodeSpec{
+				Cloud: kubermaticapiv1.NodeCloudSpec{
+					Azure: &kubermaticapiv1.AzureNodeSpec{
 						Size: "Standard_F1",
 					},
 				},
-				Versions: v2.NodeVersionInfo{
+				Versions: kubermaticapiv1.NodeVersionInfo{
 					Kubelet: s.version.String(),
 				},
 				OperatingSystem: s.nodeOsSpec,

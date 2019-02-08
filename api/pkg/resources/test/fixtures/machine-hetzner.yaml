@@ -1,13 +1,11 @@
 metadata:
   creationTimestamp: null
-  name: machine-hetznercluster-1a2b3c4d5e-te5s7
+  generateName: machine-kubermatic-hetznercluster-1a2b3c4d5e-
   namespace: kube-system
 spec:
   metadata:
     creationTimestamp: null
-    name: hetznercluster-1a2b3c4d5e-te5s7
-  providerConfig:
-    ValueFrom: null
+  providerSpec:
     value:
       cloudProvider: hetzner
       cloudProviderSpec:
@@ -22,6 +20,4 @@ spec:
       - ssh-rsa TEST123test
   versions:
     kubelet: v1.9.6
-status:
-  lastUpdated: null
-  providerStatus: null
+status: {}

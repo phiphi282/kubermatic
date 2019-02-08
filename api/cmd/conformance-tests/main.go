@@ -18,7 +18,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Masterminds/semver"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/crypto/ssh"
 
@@ -28,6 +27,7 @@ import (
 	kubermaticv1lister "github.com/kubermatic/kubermatic/api/pkg/crd/client/listers/kubermatic/v1"
 	"github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
 	"github.com/kubermatic/kubermatic/api/pkg/provider"
+	"github.com/kubermatic/kubermatic/api/pkg/semver"
 	kubermaticsignals "github.com/kubermatic/kubermatic/api/pkg/signals"
 	"github.com/kubermatic/kubermatic/api/pkg/util/informer"
 	"github.com/kubermatic/machine-controller/pkg/providerconfig"
@@ -68,7 +68,7 @@ type Opts struct {
 	workerName                     string
 	homeDir                        string
 	runKubermaticControllerManager bool
-	versions                       []*semver.Version
+	versions                       []*semver.Semver
 	log                            *logrus.Entry
 	excludeSelector                excludeSelector
 	excludeSelectorRaw             string
@@ -106,7 +106,7 @@ type secrets struct {
 }
 
 const (
-	defaultTimeout                 = 30 * time.Minute
+	defaultTimeout                 = 10 * time.Minute
 	defaultUserClusterPollInterval = 10 * time.Second
 	defaultAPIRetries              = 100
 
@@ -128,7 +128,7 @@ func main() {
 	opts := Opts{
 		providers:  sets.NewString(),
 		publicKeys: [][]byte{},
-		versions:   []*semver.Version{},
+		versions:   []*semver.Semver{},
 	}
 
 	usr, err := user.Current()
@@ -197,7 +197,7 @@ func main() {
 	}
 
 	for _, s := range strings.Split(sversions, ",") {
-		opts.versions = append(opts.versions, semver.MustParse(s))
+		opts.versions = append(opts.versions, semver.NewSemverOrDie(s))
 	}
 
 	fields := logrus.Fields{}

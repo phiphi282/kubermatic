@@ -47,13 +47,14 @@ type RawConfig struct {
 	ClientID       providerconfig.ConfigVarString `json:"clientID"`
 	ClientSecret   providerconfig.ConfigVarString `json:"clientSecret"`
 
-	Location        providerconfig.ConfigVarString `json:"location"`
-	ResourceGroup   providerconfig.ConfigVarString `json:"resourceGroup"`
-	VMSize          providerconfig.ConfigVarString `json:"vmSize"`
-	VNetName        providerconfig.ConfigVarString `json:"vnetName"`
-	SubnetName      providerconfig.ConfigVarString `json:"subnetName"`
-	RouteTableName  providerconfig.ConfigVarString `json:"routeTableName"`
-	AvailabilitySet providerconfig.ConfigVarString `json:"availabilitySet"`
+	Location          providerconfig.ConfigVarString `json:"location"`
+	ResourceGroup     providerconfig.ConfigVarString `json:"resourceGroup"`
+	VMSize            providerconfig.ConfigVarString `json:"vmSize"`
+	VNetName          providerconfig.ConfigVarString `json:"vnetName"`
+	SubnetName        providerconfig.ConfigVarString `json:"subnetName"`
+	RouteTableName    providerconfig.ConfigVarString `json:"routeTableName"`
+	AvailabilitySet   providerconfig.ConfigVarString `json:"availabilitySet"`
+	SecurityGroupName providerconfig.ConfigVarString `json:"securityGroupName"`
 
 	AssignPublicIP providerconfig.ConfigVarBool `json:"assignPublicIP"`
 	Tags           map[string]string            `json:"tags"`
@@ -65,13 +66,14 @@ type config struct {
 	ClientID       string
 	ClientSecret   string
 
-	Location        string
-	ResourceGroup   string
-	VMSize          string
-	VNetName        string
-	SubnetName      string
-	RouteTableName  string
-	AvailabilitySet string
+	Location          string
+	ResourceGroup     string
+	VMSize            string
+	VNetName          string
+	SubnetName        string
+	RouteTableName    string
+	AvailabilitySet   string
+	SecurityGroupName string
 
 	AssignPublicIP bool
 	Tags           map[string]string
@@ -100,19 +102,19 @@ func (vm *azureVM) Status() instance.Status {
 }
 
 var imageReferences = map[providerconfig.OperatingSystem]compute.ImageReference{
-	providerconfig.OperatingSystemCoreos: compute.ImageReference{
+	providerconfig.OperatingSystemCoreos: {
 		Publisher: to.StringPtr("CoreOS"),
 		Offer:     to.StringPtr("CoreOS"),
 		Sku:       to.StringPtr("Stable"),
 		Version:   to.StringPtr("latest"),
 	},
-	providerconfig.OperatingSystemCentOS: compute.ImageReference{
+	providerconfig.OperatingSystemCentOS: {
 		Publisher: to.StringPtr("OpenLogic"),
 		Offer:     to.StringPtr("CentOS"),
 		Sku:       to.StringPtr("7-CI"), // https://docs.microsoft.com/en-us/azure/virtual-machines/linux/using-cloud-init
 		Version:   to.StringPtr("latest"),
 	},
-	providerconfig.OperatingSystemUbuntu: compute.ImageReference{
+	providerconfig.OperatingSystemUbuntu: {
 		Publisher: to.StringPtr("Canonical"),
 		Offer:     to.StringPtr("UbuntuServer"),
 		// FIXME We'd like to use Ubuntu 18.04 eventually, but the docker's release
@@ -137,7 +139,7 @@ func New(configVarResolver *providerconfig.ConfigVarResolver) cloud.Provider {
 	return &provider{configVarResolver: configVarResolver}
 }
 
-func (p *provider) getConfig(s v1alpha1.ProviderConfig) (*config, *providerconfig.Config, error) {
+func (p *provider) getConfig(s v1alpha1.ProviderSpec) (*config, *providerconfig.Config, error) {
 	if s.Value == nil {
 		return nil, nil, fmt.Errorf("machine.spec.providerconfig.value is nil")
 	}
@@ -211,6 +213,11 @@ func (p *provider) getConfig(s v1alpha1.ProviderConfig) (*config, *providerconfi
 	c.AvailabilitySet, err = p.configVarResolver.GetConfigVarStringValue(rawCfg.AvailabilitySet)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to get the value of \"availabilitySet\" field, error = %v", err)
+	}
+
+	c.SecurityGroupName, err = p.configVarResolver.GetConfigVarStringValue(rawCfg.SecurityGroupName)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get the value of \"securityGroupName\" field, error = %v", err)
 	}
 
 	c.Tags = rawCfg.Tags
@@ -315,12 +322,12 @@ func getIPAddressStrings(ctx context.Context, c *config, addrName string) ([]str
 	return ipAddresses, nil
 }
 
-func (p *provider) AddDefaults(spec v1alpha1.MachineSpec) (v1alpha1.MachineSpec, bool, error) {
-	return spec, false, nil
+func (p *provider) AddDefaults(spec v1alpha1.MachineSpec) (v1alpha1.MachineSpec, error) {
+	return spec, nil
 }
 
-func (p *provider) Create(machine *v1alpha1.Machine, update cloud.MachineUpdater, userdata string) (instance.Instance, error) {
-	config, providerCfg, err := p.getConfig(machine.Spec.ProviderConfig)
+func (p *provider) Create(machine *v1alpha1.Machine, data *cloud.MachineCreateDeleteData, userdata string) (instance.Instance, error) {
+	config, providerCfg, err := p.getConfig(machine.Spec.ProviderSpec)
 	if err != nil {
 		return nil, cloudprovidererrors.TerminalError{
 			Reason:  common.InvalidConfigurationMachineError,
@@ -349,7 +356,7 @@ func (p *provider) Create(machine *v1alpha1.Machine, update cloud.MachineUpdater
 	var publicIP *network.PublicIPAddress
 	if config.AssignPublicIP {
 		if !kuberneteshelper.HasFinalizer(machine, finalizerPublicIP) {
-			if machine, err = update(machine, func(updatedMachine *v1alpha1.Machine) {
+			if machine, err = data.Updater(machine, func(updatedMachine *v1alpha1.Machine) {
 				updatedMachine.Finalizers = append(updatedMachine.Finalizers, finalizerPublicIP)
 			}); err != nil {
 				return nil, err
@@ -362,7 +369,7 @@ func (p *provider) Create(machine *v1alpha1.Machine, update cloud.MachineUpdater
 	}
 
 	if !kuberneteshelper.HasFinalizer(machine, finalizerNIC) {
-		if machine, err = update(machine, func(updatedMachine *v1alpha1.Machine) {
+		if machine, err = data.Updater(machine, func(updatedMachine *v1alpha1.Machine) {
 			updatedMachine.Finalizers = append(updatedMachine.Finalizers, finalizerNIC)
 		}); err != nil {
 			return nil, err
@@ -420,14 +427,14 @@ func (p *provider) Create(machine *v1alpha1.Machine, update cloud.MachineUpdater
 
 	glog.Infof("Creating machine %q", machine.Spec.Name)
 	if !kuberneteshelper.HasFinalizer(machine, finalizerDisks) {
-		if machine, err = update(machine, func(updatedMachine *v1alpha1.Machine) {
+		if machine, err = data.Updater(machine, func(updatedMachine *v1alpha1.Machine) {
 			updatedMachine.Finalizers = append(updatedMachine.Finalizers, finalizerDisks)
 		}); err != nil {
 			return nil, err
 		}
 	}
 	if !kuberneteshelper.HasFinalizer(machine, finalizerVM) {
-		if machine, err = update(machine, func(updatedMachine *v1alpha1.Machine) {
+		if machine, err = data.Updater(machine, func(updatedMachine *v1alpha1.Machine) {
 			updatedMachine.Finalizers = append(updatedMachine.Finalizers, finalizerVM)
 		}); err != nil {
 			return nil, err
@@ -467,10 +474,10 @@ func (p *provider) Create(machine *v1alpha1.Machine, update cloud.MachineUpdater
 	return &azureVM{vm: &vm, ipAddresses: ipAddresses, status: status}, nil
 }
 
-func (p *provider) Delete(machine *v1alpha1.Machine, update cloud.MachineUpdater) error {
-	config, _, err := p.getConfig(machine.Spec.ProviderConfig)
+func (p *provider) Cleanup(machine *v1alpha1.Machine, data *cloud.MachineCreateDeleteData) (bool, error) {
+	config, _, err := p.getConfig(machine.Spec.ProviderSpec)
 	if err != nil {
-		return fmt.Errorf("failed to parse MachineSpec: %v", err)
+		return false, fmt.Errorf("failed to parse MachineSpec: %v", err)
 	}
 
 	_, err = p.Get(machine)
@@ -479,47 +486,47 @@ func (p *provider) Delete(machine *v1alpha1.Machine, update cloud.MachineUpdater
 	if err == nil || (err != nil && err != cloudprovidererrors.ErrInstanceNotFound) {
 		glog.Infof("deleting VM %q", machine.Name)
 		if err = deleteVMsByMachineUID(context.TODO(), config, machine.UID); err != nil {
-			return fmt.Errorf("failed to delete instance for  machine %q: %v", machine.Name, err)
+			return false, fmt.Errorf("failed to delete instance for  machine %q: %v", machine.Name, err)
 		}
 	}
 
-	if machine, err = update(machine, func(updatedMachine *v1alpha1.Machine) {
+	if machine, err = data.Updater(machine, func(updatedMachine *v1alpha1.Machine) {
 		updatedMachine.Finalizers = kuberneteshelper.RemoveFinalizer(updatedMachine.Finalizers, finalizerVM)
 	}); err != nil {
-		return err
+		return false, err
 	}
 
 	glog.Infof("deleting disks of VM %q", machine.Name)
 	if err = deleteDisksByMachineUID(context.TODO(), config, machine.UID); err != nil {
-		return fmt.Errorf("failed to remove disks of machine %q: %v", machine.Name, err)
+		return false, fmt.Errorf("failed to remove disks of machine %q: %v", machine.Name, err)
 	}
-	if machine, err = update(machine, func(updatedMachine *v1alpha1.Machine) {
+	if machine, err = data.Updater(machine, func(updatedMachine *v1alpha1.Machine) {
 		updatedMachine.Finalizers = kuberneteshelper.RemoveFinalizer(updatedMachine.Finalizers, finalizerDisks)
 	}); err != nil {
-		return err
+		return false, err
 	}
 
 	glog.Infof("deleting network interfaces of VM %q", machine.Name)
 	if err = deleteInterfacesByMachineUID(context.TODO(), config, machine.UID); err != nil {
-		return fmt.Errorf("failed to remove network interfaces of machine %q: %v", machine.Name, err)
+		return false, fmt.Errorf("failed to remove network interfaces of machine %q: %v", machine.Name, err)
 	}
-	if machine, err = update(machine, func(updatedMachine *v1alpha1.Machine) {
+	if machine, err = data.Updater(machine, func(updatedMachine *v1alpha1.Machine) {
 		updatedMachine.Finalizers = kuberneteshelper.RemoveFinalizer(updatedMachine.Finalizers, finalizerNIC)
 	}); err != nil {
-		return err
+		return false, err
 	}
 
 	glog.Infof("deleting public IP addresses of VM %q", machine.Name)
 	if err = deleteIPAddressesByMachineUID(context.TODO(), config, machine.UID); err != nil {
-		return fmt.Errorf("failed to remove public IP addresses of machine %q: %v", machine.Name, err)
+		return false, fmt.Errorf("failed to remove public IP addresses of machine %q: %v", machine.Name, err)
 	}
-	if machine, err = update(machine, func(updatedMachine *v1alpha1.Machine) {
+	if _, err = data.Updater(machine, func(updatedMachine *v1alpha1.Machine) {
 		updatedMachine.Finalizers = kuberneteshelper.RemoveFinalizer(updatedMachine.Finalizers, finalizerPublicIP)
 	}); err != nil {
-		return err
+		return false, err
 	}
 
-	return nil
+	return true, nil
 }
 
 func getVMByUID(ctx context.Context, c *config, uid types.UID) (*compute.VirtualMachine, error) {
@@ -607,7 +614,7 @@ func getVMStatus(ctx context.Context, c *config, vmName string) (instance.Status
 }
 
 func (p *provider) Get(machine *v1alpha1.Machine) (instance.Instance, error) {
-	config, _, err := p.getConfig(machine.Spec.ProviderConfig)
+	config, _, err := p.getConfig(machine.Spec.ProviderSpec)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse MachineSpec: %v", err)
 	}
@@ -635,23 +642,25 @@ func (p *provider) Get(machine *v1alpha1.Machine) (instance.Instance, error) {
 }
 
 func (p *provider) GetCloudConfig(spec v1alpha1.MachineSpec) (config string, name string, err error) {
-	c, _, err := p.getConfig(spec.ProviderConfig)
+	c, _, err := p.getConfig(spec.ProviderSpec)
 	if err != nil {
 		return "", "", fmt.Errorf("failed to parse config: %v", err)
 	}
 
 	cc := &CloudConfig{
-		Cloud:               "AZUREPUBLICCLOUD",
-		TenantID:            c.TenantID,
-		SubscriptionID:      c.SubscriptionID,
-		AADClientID:         c.ClientID,
-		AADClientSecret:     c.ClientSecret,
-		ResourceGroup:       c.ResourceGroup,
-		Location:            c.Location,
-		VNetName:            c.VNetName,
-		SubnetName:          c.SubnetName,
-		RouteTableName:      c.RouteTableName,
-		UseInstanceMetadata: true,
+		Cloud:                      "AZUREPUBLICCLOUD",
+		TenantID:                   c.TenantID,
+		SubscriptionID:             c.SubscriptionID,
+		AADClientID:                c.ClientID,
+		AADClientSecret:            c.ClientSecret,
+		ResourceGroup:              c.ResourceGroup,
+		Location:                   c.Location,
+		VNetName:                   c.VNetName,
+		SubnetName:                 c.SubnetName,
+		RouteTableName:             c.RouteTableName,
+		PrimaryAvailabilitySetName: c.AvailabilitySet,
+		SecurityGroupName:          c.SecurityGroupName,
+		UseInstanceMetadata:        true,
 	}
 
 	s, err := CloudConfigToString(cc)
@@ -663,7 +672,7 @@ func (p *provider) GetCloudConfig(spec v1alpha1.MachineSpec) (config string, nam
 }
 
 func (p *provider) Validate(spec v1alpha1.MachineSpec) error {
-	c, providerCfg, err := p.getConfig(spec.ProviderConfig)
+	c, providerCfg, err := p.getConfig(spec.ProviderSpec)
 	if err != nil {
 		return fmt.Errorf("failed to parse config: %v", err)
 	}
@@ -719,14 +728,14 @@ func (p *provider) Validate(spec v1alpha1.MachineSpec) error {
 	}
 
 	_, err = getOSImageReference(providerCfg.OperatingSystem)
-	return nil
+	return err
 }
 
 func (p *provider) MigrateUID(machine *v1alpha1.Machine, new types.UID) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	config, _, err := p.getConfig(machine.Spec.ProviderConfig)
+	config, _, err := p.getConfig(machine.Spec.ProviderSpec)
 	if err != nil {
 		return cloudprovidererrors.TerminalError{
 			Reason:  common.InvalidConfigurationMachineError,
@@ -802,11 +811,15 @@ func (p *provider) MigrateUID(machine *v1alpha1.Machine, new types.UID) error {
 func (p *provider) MachineMetricsLabels(machine *v1alpha1.Machine) (map[string]string, error) {
 	labels := make(map[string]string)
 
-	c, _, err := p.getConfig(machine.Spec.ProviderConfig)
+	c, _, err := p.getConfig(machine.Spec.ProviderSpec)
 	if err == nil {
 		labels["size"] = c.VMSize
 		labels["location"] = c.Location
 	}
 
 	return labels, err
+}
+
+func (p *provider) SetMetricsForMachines(machines v1alpha1.MachineList) error {
+	return nil
 }
