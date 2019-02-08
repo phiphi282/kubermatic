@@ -48,7 +48,7 @@ func (f *sharedInformerFactory) ForResource(resource schema.GroupVersionResource
 	case v1.SchemeGroupVersion.WithResource("userprojectbindings"):
 		return &genericInformer{resource: resource.GroupResource(), informer: f.Kubermatic().V1().UserProjectBindings().Informer()}, nil
 	case v1.SchemeGroupVersion.WithResource("usersshkeies"):
-		return &genericInformer{resource: resource.GroupResource(), informer: f.Kubermatic().V1().UserSSHKeies().Informer()}, nil
+		return &genericInformer{resource: resource.GroupResource(), informer: f.Kubermatic().V1().UserSSHKeys().Informer()}, nil
 
 	}
 
