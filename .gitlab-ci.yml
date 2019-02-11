@@ -58,7 +58,7 @@ license-validation:
 
 lint:
   stage: check
-  image: golangci/golangci-lint:latest
+  image: golangci/golangci-lint:v1.12.3
   script:
   - cd api
   - make lint
