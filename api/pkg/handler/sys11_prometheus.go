@@ -30,9 +30,9 @@ func (r Routing) prometheusProxyHandler() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
 			r.oidcAuthenticator.Verifier(),
-			r.userSaverMiddleware(),
+			middleware.UserSaver(r.userProvider),
 			middleware.Datacenter(r.clusterProviders, r.datacenters),
-			r.userInfoMiddleware(),
+			middleware.UserInfo(r.userProjectMapper),
 		)(getPrometheusProxyEndpoint()),
 		decodePrometheusProxyReq,
 		encodeRawResponse,
