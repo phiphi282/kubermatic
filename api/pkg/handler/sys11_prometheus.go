@@ -4,8 +4,14 @@ import (
 	"context"
 	goerrors "errors"
 	"fmt"
-
 	"time"
+
+	"github.com/kubermatic/kubermatic/api/pkg/resources"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/clientcmd"
+
+	"net/http"
 
 	"github.com/go-kit/kit/endpoint"
 	httptransport "github.com/go-kit/kit/transport/http"
@@ -13,9 +19,7 @@ import (
 	"github.com/kubermatic/kubermatic/api/pkg/handler/v1/common"
 	"github.com/kubermatic/kubermatic/api/pkg/provider"
 	k8cerrors "github.com/kubermatic/kubermatic/api/pkg/util/errors"
-	prometheusapi "github.com/prometheus/client_golang/api"
-
-	"net/http"
+	metaV1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/gorilla/mux"
 )
@@ -33,7 +37,7 @@ func (r Routing) prometheusProxyHandler() http.Handler {
 			middleware.UserSaver(r.userProvider),
 			middleware.Datacenter(r.clusterProviders, r.datacenters),
 			middleware.UserInfo(r.userProjectMapper),
-		)(getPrometheusProxyEndpoint()),
+		)(getPrometheusProxyEndpoint(r.datacenters)),
 		decodePrometheusProxyReq,
 		encodeRawResponse,
 		r.defaultServerOptions()...,
@@ -43,8 +47,8 @@ func (r Routing) prometheusProxyHandler() http.Handler {
 // GetPrometheusProxyReq represents a request to the Prometheus proxy route
 type GetPrometheusProxyReq struct {
 	common.GetClusterReq
-	PrometheusQueryPath string `json:"prometheus_query_path"`
-	PrometheusRawQuery  string `json:"prometheus_raw_query"`
+	PrometheusQueryPath string              `json:"prometheus_query_path"`
+	PrometheusQuery     map[string][]string `json:"prometheus_raw_query"`
 	RequestHeaders      http.Header
 }
 
@@ -68,13 +72,13 @@ func decodePrometheusProxyReq(c context.Context, r *http.Request) (interface{}, 
 		return nil, k8cerrors.New(http.StatusBadRequest, "invalid Prometheus query path")
 	}
 
-	req.PrometheusRawQuery = r.URL.RawQuery
+	req.PrometheusQuery = r.URL.Query()
 	req.RequestHeaders = r.Header
 
 	return req, nil
 }
 
-func getPrometheusProxyEndpoint() endpoint.Endpoint {
+func getPrometheusProxyEndpoint(datacenters map[string]provider.DatacenterMeta) endpoint.Endpoint {
 
 	return func(ctx context.Context, request interface{}) (interface{}, error) {
 		userInfo := ctx.Value(middleware.UserInfoContextKey).(*provider.UserInfo)
@@ -88,35 +92,83 @@ func getPrometheusProxyEndpoint() endpoint.Endpoint {
 		ctx, cancel := context.WithTimeout(ctx, time.Second)
 		defer cancel()
 
-		var prometheusClient prometheusapi.Client
-		if prometheusClient, err = prometheusapi.NewClient(prometheusapi.Config{
-			Address: fmt.Sprintf(`http://prometheus.cluster-%s.svc.cluster.local:9090`, c.Name),
-		}); err != nil {
-			return nil, err
-		}
-
-		promURL := prometheusClient.URL("/api/v1/"+req.PrometheusQueryPath, map[string]string{})
-		promURL.RawQuery = req.PrometheusRawQuery
-
-		promReq, err := http.NewRequest(http.MethodGet, promURL.String(), nil)
+		masterConfig, err := rest.InClusterConfig()
 		if err != nil {
-			return nil, err
+			//For running outside of a cluster
+			masterConfig, err = clientcmd.
+				NewNonInteractiveDeferredLoadingClientConfig(
+					clientcmd.NewDefaultClientConfigLoadingRules(),
+					&clientcmd.ConfigOverrides{},
+				).ClientConfig()
+			if err != nil {
+				return nil, fmt.Errorf("failed to create in cluster client config: %v", err)
+			}
 		}
 
-		promResp, body, err := prometheusClient.Do(ctx, promReq)
+		masterKubeClient, err := kubernetes.NewForConfig(masterConfig)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create a master kubernetes client: %v", err)
+		}
+
+		seedConfigSecret, err := masterKubeClient.CoreV1().Secrets("kubermatic").Get("kubeconfig", metaV1.GetOptions{})
+		if err != nil {
+			return nil, fmt.Errorf("failed to get kubeconfig secret: %v", err)
+		}
+
+		seedConfig, err := getSeedKubeconfig(datacenters[c.Spec.Cloud.DatacenterName].Seed, seedConfigSecret.Data[resources.KubeconfigSecretKey])
+		if err != nil {
+			return nil, fmt.Errorf("failed to get seed kubeconfig: %v", err)
+		}
+
+		seedKubeClient, err := kubernetes.NewForConfig(seedConfig)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create a seed kubernetes client: %v", err)
+		}
+
+		prometheusQuery := map[string]string{}
+
+		// prometheus does not support the same query parameter twice, so we can just use the first
+		for k, v := range req.PrometheusQuery {
+			prometheusQuery[k] = v[0]
+		}
+
+		proxyRequest := seedKubeClient.CoreV1().Services(fmt.Sprintf("cluster-%s", c.Name)).ProxyGet(
+			"http",
+			"prometheus",
+			"web",
+			"/api/v1/"+req.PrometheusQueryPath,
+			prometheusQuery,
+		).(*rest.Request)
+
+		body, err := proxyRequest.DoRaw()
+
 		if err != nil {
 			return nil, err
 		}
 
 		resp := RawResponse{
 			Header: http.Header{
-				"Content-Type": []string{promResp.Header.Get("Content-Type")},
+				"Content-Type": []string{"application/json"},
 			},
 			Body: body,
 		}
 
 		return resp, nil
 	}
+}
+
+func getSeedKubeconfig(seedName string, cfg []byte) (*rest.Config, error) {
+	clusterClientCfg, err := clientcmd.Load(cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	return clientcmd.NewNonInteractiveClientConfig(
+		*clusterClientCfg,
+		seedName,
+		&clientcmd.ConfigOverrides{},
+		nil,
+	).ClientConfig()
 }
 
 func encodeRawResponse(c context.Context, w http.ResponseWriter, response interface{}) error {
