@@ -27,7 +27,7 @@ const (
 	subnetFirstAddress = "192.168.1.2"
 	subnetLastAddress  = "192.168.1.254"
 
-	kubermaticNamePrefix = "kubermatic-"
+	kubermaticNamePrefix = "metakube-"
 )
 
 var (

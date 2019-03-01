@@ -293,7 +293,7 @@ func getSecurityGroupByID(client *ec2.EC2, vpc *ec2.Vpc, id string) (*ec2.Securi
 // in a sg must be unique within the vpc (no pre-existing sg with
 // that name is allowed).
 func createSecurityGroup(client *ec2.EC2, vpc *ec2.Vpc, name string) (string, error) {
-	newSecurityGroupName := fmt.Sprintf("kubermatic-%s", name)
+	newSecurityGroupName := fmt.Sprintf("metakube-%s", name)
 	csgOut, err := client.CreateSecurityGroup(&ec2.CreateSecurityGroupInput{
 		VpcId:       vpc.VpcId,
 		GroupName:   aws.String(newSecurityGroupName),
@@ -342,8 +342,8 @@ func createSecurityGroup(client *ec2.EC2, vpc *ec2.Vpc, name string) (string, er
 }
 
 func createInstanceProfile(client *iam.IAM, name string) (*iam.Role, *iam.InstanceProfile, error) {
-	kubermaticRoleName := fmt.Sprintf("kubermatic-role-%s", name)
-	kubermaticInstanceProfileName := fmt.Sprintf("kubermatic-instance-profile-%s", name)
+	kubermaticRoleName := fmt.Sprintf("metakube-role-%s", name)
+	kubermaticInstanceProfileName := fmt.Sprintf("metakube-instance-profile-%s", name)
 
 	roleName := aws.String(kubermaticRoleName)
 	paramsRole := &iam.CreateRoleInput{
