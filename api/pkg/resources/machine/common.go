@@ -140,7 +140,7 @@ func getOpenstackProviderSpec(c *kubermaticv1.Cluster, nodeSpec apiv1.NodeSpec, 
 	for key, value := range nodeSpec.Cloud.Openstack.Tags {
 		config.Tags[key] = value
 	}
-	config.Tags["kubermatic-cluster"] = c.Name
+	config.Tags["metakube-cluster"] = c.Name
 
 	ext := &runtime.RawExtension{}
 	b, err := json.Marshal(config)
@@ -180,7 +180,7 @@ func getDigitaloceanProviderSpec(c *kubermaticv1.Cluster, nodeSpec apiv1.NodeSpe
 	}
 
 	tags := sets.NewString(nodeSpec.Cloud.Digitalocean.Tags...)
-	tags.Insert("kubermatic", "kubermatic-cluster-"+c.Name)
+	tags.Insert("metakube", "metakube-cluster-"+c.Name)
 	config.Tags = make([]providerconfig.ConfigVarString, len(tags.List()))
 	for i, tag := range tags.List() {
 		config.Tags[i].Value = tag
