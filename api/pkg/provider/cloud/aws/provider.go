@@ -297,7 +297,7 @@ func createSecurityGroup(client *ec2.EC2, vpc *ec2.Vpc, name string) (string, er
 	csgOut, err := client.CreateSecurityGroup(&ec2.CreateSecurityGroupInput{
 		VpcId:       vpc.VpcId,
 		GroupName:   aws.String(newSecurityGroupName),
-		Description: aws.String(fmt.Sprintf("Security group for kubermatic cluster-%s", name)),
+		Description: aws.String(fmt.Sprintf("Security group for metakube cluster-%s", name)),
 	})
 	if err != nil {
 		return "", fmt.Errorf("failed to create security group %s: %v", newSecurityGroupName, err)
