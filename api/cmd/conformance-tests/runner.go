@@ -30,9 +30,21 @@ import (
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/rand"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/util/retry"
+)
+
+var (
+	podIsReady = func(p *corev1.Pod) bool {
+		for _, c := range p.Status.Conditions {
+			if c.Type == corev1.PodReady && c.Status == corev1.ConditionTrue {
+				return true
+			}
+		}
+		return false
+	}
 )
 
 type testScenario interface {
@@ -60,7 +72,7 @@ func newRunner(scenarios []testScenario, opts *Opts) *testRunner {
 		PublicKeys:                   opts.publicKeys,
 		workerName:                   opts.workerName,
 		homeDir:                      opts.homeDir,
-		kubeClient:                   opts.kubeClient,
+		seedKubeClient:               opts.seedKubeClient,
 		log:                          opts.log,
 	}
 }
@@ -83,7 +95,7 @@ type testRunner struct {
 	clusterParallelCount         int
 
 	kubermaticClient      kubermaticclientset.Interface
-	kubeClient            kubernetes.Interface
+	seedKubeClient        kubernetes.Interface
 	clusterLister         kubermaticv1lister.ClusterLister
 	clusterClientProvider *clusterclient.Provider
 	dcs                   map[string]provider.DatacenterMeta
@@ -471,7 +483,7 @@ func (r *testRunner) getCloudConfig(log *logrus.Entry, cluster *kubermaticv1.Clu
 
 	var cmData string
 	err := retryNAttempts(defaultAPIRetries, func(attempt int) error {
-		cm, err := r.kubeClient.CoreV1().ConfigMaps(cluster.Status.NamespaceName).Get(resources.CloudConfigConfigMapName, metav1.GetOptions{})
+		cm, err := r.seedKubeClient.CoreV1().ConfigMaps(cluster.Status.NamespaceName).Get(resources.CloudConfigConfigMapName, metav1.GetOptions{})
 		if err != nil {
 			return fmt.Errorf("failed to load cloud-config: %v", err)
 		}
@@ -593,11 +605,29 @@ func (r *testRunner) waitForControlPlane(log *logrus.Entry, clusterName string) 
 			}
 			return false, fmt.Errorf("failed to get the cluster %s from the lister: %v", clusterName, err)
 		}
+		// Check for this first, because otherwise we instantly return as the cluster-controller did not
+		// create any pods yet
+		if !cluster.Status.Health.AllHealthy() {
+			return false, nil
+		}
+		controlPlanePods, err := r.seedKubeClient.CoreV1().Pods(cluster.Status.NamespaceName).List(metav1.ListOptions{})
+		if err != nil {
+			return false, fmt.Errorf("failed to list controlplane pods: %v", err)
+		}
+		for _, pod := range controlPlanePods.Items {
+			if !podIsReady(&pod) {
+				return false, nil
+			}
+		}
 
-		return cluster.Status.Health.AllHealthy(), nil
+		return true, nil
 	})
 	// Timeout or other error
 	if err != nil {
+		// Be helpful and log which pods are not ready
+		if err := r.logNotReadyControlplanePods(clusterName); err != nil {
+			r.log.Infof("failed to log not ready controlplane pods: %v", err)
+		}
 		return nil, err
 	}
 
@@ -614,15 +644,6 @@ func (r *testRunner) waitForControlPlane(log *logrus.Entry, clusterName string) 
 func (r *testRunner) waitUntilAllPodsAreReady(log *logrus.Entry, client kubernetes.Interface) error {
 	log.Debug("Waiting for all pods to be ready...")
 	started := time.Now()
-
-	podIsReady := func(p *corev1.Pod) bool {
-		for _, c := range p.Status.Conditions {
-			if c.Type == corev1.PodReady && c.Status == corev1.ConditionTrue {
-				return true
-			}
-		}
-		return false
-	}
 
 	err := wait.Poll(defaultUserClusterPollInterval, defaultTimeout, func() (done bool, err error) {
 		podList, err := client.CoreV1().Pods(metav1.NamespaceAll).List(metav1.ListOptions{})
@@ -859,4 +880,23 @@ func supportsStorage(cluster *kubermaticv1.Cluster) bool {
 func supportsLBs(cluster *kubermaticv1.Cluster) bool {
 	return cluster.Spec.Cloud.Azure != nil ||
 		cluster.Spec.Cloud.AWS != nil
+}
+
+func (r *testRunner) logNotReadyControlplanePods(clusterName string) error {
+	cluster, err := r.clusterLister.Get(clusterName)
+	if err != nil {
+		return err
+	}
+	controlPlanePods, err := r.seedKubeClient.CoreV1().Pods(cluster.Status.NamespaceName).List(metav1.ListOptions{})
+	if err != nil {
+		return err
+	}
+	notReadyControlPlanePods := sets.NewString()
+	for _, pod := range controlPlanePods.Items {
+		if !podIsReady(&pod) {
+			notReadyControlPlanePods.Insert(pod.Name)
+		}
+	}
+	r.log.Infof("Failed because these controlplane pods didn't get ready: %v", notReadyControlPlanePods.List())
+	return nil
 }
