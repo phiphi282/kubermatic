@@ -351,7 +351,6 @@ func (cc *Controller) deletingLoadBalancerServices(c *kubermaticv1.Cluster) (*ku
 	return c, nil
 }
 
-
 // checkIfAllLoadbalancersAreGone checks if all the services of type LoadBalancer were successfully
 // deleted. The in-tree cloud providers do this without a finalizer and only after the service
 // object is gone from the API, the only way to check is to wait for the relevant event
