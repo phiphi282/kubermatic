@@ -14,7 +14,7 @@ import (
 
 const (
 	name = "prometheus"
-	tag  = "v2.7.2"
+	tag  = "v2.8.0"
 
 	volumeConfigName = "config"
 	volumeDataName   = "data"
