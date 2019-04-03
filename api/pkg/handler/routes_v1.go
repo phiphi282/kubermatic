@@ -873,12 +873,18 @@ func (r Routing) patchCluster() http.Handler {
 //       401: empty
 //       403: empty
 func (r Routing) getClusterKubeconfig() http.Handler {
+	privilegedUserGroups := map[string]bool{
+		"owners":  true,
+		"editors": true,
+		"viewers": false,
+	}
 	return httptransport.NewServer(
 		endpoint.Chain(
 			r.oidcAuthenticator.Verifier(),
 			middleware.UserSaver(r.userProvider),
 			middleware.Datacenter(r.clusterProviders, r.datacenters),
 			middleware.UserInfo(r.userProjectMapper),
+			middleware.PrivilegedUserGroupVerifier(r.userProjectMapper, privilegedUserGroups),
 		)(getClusterKubeconfig(r.projectProvider)),
 		decodeGetClusterKubeconfig,
 		encodeKubeconfig,
