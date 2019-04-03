@@ -8,7 +8,7 @@ set -x
 make -C $(dirname $0)/.. kubermatic-api
 
 KUBERMATIC_WORKERNAME=${KUBERMATIC_WORKERNAME:-$(uname -n)}
-INSTALLER_DIR="/Users/bhofmann/ghq/gitlab.syseleven.de/kubernetes/kubermatic-installer"
+INSTALLER_DIR="${HOME}/ghq/gitlab.syseleven.de/kubernetes/kubermatic-installer"
 KUBERMATIC_ENV=dev
 KUBERMATIC_CLUSTER=dbl1
 RESOURCES_DIR=${INSTALLER_DIR}/environments/${KUBERMATIC_ENV}/clusters/${KUBERMATIC_CLUSTER}/kubermatic/versions
