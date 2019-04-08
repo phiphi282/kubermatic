@@ -19,8 +19,9 @@ import (
 )
 
 const (
-	policyRoute53FullAccess = "arn:aws:iam::aws:policy/AmazonRoute53FullAccess"
-	policyEC2FullAccess     = "arn:aws:iam::aws:policy/AmazonEC2FullAccess"
+	policyEC2ContainerRegistryReadOnly = "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
+	policyEC2FullAccess                = "arn:aws:iam::aws:policy/AmazonEC2FullAccess"
+	policyRoute53FullAccess            = "arn:aws:iam::aws:policy/AmazonRoute53FullAccess"
 
 	securityGroupCleanupFinalizer   = "kubermatic.io/cleanup-aws-security-group"
 	instanceProfileCleanupFinalizer = "kubermatic.io/cleanup-aws-instance-profile"
@@ -29,7 +30,7 @@ const (
 	tagNameKubernetesClusterPrefix = "kubernetes.io/cluster/"
 )
 
-var roleARNS = []string{policyRoute53FullAccess, policyEC2FullAccess}
+var roleARNS = []string{policyRoute53FullAccess, policyEC2FullAccess, policyEC2ContainerRegistryReadOnly}
 
 type amazonEc2 struct {
 	dcs map[string]provider.DatacenterMeta
