@@ -64,6 +64,13 @@ kubermatic:
       - rbac
       - kubelet-configmap
       - default-storage-class
+    resources:
+      requests:
+        memory: "64Mi"
+        cpu: "200m"
+      limits:
+        memory: "256Mi"
+        cpu: "500m"
   api:
     replicas: 2
     image:

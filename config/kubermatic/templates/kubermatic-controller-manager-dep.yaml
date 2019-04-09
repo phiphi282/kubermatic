@@ -130,13 +130,10 @@ spec:
               mountPath: "/opt/incluster-prometheus-scraping-configs/"
               readOnly: true
             {{- end }}
+{{- if $.Values.kubermatic.controller.resources }}
           resources:
-            requests:
-              memory: "64Mi"
-              cpu: "200m"
-            limits:
-              memory: "256Mi"
-              cpu: "500m"
+{{ toYaml $.Values.kubermatic.controller.resources | indent 12 }}
+{{- end }}
       imagePullSecrets:
         - name: dockercfg
       tolerations:
