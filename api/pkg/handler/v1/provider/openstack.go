@@ -364,7 +364,7 @@ func DecodeOpenstackReq(c context.Context, r *http.Request) (interface{}, error)
 }
 
 // OpenstackNoCredentialsReq represent a request for openstack
-// swagger:parameters listOpenstackSizesNoCredentials listOpenstackTenantsNoCredentials listOpenstackNetworksNoCredentials listOpenstackSecurityGroupsNoCredentials
+// swagger:parameters listOpenstackQuotaLimitsNoCredentials listOpenstackImagesNoCredentials listOpenstackSizesNoCredentials listOpenstackTenantsNoCredentials listOpenstackNetworksNoCredentials listOpenstackSecurityGroupsNoCredentials
 type OpenstackNoCredentialsReq struct {
 	common.GetClusterReq
 }
