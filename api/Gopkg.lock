@@ -530,7 +530,7 @@
 
 [[projects]]
   branch = "master"
-  digest = "1:127238a6a9676a05e638b8d871890d206a2103b306dd53498a9a4634922a7a6f"
+  digest = "1:11a8ea5a235e22e0293b7e0ec78f8d643c814301923523e405cff3e8a2b42afc"
   name = "github.com/gophercloud/gophercloud"
   packages = [
     ".",
@@ -539,6 +539,7 @@
     "openstack/compute/v2/extensions/availabilityzones",
     "openstack/compute/v2/extensions/extendedstatus",
     "openstack/compute/v2/extensions/keypairs",
+    "openstack/compute/v2/extensions/limits",
     "openstack/compute/v2/flavors",
     "openstack/compute/v2/images",
     "openstack/compute/v2/servers",
@@ -1738,7 +1739,9 @@
     "github.com/golang/glog",
     "github.com/gophercloud/gophercloud",
     "github.com/gophercloud/gophercloud/openstack",
+    "github.com/gophercloud/gophercloud/openstack/compute/v2/extensions/limits",
     "github.com/gophercloud/gophercloud/openstack/compute/v2/flavors",
+    "github.com/gophercloud/gophercloud/openstack/compute/v2/images",
     "github.com/gophercloud/gophercloud/openstack/identity/v3/projects",
     "github.com/gophercloud/gophercloud/openstack/identity/v3/tokens",
     "github.com/gophercloud/gophercloud/openstack/identity/v3/users",

@@ -2429,6 +2429,32 @@
         }
       }
     },
+    "/api/v1/providers/openstack/images": {
+      "get": {
+        "description": "Lists images from openstack",
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "openstack"
+        ],
+        "operationId": "listOpenstackImages",
+        "responses": {
+          "200": {
+            "description": "Image",
+            "schema": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/Image"
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/responses/errorResponse"
+          }
+        }
+      }
+    },
     "/api/v1/providers/openstack/networks": {
       "get": {
         "description": "Lists networks from openstack",
@@ -2446,6 +2472,32 @@
               "type": "array",
               "items": {
                 "$ref": "#/definitions/OpenstackNetwork"
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/responses/errorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/providers/openstack/quotalimits": {
+      "get": {
+        "description": "Lists quotalimits for tenant from openstack",
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "openstack"
+        ],
+        "operationId": "listOpenstackQuotaLimits",
+        "responses": {
+          "200": {
+            "description": "Limits",
+            "schema": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/Limits"
               }
             }
           },
@@ -2791,6 +2843,127 @@
           "type": "string",
           "x-go-name": "VolumeType",
           "example": "gp2, io1, st1, sc1, standard"
+        }
+      },
+      "x-go-package": "github.com/kubermatic/kubermatic/api/pkg/api/v1"
+    },
+    "Absolute": {
+      "description": "Usage is a struct that contains the current resource usage and limits\nof a tenant.",
+      "type": "object",
+      "properties": {
+        "maxImageMeta": {
+          "description": "MaxImageMeta is the amount of image metadata available to a tenant.",
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "MaxImageMeta"
+        },
+        "maxPersonality": {
+          "description": "MaxPersonality is the amount of personality/files available to a tenant.",
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "MaxPersonality"
+        },
+        "maxPersonalitySize": {
+          "description": "MaxPersonalitySize is the personality file size available to a tenant.",
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "MaxPersonalitySize"
+        },
+        "maxSecurityGroupRules": {
+          "description": "MaxSecurityGroupRules is the number of security group rules available to\na tenant.",
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "MaxSecurityGroupRules"
+        },
+        "maxSecurityGroups": {
+          "description": "MaxSecurityGroups is the number of security groups available to a tenant.",
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "MaxSecurityGroups"
+        },
+        "maxServerGroupMembers": {
+          "description": "MaxServerGroupMembers is the number of server group members available\nto a tenant.",
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "MaxServerGroupMembers"
+        },
+        "maxServerGroups": {
+          "description": "MaxServerGroups is the number of server groups available to a tenant.",
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "MaxServerGroups"
+        },
+        "maxServerMeta": {
+          "description": "MaxServerMeta is the amount of server metadata available to a tenant.",
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "MaxServerMeta"
+        },
+        "maxTotalCores": {
+          "description": "MaxTotalCores is the number of cores available to a tenant.",
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "MaxTotalCores"
+        },
+        "maxTotalFloatingIps": {
+          "description": "MaxTotalFloatingIps is the number of floating IPs available to a tenant.",
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "MaxTotalFloatingIps"
+        },
+        "maxTotalInstances": {
+          "description": "MaxTotalInstances is the number of instances/servers available to a tenant.",
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "MaxTotalInstances"
+        },
+        "maxTotalKeypairs": {
+          "description": "MaxTotalKeypairs is the total keypairs available to a tenant.",
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "MaxTotalKeypairs"
+        },
+        "maxTotalRAMSize": {
+          "description": "MaxTotalRAMSize is the total amount of RAM available to a tenant measured\nin megabytes (MB).",
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "MaxTotalRAMSize"
+        },
+        "totalCoresUsed": {
+          "description": "TotalCoresUsed is the number of cores currently in use.",
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "TotalCoresUsed"
+        },
+        "totalFloatingIpsUsed": {
+          "description": "TotalFloatingIpsUsed is the number of floating IPs in use.",
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "TotalFloatingIpsUsed"
+        },
+        "totalInstancesUsed": {
+          "description": "TotalInstancesUsed is the number of instances/servers in use.",
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "TotalInstancesUsed"
+        },
+        "totalRAMUsed": {
+          "description": "TotalRAMUsed is the total RAM/memory in use measured in megabytes (MB).",
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "TotalRAMUsed"
+        },
+        "totalSecurityGroupsUsed": {
+          "description": "TotalSecurityGroupsUsed is the total number of security groups in use.",
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "TotalSecurityGroupsUsed"
+        },
+        "totalServerGroupsUsed": {
+          "description": "TotalServerGroupsUsed is the total number of server groups in use.",
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "TotalServerGroupsUsed"
         }
       },
       "x-go-package": "github.com/kubermatic/kubermatic/api/pkg/api/v1"
@@ -3648,6 +3821,55 @@
       },
       "x-go-package": "github.com/kubermatic/kubermatic/api/pkg/api/v1"
     },
+    "Image": {
+      "type": "object",
+      "title": "Image represents an Image returned by the Compute API.",
+      "properties": {
+        "Created": {
+          "description": "Created is the date when the image was created.",
+          "type": "string"
+        },
+        "ID": {
+          "description": "ID is the unique ID of an image.",
+          "type": "string"
+        },
+        "Metadata": {
+          "description": "Metadata provides free-form key/value pairs that further describe the\nimage.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "object"
+          }
+        },
+        "MinDisk": {
+          "description": "MinDisk is the minimum amount of disk a flavor must have to be able\nto create a server based on the image, measured in GB.",
+          "type": "integer",
+          "format": "int64"
+        },
+        "MinRAM": {
+          "description": "MinRAM is the minimum amount of RAM a flavor must have to be able\nto create a server based on the image, measured in MB.",
+          "type": "integer",
+          "format": "int64"
+        },
+        "Name": {
+          "description": "Name provides a human-readable moniker for the OS image.",
+          "type": "string"
+        },
+        "Progress": {
+          "description": "The Progress and Status fields indicate image-creation status.",
+          "type": "integer",
+          "format": "int64"
+        },
+        "Status": {
+          "description": "Status is the current status of the image.",
+          "type": "string"
+        },
+        "Updated": {
+          "description": "Update is the date when the image was updated.",
+          "type": "string"
+        }
+      },
+      "x-go-package": "github.com/kubermatic/kubermatic/api/pkg/api/v1"
+    },
     "ImageList": {
       "description": "ImageList defines a map of operating system and the image to use",
       "type": "object",
@@ -3743,6 +3965,16 @@
         "uid": {
           "type": "string",
           "x-go-name": "UID"
+        }
+      },
+      "x-go-package": "github.com/kubermatic/kubermatic/api/pkg/api/v1"
+    },
+    "Limits": {
+      "type": "object",
+      "title": "Limits is a struct that contains the response of a limit query.",
+      "properties": {
+        "absolute": {
+          "$ref": "#/definitions/Absolute"
         }
       },
       "x-go-package": "github.com/kubermatic/kubermatic/api/pkg/api/v1"
