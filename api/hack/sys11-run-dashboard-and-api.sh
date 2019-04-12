@@ -21,4 +21,4 @@ echo "starting api"
 echo "finished starting api"
 
 echo "Starting dashboard"
-~/ghq/gitlab.syseleven.de/kubernetes/kubermatic-dashboard/hack/sys11-run-local-dashboard.sh
+$(go env GOPATH)/src/gitlab.syseleven.de/kubernetes/kubermatic-dashboard/hack/sys11-run-local-dashboard.sh

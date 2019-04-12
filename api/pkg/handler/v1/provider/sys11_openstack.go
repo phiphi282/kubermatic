@@ -34,6 +34,34 @@ func OpenstackQuotaLimitEndpoint(providers provider.CloudRegistry) endpoint.Endp
 	}
 }
 
+func OpenstackImageNoCredentialsEndpoint(projectProvider provider.ProjectProvider, providers provider.CloudRegistry) endpoint.Endpoint {
+	return func(ctx context.Context, request interface{}) (interface{}, error) {
+		req := request.(OpenstackNoCredentialsReq)
+		cluster, err := getClusterForOpenstack(ctx, projectProvider, req.ProjectID, req.ClusterID)
+		if err != nil {
+			return nil, err
+		}
+
+		openstackSpec := cluster.Spec.Cloud.Openstack
+		datacenterName := cluster.Spec.Cloud.DatacenterName
+		return getOpenstackImages(providers, openstackSpec.Username, openstackSpec.Password, openstackSpec.Tenant, openstackSpec.Domain, datacenterName)
+	}
+}
+
+func OpenstackQuotaLimitNoCredentialsEndpoint(projectProvider provider.ProjectProvider, providers provider.CloudRegistry) endpoint.Endpoint {
+	return func(ctx context.Context, request interface{}) (interface{}, error) {
+		req := request.(OpenstackNoCredentialsReq)
+		cluster, err := getClusterForOpenstack(ctx, projectProvider, req.ProjectID, req.ClusterID)
+		if err != nil {
+			return nil, err
+		}
+
+		openstackSpec := cluster.Spec.Cloud.Openstack
+		datacenterName := cluster.Spec.Cloud.DatacenterName
+		return getOpenstackQuotaLimits(providers, openstackSpec.Username, openstackSpec.Password, openstackSpec.Tenant, openstackSpec.Domain, datacenterName)
+	}
+}
+
 func getOpenstackImages(providers provider.CloudRegistry, username, password, tenant, domain, datacenterName string) ([]osimages.Image, error) {
 	osProviderInterface, ok := providers[provider.OpenstackCloudProvider]
 	if !ok {
