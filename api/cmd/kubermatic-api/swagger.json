@@ -1625,9 +1625,9 @@
         ],
         "responses": {
           "200": {
-            "description": "Limits",
+            "description": "Quotas",
             "schema": {
-              "$ref": "#/definitions/Limits"
+              "$ref": "#/definitions/Quotas"
             }
           },
           "default": {
@@ -2588,9 +2588,9 @@
         "operationId": "listOpenstackQuotaLimits",
         "responses": {
           "200": {
-            "description": "Limits",
+            "description": "Quotas",
             "schema": {
-              "$ref": "#/definitions/Limits"
+              "$ref": "#/definitions/Quotas"
             }
           },
           "default": {
@@ -4877,6 +4877,28 @@
     "PublicVSphereCloudSpec": {
       "type": "object",
       "title": "PublicVSphereCloudSpec is a public counterpart of apiv1.VSphereCloudSpec.",
+      "x-go-package": "github.com/kubermatic/kubermatic/api/pkg/api/v1"
+    },
+    "Quotas": {
+      "type": "object",
+      "title": "Quotas is a struct that contains the response of a Quotas query.",
+      "properties": {
+        "floatingIpQuota": {
+          "description": "FloatingIpQuota Sys11 addition with the amount of used and attached floating ips",
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "FloatingIPQuota"
+        },
+        "limits": {
+          "$ref": "#/definitions/Limits"
+        },
+        "usedFloatingIpCount": {
+          "description": "UsedFloatingIpCount is the floating IP quota",
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "UsedFloatingIPCount"
+        }
+      },
       "x-go-package": "github.com/kubermatic/kubermatic/api/pkg/api/v1"
     },
     "RawExtension": {

@@ -15,7 +15,7 @@ CONFIG_DIR=${INSTALLER_DIR}/environments/${KUBERMATIC_ENV}/kubermatic
 KUBERMATIC_ENV=${KUBERMATIC_ENV} KUBERMATIC_CLUSTER=${KUBERMATIC_CLUSTER} make -C ${INSTALLER_DIR}/kubermatic values.yaml
 
 while true; do
-    make -C ${SRC_DIR} kubermatic-api
+    GOTOOLFLAGS="-v -gcflags='all=-N -l'" make -C ${SRC_DIR} kubermatic-api
 
     # Please make sure to set -feature-gates=PrometheusEndpoint=true if you want to use that endpoint.
 
@@ -23,7 +23,7 @@ while true; do
     # Note that you would have to pass a few additional flags as well.
 
     cd ${SRC_DIR}
-    ./_build/kubermatic-api \
+    dlv --listen=:2345 --headless=true --api-version=2 --accept-multiclient exec ./_build/kubermatic-api -- \
       -kubeconfig=${CONFIG_DIR}/kubeconfig \
       -datacenters=${CONFIG_DIR}/datacenters.yaml \
       -versions=${RESOURCES_DIR}/versions.yaml \

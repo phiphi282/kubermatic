@@ -64,7 +64,7 @@ func (r Routing) listOpenstackImages() http.Handler {
 //
 //     Responses:
 //       default: errorResponse
-//       200: Limits
+//       200: Quotas
 func (r Routing) listOpenstackQuotaLimits() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
@@ -110,7 +110,7 @@ func (r Routing) listOpenstackImagesNoCredentials() http.Handler {
 //
 //     Responses:
 //       default: errorResponse
-//       200: Limits
+//       200: Quotas
 func (r Routing) listOpenstackQuotaLimitsNoCredentials() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
