@@ -7,7 +7,12 @@ import (
 	goopenstack "github.com/gophercloud/gophercloud/openstack"
 	oslimits "github.com/gophercloud/gophercloud/openstack/compute/v2/extensions/limits"
 	osimages "github.com/gophercloud/gophercloud/openstack/compute/v2/images"
+	osfloatingips "github.com/gophercloud/gophercloud/openstack/networking/v2/extensions/layer3/floatingips"
 	kubermaticv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
+)
+
+const (
+	openstackFloatingIPErrorStatusName = "ERROR"
 )
 
 func (os *Provider) GetImages(cloud kubermaticv1.CloudSpec) ([]osimages.Image, error) {
@@ -76,4 +81,53 @@ func (os *Provider) getComputeClient(cloud kubermaticv1.CloudSpec) (*gophercloud
 	}
 
 	return goopenstack.NewComputeV2(authClient, gophercloud.EndpointOpts{Region: dc.Spec.Openstack.Region})
+}
+
+func (os *Provider) GetUsedFloatingIPCount(cloud kubermaticv1.CloudSpec) (int, error) {
+	netClient, err := os.getNetClient(cloud)
+
+	if err != nil {
+		return 0, err
+	}
+
+	allPages, err := osfloatingips.List(netClient, osfloatingips.ListOpts{}).AllPages()
+	if err != nil {
+		return 0, err
+	}
+
+	allFIPs, err := osfloatingips.ExtractFloatingIPs(allPages)
+	if err != nil {
+		return 0, err
+	}
+
+	var usedIPCount = 0
+	for _, f := range allFIPs {
+		if f.Status != openstackFloatingIPErrorStatusName && f.PortID != "" {
+			usedIPCount++
+		}
+	}
+
+	return usedIPCount, nil
+}
+
+func (os *Provider) GetFloatingIPQuota(cloud kubermaticv1.CloudSpec) (int, error) {
+	netClient, err := os.getNetClient(cloud)
+
+	if err != nil {
+		return 0, err
+	}
+
+	tenantID, err := GetCurrentTenantID(netClient).Extract()
+
+	if err != nil {
+		return 0, err
+	}
+
+	quotas, err := GetNeutronQuota(netClient, tenantID).Extract()
+
+	if err != nil {
+		return 0, err
+	}
+
+	return quotas.FloatingIP, nil
 }

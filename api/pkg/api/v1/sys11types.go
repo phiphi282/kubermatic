@@ -1,5 +1,9 @@
 package v1
 
+import (
+	oslimits "github.com/gophercloud/gophercloud/openstack/compute/v2/extensions/limits"
+)
+
 // Image represents an Image returned by the Compute API.
 // swagger:model Image
 type Image struct {
@@ -32,6 +36,19 @@ type Image struct {
 	// Metadata provides free-form key/value pairs that further describe the
 	// image.
 	Metadata map[string]interface{}
+}
+
+// Quotas is a struct that contains the response of a Quotas query.
+// swagger:model Quotas
+type Quotas struct {
+	// Limits contains the limits and usage information.
+	Limits *oslimits.Limits `json:"limits"`
+
+	// UsedFloatingIpCount is the floating IP quota
+	UsedFloatingIPCount int `json:"usedFloatingIpCount"`
+
+	// FloatingIpQuota Sys11 addition with the amount of used and attached floating ips
+	FloatingIPQuota int `json:"floatingIpQuota"`
 }
 
 // Limits is a struct that contains the response of a limit query.

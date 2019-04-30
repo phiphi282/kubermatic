@@ -4,8 +4,9 @@ import (
 	"context"
 	"fmt"
 
+	v1 "github.com/kubermatic/kubermatic/api/pkg/api/v1"
+
 	"github.com/go-kit/kit/endpoint"
-	oslimits "github.com/gophercloud/gophercloud/openstack/compute/v2/extensions/limits"
 	osimages "github.com/gophercloud/gophercloud/openstack/compute/v2/images"
 	kubermaticv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
 	"github.com/kubermatic/kubermatic/api/pkg/provider"
@@ -84,7 +85,7 @@ func getOpenstackImages(providers provider.CloudRegistry, username, password, te
 	})
 }
 
-func getOpenstackQuotaLimits(providers provider.CloudRegistry, username, password, tenant, domain, datacenterName string) (*oslimits.Limits, error) {
+func getOpenstackQuotaLimits(providers provider.CloudRegistry, username, password, tenant, domain, datacenterName string) (*v1.Quotas, error) {
 	osProviderInterface, ok := providers[provider.OpenstackCloudProvider]
 	if !ok {
 		return nil, fmt.Errorf("unable to get %s provider", provider.OpenstackCloudProvider)
@@ -95,7 +96,7 @@ func getOpenstackQuotaLimits(providers provider.CloudRegistry, username, passwor
 		return nil, fmt.Errorf("unable to cast osProviderInterface to *openstack.Provider")
 	}
 
-	return osProvider.GetQuotaLimits(kubermaticv1.CloudSpec{
+	cloud := kubermaticv1.CloudSpec{
 		DatacenterName: datacenterName,
 		Openstack: &kubermaticv1.OpenstackCloudSpec{
 			Username: username,
@@ -103,5 +104,28 @@ func getOpenstackQuotaLimits(providers provider.CloudRegistry, username, passwor
 			Password: password,
 			Domain:   domain,
 		},
-	})
+	}
+
+	limits, err := osProvider.GetQuotaLimits(cloud)
+	if err != nil {
+		return nil, err
+	}
+
+	usedFloatingIPCount, err := osProvider.GetUsedFloatingIPCount(cloud)
+	if err != nil {
+		return nil, err
+	}
+
+	floatingIPQuota, err := osProvider.GetFloatingIPQuota(cloud)
+	if err != nil {
+		return nil, err
+	}
+
+	apiLimits := &v1.Quotas{
+		Limits:              limits,
+		UsedFloatingIPCount: usedFloatingIPCount,
+		FloatingIPQuota:     floatingIPQuota,
+	}
+
+	return apiLimits, nil
 }
