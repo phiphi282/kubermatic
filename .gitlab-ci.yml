@@ -6,6 +6,7 @@ stages:
 
 variables:
   GO_VERSION: "1.12.4"
+  GO111MODULE: "off"
 
 before_script:
 - mkdir -p /go/src/github.com/kubermatic/
