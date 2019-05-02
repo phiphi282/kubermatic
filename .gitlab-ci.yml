@@ -6,11 +6,10 @@ stages:
 
 variables:
   GO_VERSION: "1.12.4"
-  GO111MODULE: "off"
 
 before_script:
 - mkdir -p /go/src/github.com/kubermatic/
-- ln -s $PWD /go/src/github.com/kubermatic/
+- ln -s $PWD /go/src/github.com/kubermatic/kubermatic
 - cd /go/src/github.com/kubermatic/kubermatic
 
 dep:
@@ -43,7 +42,7 @@ verify-codegen:
   image: golang:${GO_VERSION}
   script:
   - cd api
-  - ./hack/verify-codegen.sh
+  - GO111MODULE=on ./hack/verify-codegen.sh
   tags:
   - shared
   - small
@@ -65,7 +64,7 @@ lint:
   image: golangci/golangci-lint:v1.16.0
   script:
   - cd api
-  - make lint
+  - GOGC=20 make lint # TODO remove GOGC again once https://github.com/golangci/golangci-lint/issues/483 is resolved
   tags:
   - shared
   - small
