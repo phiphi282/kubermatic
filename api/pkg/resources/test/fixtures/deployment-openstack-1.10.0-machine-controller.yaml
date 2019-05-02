@@ -3,13 +3,6 @@ metadata:
   labels:
     app: machine-controller
   name: machine-controller
-  ownerReferences:
-  - apiVersion: kubermatic.k8s.io/v1
-    blockOwnerDeletion: true
-    controller: true
-    kind: Cluster
-    name: de-test-01
-    uid: "1234567890"
 spec:
   replicas: 1
   selector:
@@ -56,7 +49,7 @@ spec:
           value: openstack-domain
         - name: OS_TENANT_NAME
           value: openstack-tenant
-        image: docker.io/kubermatic/machine-controller:v1.1.0
+        image: docker.io/kubermatic/machine-controller:v1.1.5
         imagePullPolicy: IfNotPresent
         livenessProbe:
           failureThreshold: 3

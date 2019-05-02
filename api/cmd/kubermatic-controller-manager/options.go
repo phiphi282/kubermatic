@@ -8,20 +8,15 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/kubermatic/kubermatic/api/pkg/cluster/client"
 	backupcontroller "github.com/kubermatic/kubermatic/api/pkg/controller/backup"
-	kubermaticclientset "github.com/kubermatic/kubermatic/api/pkg/crd/client/clientset/versioned"
-	kubermaticinformers "github.com/kubermatic/kubermatic/api/pkg/crd/client/informers/externalversions"
 	"github.com/kubermatic/kubermatic/api/pkg/features"
 	"github.com/kubermatic/kubermatic/api/pkg/provider"
 
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/util/net"
-	kubeinformers "k8s.io/client-go/informers"
-	"k8s.io/client-go/kubernetes"
 	certutil "k8s.io/client-go/util/cert"
-
-	ctrlruntimecache "sigs.k8s.io/controller-runtime/pkg/cache"
-	ctrlruntimeclient "sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
 )
 
 type controllerRunOptions struct {
@@ -40,13 +35,15 @@ type controllerRunOptions struct {
 	overwriteRegistry                                string
 	nodePortRange                                    string
 	nodeAccessNetwork                                string
-	addonsPath                                       string
-	addonsList                                       string
+	kubernetesAddonsPath                             string
+	openshiftAddonsPath                              string
+	kubernetesAddonsList                             string
+	openshiftAddonsList                              string
 	backupContainerFile                              string
 	cleanupContainerFile                             string
 	backupContainerImage                             string
 	backupInterval                                   string
-	etcdDiskSize                                     string
+	etcdDiskSize                                     resource.Quantity
 	inClusterPrometheusRulesFile                     string
 	inClusterPrometheusDisableDefaultRules           bool
 	inClusterPrometheusDisableDefaultScrapingConfigs bool
@@ -55,9 +52,10 @@ type controllerRunOptions struct {
 	dockerPullConfigJSONFile                         string
 
 	// OIDC configuration
-	oidcCAFile         string
-	oidcIssuerURL      string
-	oidcIssuerClientID string
+	oidcCAFile             string
+	oidcIssuerURL          string
+	oidcIssuerClientID     string
+	oidcIssuerClientSecret string
 
 	featureGates features.FeatureGate
 }
@@ -65,6 +63,7 @@ type controllerRunOptions struct {
 func newControllerRunOptions() (controllerRunOptions, error) {
 	c := controllerRunOptions{}
 	var rawFeatureGates string
+	var rawEtcdDiskSize string
 
 	flag.StringVar(&c.kubeconfig, "kubeconfig", "", "Path to a kubeconfig. Only required if out-of-cluster.")
 	flag.StringVar(&c.masterURL, "master", "", "The address of the Kubernetes API server. Overrides any value in kubeconfig. Only required if out-of-cluster.")
@@ -80,13 +79,15 @@ func newControllerRunOptions() (controllerRunOptions, error) {
 	flag.StringVar(&c.overwriteRegistry, "overwrite-registry", "", "registry to use for all images")
 	flag.StringVar(&c.nodePortRange, "nodeport-range", "30000-32767", "NodePort range to use for new clusters. It must be within the NodePort range of the seed-cluster")
 	flag.StringVar(&c.nodeAccessNetwork, "node-access-network", "10.254.0.0/16", "A network which allows direct access to nodes via VPN. Uses CIDR notation.")
-	flag.StringVar(&c.addonsPath, "addons-path", "/opt/addons", "Path to addon manifests. Should contain sub-folders for each addon")
-	flag.StringVar(&c.addonsList, "addons-list", "canal,dashboard,dns,kube-proxy,openvpn,rbac,kubelet-configmap,default-storage-class", "Comma separated list of Addons to install into every user-cluster")
+	flag.StringVar(&c.kubernetesAddonsPath, "kubernetes-addons-path", "/opt/addons/kubernetes", "Path to addon manifests. Should contain sub-folders for each addon")
+	flag.StringVar(&c.openshiftAddonsPath, "openshift-addons-path", "/opt/addons/openshift", "Path to addon manifests. Should contain sub-folders for each addon")
+	flag.StringVar(&c.kubernetesAddonsList, "kubernetes-addons-list", "canal,dashboard,dns,kube-proxy,openvpn,rbac,kubelet-configmap,default-storage-class,node-exporter", "Comma separated list of Addons to install into every user-cluster")
+	flag.StringVar(&c.openshiftAddonsList, "openshift-addons-list", "networking,openvpn,rbac", "Comma separated list of addons to install into every openshift user cluster")
 	flag.StringVar(&c.backupContainerFile, "backup-container", "", fmt.Sprintf("[Required] Filepath of a backup container yaml. It must mount a volume named %s from which it reads the etcd backups", backupcontroller.SharedVolumeName))
 	flag.StringVar(&c.cleanupContainerFile, "cleanup-container", "", "[Required] Filepath of a cleanup container yaml. The container will be used to cleanup the backup directory for a cluster after it got deleted.")
 	flag.StringVar(&c.backupContainerImage, "backup-container-init-image", backupcontroller.DefaultBackupContainerImage, "Docker image to use for the init container in the backup job, must be an etcd v3 image. Only set this if your cluster can not use the public quay.io registry")
 	flag.StringVar(&c.backupInterval, "backup-interval", backupcontroller.DefaultBackupInterval, "Interval in which the etcd gets backed up")
-	flag.StringVar(&c.etcdDiskSize, "etcd-disk-size", "5Gi", "Size for the etcd PV's. Only applies to new clusters.")
+	flag.StringVar(&rawEtcdDiskSize, "etcd-disk-size", "5Gi", "Size for the etcd PV's. Only applies to new clusters.")
 	flag.StringVar(&c.inClusterPrometheusRulesFile, "in-cluster-prometheus-rules-file", "", "The file containing the custom alerting rules for the prometheus running in the cluster-foo namespaces.")
 	flag.BoolVar(&c.inClusterPrometheusDisableDefaultRules, "in-cluster-prometheus-disable-default-rules", false, "A flag indicating whether the default rules for the prometheus running in the cluster-foo namespaces should be deployed.")
 	flag.StringVar(&c.dockerPullConfigJSONFile, "docker-pull-config-json-file", "config.json", "The file containing the docker auth config.")
@@ -97,6 +98,7 @@ func newControllerRunOptions() (controllerRunOptions, error) {
 	flag.StringVar(&c.oidcCAFile, "oidc-ca-file", "", "The path to the certificate for the CA that signed your identity provider’s web certificate.")
 	flag.StringVar(&c.oidcIssuerURL, "oidc-issuer-url", "", "URL of the OpenID token issuer. Example: http://auth.int.kubermatic.io")
 	flag.StringVar(&c.oidcIssuerClientID, "oidc-issuer-client-id", "", "Issuer client ID")
+	flag.StringVar(&c.oidcIssuerClientSecret, "oidc-issuer-client-secret", "", "OpenID client secret")
 	flag.Parse()
 
 	featureGates, err := features.NewFeatures(rawFeatureGates)
@@ -104,6 +106,13 @@ func newControllerRunOptions() (controllerRunOptions, error) {
 		return c, err
 	}
 	c.featureGates = featureGates
+
+	etcdDiskSize, err := resource.ParseQuantity(rawEtcdDiskSize)
+	if err != nil {
+		return c, fmt.Errorf("failed to parse value of flag etcd-disk-size (%q): %v", rawEtcdDiskSize, err)
+	}
+	c.etcdDiskSize = etcdDiskSize
+
 	return c, nil
 }
 
@@ -122,14 +131,8 @@ func (o controllerRunOptions) validate() error {
 			return fmt.Errorf("%s feature is enabled but \"oidc-issuer-client-id\" flag was not specified", OpenIDAuthPlugin)
 		}
 
-	} else {
-		// don't pass OpenID issuer flags if OpenIDAuthPlugin disabled
-		if len(o.oidcIssuerURL) > 0 {
-			return fmt.Errorf("%s feature is disabled but \"oidc-issuer-url\" flag was specified, please remove it", OpenIDAuthPlugin)
-		}
-
-		if len(o.oidcIssuerClientID) > 0 {
-			return fmt.Errorf("%s feature is disabled but \"oidc-issuer-client-id\" flag was specified, please remove it", OpenIDAuthPlugin)
+		if len(o.oidcIssuerClientSecret) == 0 {
+			return fmt.Errorf("%s feature is enabled but \"oidc-issuer-client-secret\" flag was not specified", OpenIDAuthPlugin)
 		}
 	}
 
@@ -162,9 +165,6 @@ func (o controllerRunOptions) validate() error {
 		return fmt.Errorf("validation CA bundle file failed: %v", err)
 	}
 
-	// Validate etcd disk size
-	resource.MustParse(o.etcdDiskSize)
-
 	// Validate node-port range
 	net.ParsePortRangeOrDie(o.nodePortRange)
 
@@ -177,7 +177,7 @@ func (o controllerRunOptions) validate() error {
 
 	// Validate the metrics-server addon is disabled, otherwise it creates conflicts with the resources
 	// we create for the metrics-server running in the seed and will render the latter unusable
-	if strings.Contains(o.addonsList, "metrics-server") {
+	if strings.Contains(o.kubernetesAddonsList, "metrics-server") {
 		return errors.New("The metrics-server addon must be disabled, it is now deployed inside the seed cluster")
 	}
 
@@ -199,13 +199,12 @@ func (o controllerRunOptions) validateCABundle() error {
 	return err
 }
 
+// controllerContext holds all controllerRunOptions plus everything that
+// needs to be initialized first
 type controllerContext struct {
-	runOptions                controllerRunOptions
-	stopCh                    <-chan struct{}
-	kubeClient                kubernetes.Interface
-	kubermaticClient          kubermaticclientset.Interface
-	kubermaticInformerFactory kubermaticinformers.SharedInformerFactory
-	kubeInformerFactory       kubeinformers.SharedInformerFactory
-	dynamicClient             ctrlruntimeclient.Client
-	dynamicCache              ctrlruntimecache.Cache
+	runOptions           controllerRunOptions
+	mgr                  manager.Manager
+	clientProvider       client.UserClusterConnectionProvider
+	dcs                  map[string]provider.DatacenterMeta
+	dockerPullConfigJSON []byte
 }

@@ -5,12 +5,15 @@ import (
 
 	"github.com/gorilla/mux"
 	prometheusapi "github.com/prometheus/client_golang/api"
+	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/kubermatic/kubermatic/api/pkg/handler"
 	"github.com/kubermatic/kubermatic/api/pkg/handler/auth"
 	"github.com/kubermatic/kubermatic/api/pkg/handler/test"
+	"github.com/kubermatic/kubermatic/api/pkg/handler/v1/common"
 	"github.com/kubermatic/kubermatic/api/pkg/provider"
 	"github.com/kubermatic/kubermatic/api/pkg/provider/kubernetes"
+	"github.com/kubermatic/kubermatic/api/pkg/serviceaccount"
 	"github.com/kubermatic/kubermatic/api/pkg/version"
 )
 
@@ -22,13 +25,19 @@ func NewTestRouting(
 	cloudProviders map[string]provider.CloudProvider,
 	sshKeyProvider provider.SSHKeyProvider,
 	userProvider provider.UserProvider,
+	serviceAccountProvider provider.ServiceAccountProvider,
+	serviceAccountTokenProvider provider.ServiceAccountTokenProvider,
 	projectProvider provider.ProjectProvider,
-	authenticator auth.OIDCAuthenticator,
+	privilegedProjectProvider provider.PrivilegedProjectProvider,
 	issuerVerifier auth.OIDCIssuerVerifier,
+	tokenVerifiers auth.TokenVerifier,
+	tokenExtractors auth.TokenExtractor,
 	prometheusClient prometheusapi.Client,
 	projectMemberProvider *kubernetes.ProjectMemberProvider,
 	versions []*version.MasterVersion,
-	updates []*version.MasterUpdate) http.Handler {
+	updates []*version.MasterUpdate,
+	saTokenAuthenticator serviceaccount.TokenAuthenticator,
+	saTokenGenerator serviceaccount.TokenGenerator) http.Handler {
 
 	updateManager := version.New(versions, updates)
 	r := handler.NewRouting(
@@ -37,18 +46,25 @@ func NewTestRouting(
 		cloudProviders,
 		sshKeyProvider,
 		userProvider,
+		serviceAccountProvider,
+		serviceAccountTokenProvider,
 		projectProvider,
-		authenticator,
+		privilegedProjectProvider,
 		issuerVerifier,
+		tokenVerifiers,
+		tokenExtractors,
 		updateManager,
 		prometheusClient,
 		projectMemberProvider,
 		projectMemberProvider, /*satisfies also a different interface*/
+		saTokenAuthenticator,
+		saTokenGenerator,
 	)
 
 	mainRouter := mux.NewRouter()
 	v1Router := mainRouter.PathPrefix("/api/v1").Subrouter()
-	r.RegisterV1(v1Router)
+	r.RegisterV1(v1Router, generateDefaultMetrics())
+	r.RegisterV1Legacy(v1Router)
 	r.RegisterV1Optional(v1Router,
 		true,
 		*generateDefaultOicdCfg(),
@@ -58,11 +74,23 @@ func NewTestRouting(
 }
 
 // generateDefaultOicdCfg creates test configuration for OpenID clients
-func generateDefaultOicdCfg() *handler.OIDCConfiguration {
-	return &handler.OIDCConfiguration{
+func generateDefaultOicdCfg() *common.OIDCConfiguration {
+	return &common.OIDCConfiguration{
 		URL:                  test.IssuerURL,
 		ClientID:             test.IssuerClientID,
 		ClientSecret:         test.IssuerClientSecret,
 		OfflineAccessAsScope: true,
+	}
+}
+
+func generateDefaultMetrics() common.ServerMetrics {
+	return common.ServerMetrics{
+		InitNodeDeploymentFailures: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "kubermatic_api_init_node_deployment_failures",
+				Help: "The number of times initial node deployment couldn't be created within the timeout",
+			},
+			[]string{"cluster", "seed_dc"},
+		),
 	}
 }

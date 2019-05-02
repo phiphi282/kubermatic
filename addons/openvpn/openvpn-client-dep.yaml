@@ -14,22 +14,39 @@ spec:
     metadata:
       labels:
         role: openvpn-client
-        kubermatic-revision: "1"
     spec:
-      serviceAccountName: vpn-client-kubermatic
+      serviceAccountName: vpn-client
       containers:
       - name: openvpn-client
-        image: kubermatic/openvpn:v0.4
+        image: quay.io/kubermatic/openvpn:v0.5
         command: ["/usr/sbin/openvpn"]
         args: ["--config", "/etc/openvpn/config/config"]
+        resources:
+          requests:
+            cpu: 5m
+            memory: 5Mi
+          limits:
+            cpu: 100m
+            memory: 32Mi
+        livenessProbe:
+          exec:
+            command:
+              - "/bin/ping"
+              - "-c"
+              - "1"
+              - "-w"
+              - "5"
+              - "10.20.0.1"
+          initialDelaySeconds: 60
         readinessProbe:
           exec:
             command:
-            - test
-            - -s
-            - /run/openvpn-status
-          initialDelaySeconds: 5
-          periodSeconds: 5
+            - "/bin/ping"
+            - "-c"
+            - "1"
+            - "-w"
+            - "5"
+            - "10.20.0.1"
         securityContext:
           privileged: true
         volumeMounts:
@@ -40,7 +57,7 @@ spec:
           name: openvpn-client-certificates
           readOnly: true
       - name: dnat-controller
-        image: kubermatic/openvpn:v0.4
+        image: quay.io/kubermatic/openvpn:v0.5
         command:
         - bash
         - -ec
@@ -77,6 +94,13 @@ spec:
         securityContext:
           capabilities:
             add: ["NET_ADMIN"]
+        resources:
+          requests:
+            cpu: 25m
+            memory: 25Mi
+          limits:
+            cpu: 100m
+            memory: 50Mi
       restartPolicy: Always
       terminationGracePeriodSeconds: 5
       volumes:

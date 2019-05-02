@@ -2,43 +2,33 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"net/http"
-	"time"
+	"io/ioutil"
 
 	"github.com/golang/glog"
 	"github.com/oklog/run"
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 
+	"github.com/kubermatic/kubermatic/api/pkg/cluster/client"
 	"github.com/kubermatic/kubermatic/api/pkg/collectors"
-	kubermaticclientset "github.com/kubermatic/kubermatic/api/pkg/crd/client/clientset/versioned"
-	kubermaticinformers "github.com/kubermatic/kubermatic/api/pkg/crd/client/informers/externalversions"
 	kubermaticv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
+	"github.com/kubermatic/kubermatic/api/pkg/crd/migrations"
 	"github.com/kubermatic/kubermatic/api/pkg/leaderelection"
 	"github.com/kubermatic/kubermatic/api/pkg/metrics"
+	"github.com/kubermatic/kubermatic/api/pkg/provider"
 	"github.com/kubermatic/kubermatic/api/pkg/signals"
 	"github.com/kubermatic/kubermatic/api/pkg/util/informer"
-	"github.com/kubermatic/kubermatic/api/pkg/util/workerlabel"
 
-	"k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	kubeinformers "k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/kubernetes/scheme"
-	corev1 "k8s.io/client-go/kubernetes/typed/core/v1"
-	restclient "k8s.io/client-go/rest"
+	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	kubeleaderelection "k8s.io/client-go/tools/leaderelection"
-	"k8s.io/client-go/tools/record"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
+	ctrlruntimemetrics "sigs.k8s.io/controller-runtime/pkg/metrics"
+	"sigs.k8s.io/controller-runtime/pkg/runtime/log"
 
-	"sigs.k8s.io/controller-runtime/pkg/cache"
-	ctrlruntimeclient "sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
-
-	autoscalingv1beta1 "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/apis/autoscaling.k8s.io/v1beta1"
+	autoscalingv1beta2 "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/apis/autoscaling.k8s.io/v1beta2"
 )
 
 const (
@@ -62,35 +52,27 @@ func main() {
 
 	var g run.Group
 
-	kubeClient := kubernetes.NewForConfigOrDie(config)
-	kubermaticClient := kubermaticclientset.NewForConfigOrDie(config)
-	recorder, err := getEventRecorder(kubeClient)
-	if err != nil {
-		glog.Fatalf("failed to get event recorder: %v", err)
-	}
+	// Enable logging
+	log.SetLogger(log.ZapLogger(false))
 
-	mapper, err := apiutil.NewDiscoveryRESTMapper(config)
+	// Create a manager, disable metrics as we have our own handler that exposes
+	// the metrics of both the ctrltuntime registry and the default registry
+	mgr, err := manager.New(config, manager.Options{MetricsBindAddress: "0"})
 	if err != nil {
-		glog.Fatalf("failed to create rest mapper: %v", err)
+		glog.Fatalf("failed to create mgr: %v", err)
 	}
-
-	combinedScheme := scheme.Scheme
 	// Add all custom type schemes to our scheme. Otherwise we won't get a informer
-	if err := autoscalingv1beta1.AddToScheme(combinedScheme); err != nil {
-		glog.Fatalf("failed to add the autoscaling.k8s.io scheme: %v", err)
+	if err := autoscalingv1beta2.AddToScheme(mgr.GetScheme()); err != nil {
+		glog.Fatalf("failed to add the autoscaling.k8s.io scheme to mgr: %v", err)
 	}
-	dynamicClient, err := ctrlruntimeclient.New(config, ctrlruntimeclient.Options{Scheme: combinedScheme, Mapper: mapper})
-	if err != nil {
-		glog.Fatalf("failed to create dynamic client: %v", err)
+	if err := kubermaticv1.SchemeBuilder.AddToScheme(mgr.GetScheme()); err != nil {
+		glog.Fatalf("failed to add kubermatic scheme to mgr: %v", err)
 	}
 
-	dynamicCache, err := cache.New(config, cache.Options{})
-	if err != nil {
-		glog.Fatalf("failed to create dynamic informer cache: %v", err)
-	}
+	recorder := mgr.GetRecorder(controllerName)
 
 	// Check if the CRD for the VerticalPodAutoscaler is registered by allocating an informer
-	if _, err := informer.GetSyncedStoreFromDynamicFactory(dynamicCache, &autoscalingv1beta1.VerticalPodAutoscaler{}); err != nil {
+	if _, err := informer.GetSyncedStoreFromDynamicFactory(mgr.GetCache(), &autoscalingv1beta2.VerticalPodAutoscaler{}); err != nil {
 		if _, crdNotRegistered := err.(*meta.NoKindMatchError); crdNotRegistered {
 			glog.Fatal(`
 The VerticalPodAutoscaler is not installed in this seed cluster.
@@ -101,98 +83,90 @@ Please install the VerticalPodAutoscaler according to the documentation: https:/
 	//Register the global error metric. Ensures that runtime.HandleError() increases the error metric
 	metrics.RegisterRuntimErrorMetricCounter("kubermatic_controller_manager", prometheus.DefaultRegisterer)
 
-	stopCh := signals.SetupSignalHandler()
-	ctx, ctxDone := context.WithCancel(context.Background())
-	defer ctxDone()
+	dockerPullConfigJSON, err := ioutil.ReadFile(options.dockerPullConfigJSONFile)
+	if err != nil {
+		glog.Fatalf("Failed to read dockerPullConfigJSON file %q: %v", options.dockerPullConfigJSONFile, err)
+	}
 
-	// Create Context
-	done := ctx.Done()
-	go func() {
-		if err := dynamicCache.Start(done); err != nil {
-			glog.Fatal("failed to start the dynamic lister")
-		}
-	}()
-
-	ctrlCtx, err := newControllerContext(options, done, kubeClient, kubermaticClient, dynamicClient, dynamicCache)
+	ctrlCtx, err := newControllerContext(options, mgr)
 	if err != nil {
 		glog.Fatal(err)
 	}
+	ctrlCtx.dockerPullConfigJSON = dockerPullConfigJSON
 
-	controllers, err := createAllControllers(ctrlCtx)
-	if err != nil {
+	if err := createAllControllers(ctrlCtx); err != nil {
 		glog.Fatalf("could not create all controllers: %v", err)
 	}
 
-	for name, register := range collectors.AvailableCollectors {
-		glog.V(6).Infof("Starting %s collector", name)
-		register(prometheus.DefaultRegisterer, ctrlCtx.kubeInformerFactory, ctrlCtx.kubermaticInformerFactory)
-	}
-
-	// Start context (Informers)
-	ctrlCtx.Start()
+	glog.V(4).Info("Starting clusters collector")
+	collectors.MustRegisterClusterCollector(prometheus.DefaultRegisterer, ctrlCtx.mgr.GetClient())
 
 	// This group is forever waiting in a goroutine for signals to stop
 	{
+		signalCtx, stopWaitingForSignal := context.WithCancel(context.Background())
+		defer stopWaitingForSignal()
+		signalChan := signals.SetupSignalHandler()
 		g.Add(func() error {
 			select {
-			case <-stopCh:
-				return errors.New("user requested to stop the application")
-			case <-done:
-				return errors.New("parent context has been closed - propagating the request")
+			case <-signalChan:
+				glog.Info("Received a signal to stop")
+				return nil
+			case <-signalCtx.Done():
+				return nil
 			}
 		}, func(err error) {
-			ctxDone()
+			stopWaitingForSignal()
 		})
 	}
 
 	// This group is running an internal http server with metrics and other debug information
 	{
-		m := http.NewServeMux()
-		m.Handle("/metrics", promhttp.Handler())
-
-		s := http.Server{
-			Addr:         options.internalAddr,
-			Handler:      m,
-			ReadTimeout:  5 * time.Second,
-			WriteTimeout: 10 * time.Second,
+		metricsServerCtx, stopMetricsServer := context.WithCancel(context.Background())
+		defer stopMetricsServer()
+		m := &metricsServer{
+			gatherers: []prometheus.Gatherer{
+				prometheus.DefaultGatherer, ctrlruntimemetrics.Registry},
+			listenAddress: options.internalAddr,
 		}
 
 		g.Add(func() error {
-			glog.Infof("Starting the internal http server: %s\n", options.internalAddr)
-			err := s.ListenAndServe()
-			if err != nil {
-				return fmt.Errorf("internal http server failed: %v", err)
-			}
-			return nil
+			glog.Infof("Starting the internal HTTP server: %s\n", options.internalAddr)
+			return m.Start(metricsServerCtx.Done())
 		}, func(err error) {
-			glog.Errorf("Stopping internal http server: %v", err)
-			timeoutCtx, cancel := context.WithTimeout(ctx, time.Second)
-			defer cancel()
-
-			glog.Info("Shutting down the internal http server")
-			if err := s.Shutdown(timeoutCtx); err != nil {
-				glog.Error("failed to shutdown the internal http server gracefully:", err)
-			}
+			stopMetricsServer()
 		})
 	}
 
 	// This group is running the actual controller logic
 	{
+		leaderCtx, stopLeaderElection := context.WithCancel(context.Background())
+		defer stopLeaderElection()
 		g.Add(func() error {
-			leaderElectionClient, err := kubernetes.NewForConfig(restclient.AddUserAgent(config, "kubermatic-controller-manager-leader-election"))
+			leaderElectionClient, err := kubernetes.NewForConfig(rest.AddUserAgent(config, "kubermatic-controller-manager-leader-election"))
 			if err != nil {
 				return err
 			}
 			callbacks := kubeleaderelection.LeaderCallbacks{
-				OnStartedLeading: func(_ context.Context) {
-					if err = runAllControllers(ctrlCtx.runOptions.workerCount, ctrlCtx.stopCh, ctxDone, controllers); err != nil {
-						glog.Error(err)
-						ctxDone()
+				OnStartedLeading: func(ctx context.Context) {
+					glog.Info("Acquired the leader lease")
+
+					glog.Info("Executing migrations...")
+					if err := migrations.RunAll(ctrlCtx.mgr.GetConfig(), ctrlCtx.runOptions.workerName); err != nil {
+						glog.Errorf("failed to run migrations: %v", err)
+						stopLeaderElection()
+					}
+					glog.Info("Migrations executed successfully")
+
+					glog.Info("Starting the controller-manager...")
+					if err := mgr.Start(ctx.Done()); err != nil {
+						glog.Errorf("The controller-manager stopped with an error: %v", err)
+						stopLeaderElection()
 					}
 				},
 				OnStoppedLeading: func() {
-					glog.Error("==================== OnStoppedLeading ====================")
-					ctxDone()
+					// Gets called when we could not renew the lease or the parent context was closed
+					glog.Info("Shutting down the controller-manager...")
+					stopLeaderElection()
 				},
 			}
 
@@ -205,12 +179,10 @@ Please install the VerticalPodAutoscaler according to the documentation: https:/
 				return fmt.Errorf("failed to create a leaderelection: %v", err)
 			}
 
-			go leader.Run(ctx)
-			<-done
+			leader.Run(leaderCtx)
 			return nil
 		}, func(err error) {
-			glog.Errorf("Stopping controller: %v", err)
-			ctxDone()
+			stopLeaderElection()
 		})
 	}
 
@@ -219,52 +191,34 @@ Please install the VerticalPodAutoscaler according to the documentation: https:/
 	}
 }
 
-func getEventRecorder(masterKubeClient *kubernetes.Clientset) (record.EventRecorder, error) {
-	// Create event broadcaster
-	// Add kubermatic types to the default Kubernetes Scheme so Events can be
-	// logged properly
-	if err := kubermaticv1.AddToScheme(scheme.Scheme); err != nil {
-		return nil, err
-	}
-	glog.V(4).Info("Creating event broadcaster")
-	eventBroadcaster := record.NewBroadcaster()
-	eventBroadcaster.StartLogging(glog.V(4).Infof)
-	eventBroadcaster.StartRecordingToSink(&corev1.EventSinkImpl{Interface: masterKubeClient.CoreV1().Events("")})
-	recorder := eventBroadcaster.NewRecorder(scheme.Scheme, v1.EventSource{Component: controllerName})
-	return recorder, nil
-}
-
 func newControllerContext(
 	runOp controllerRunOptions,
-	done <-chan struct{},
-	kubeClient kubernetes.Interface,
-	kubermaticClient kubermaticclientset.Interface,
-	dynamicClient ctrlruntimeclient.Client,
-	dynamicCache cache.Cache) (*controllerContext, error) {
+	mgr manager.Manager,
+) (*controllerContext, error) {
 	ctrlCtx := &controllerContext{
-		runOptions:       runOp,
-		stopCh:           done,
-		kubeClient:       kubeClient,
-		kubermaticClient: kubermaticClient,
-		dynamicClient:    dynamicClient,
-		dynamicCache:     dynamicCache,
+		mgr:        mgr,
+		runOptions: runOp,
 	}
 
-	selector, err := workerlabel.LabelSelector(runOp.workerName)
+	var err error
+	ctrlCtx.dcs, err = provider.LoadDatacentersMeta(ctrlCtx.runOptions.dcFile)
 	if err != nil {
 		return nil, err
 	}
 
-	ctrlCtx.kubermaticInformerFactory = kubermaticinformers.NewFilteredSharedInformerFactory(ctrlCtx.kubermaticClient, informer.DefaultInformerResyncPeriod, metav1.NamespaceAll, selector)
-	ctrlCtx.kubeInformerFactory = kubeinformers.NewSharedInformerFactory(ctrlCtx.kubeClient, informer.DefaultInformerResyncPeriod)
+	var clientProvider client.UserClusterConnectionProvider
+	if ctrlCtx.runOptions.kubeconfig != "" {
+		clientProvider, err = client.NewExternal(mgr.GetClient())
+		if err != nil {
+			return nil, fmt.Errorf("failed to get clientProvider: %v", err)
+		}
+	} else {
+		clientProvider, err = client.NewInternal(mgr.GetClient())
+		if err != nil {
+			return nil, fmt.Errorf("failed to get clientProvider: %v", err)
+		}
+	}
+	ctrlCtx.clientProvider = clientProvider
 
 	return ctrlCtx, nil
-}
-
-func (ctx *controllerContext) Start() {
-	ctx.kubermaticInformerFactory.Start(ctx.stopCh)
-	ctx.kubeInformerFactory.Start(ctx.stopCh)
-
-	ctx.kubermaticInformerFactory.WaitForCacheSync(ctx.stopCh)
-	ctx.kubeInformerFactory.WaitForCacheSync(ctx.stopCh)
 }

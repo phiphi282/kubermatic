@@ -5,11 +5,12 @@ import (
 
 	"github.com/go-test/deep"
 
+	kubermaticv1lister "github.com/kubermatic/kubermatic/api/pkg/crd/client/listers/kubermatic/v1"
 	kubermaticv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
 	"github.com/kubermatic/kubermatic/api/pkg/provider"
 	"github.com/kubermatic/kubermatic/api/pkg/provider/kubernetes"
 
-	kubermaticv1lister "github.com/kubermatic/kubermatic/api/pkg/crd/client/listers/kubermatic/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -28,43 +29,13 @@ func TestListProjects(t *testing.T) {
 			listOptions: &provider.ProjectListOptions{OwnerUID: types.UID("bob")},
 			existingProjects: []*kubermaticv1.Project{
 				// bob's project
-				{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "id1",
-						OwnerReferences: []metav1.OwnerReference{
-							{UID: types.UID("bob")},
-						},
-					},
-					Spec: kubermaticv1.ProjectSpec{
-						Name: "n1",
-					},
-				},
+				genProject("n1", kubermaticv1.ProjectActive, defaultCreationTimestamp(), genOwnerReference("bob")),
 				// john's project
-				{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "id2",
-						OwnerReferences: []metav1.OwnerReference{
-							{UID: types.UID("john")},
-						},
-					},
-					Spec: kubermaticv1.ProjectSpec{
-						Name: "n2",
-					},
-				},
+				genProject("n2", kubermaticv1.ProjectActive, defaultCreationTimestamp(), genOwnerReference("john")),
 			},
 			expectedProjects: []*kubermaticv1.Project{
 				// bob's project
-				{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "id1",
-						OwnerReferences: []metav1.OwnerReference{
-							{UID: types.UID("bob")},
-						},
-					},
-					Spec: kubermaticv1.ProjectSpec{
-						Name: "n1",
-					},
-				},
+				genProject("n1", kubermaticv1.ProjectActive, defaultCreationTimestamp(), genOwnerReference("bob")),
 			},
 		},
 
@@ -73,55 +44,15 @@ func TestListProjects(t *testing.T) {
 			listOptions: nil,
 			existingProjects: []*kubermaticv1.Project{
 				// bob's project
-				{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "id1",
-						OwnerReferences: []metav1.OwnerReference{
-							{UID: types.UID("bob")},
-						},
-					},
-					Spec: kubermaticv1.ProjectSpec{
-						Name: "n1",
-					},
-				},
+				genProject("n1", kubermaticv1.ProjectActive, defaultCreationTimestamp(), genOwnerReference("bob")),
 				// john's project
-				{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "id2",
-						OwnerReferences: []metav1.OwnerReference{
-							{UID: types.UID("john")},
-						},
-					},
-					Spec: kubermaticv1.ProjectSpec{
-						Name: "n2",
-					},
-				},
+				genProject("n2", kubermaticv1.ProjectActive, defaultCreationTimestamp(), genOwnerReference("john")),
 			},
 			expectedProjects: []*kubermaticv1.Project{
 				// bob's project
-				{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "id1",
-						OwnerReferences: []metav1.OwnerReference{
-							{UID: types.UID("bob")},
-						},
-					},
-					Spec: kubermaticv1.ProjectSpec{
-						Name: "n1",
-					},
-				},
+				genProject("n1", kubermaticv1.ProjectActive, defaultCreationTimestamp(), genOwnerReference("bob")),
 				// john's project
-				{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "id2",
-						OwnerReferences: []metav1.OwnerReference{
-							{UID: types.UID("john")},
-						},
-					},
-					Spec: kubermaticv1.ProjectSpec{
-						Name: "n2",
-					},
-				},
+				genProject("n2", kubermaticv1.ProjectActive, defaultCreationTimestamp(), genOwnerReference("john")),
 			},
 		},
 
@@ -130,43 +61,13 @@ func TestListProjects(t *testing.T) {
 			listOptions: &provider.ProjectListOptions{ProjectName: "n1"},
 			existingProjects: []*kubermaticv1.Project{
 				// bob's project
-				{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "id1",
-						OwnerReferences: []metav1.OwnerReference{
-							{UID: types.UID("bob")},
-						},
-					},
-					Spec: kubermaticv1.ProjectSpec{
-						Name: "n1",
-					},
-				},
+				genProject("n1", kubermaticv1.ProjectActive, defaultCreationTimestamp(), genOwnerReference("bob")),
 				// john's project
-				{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "id2",
-						OwnerReferences: []metav1.OwnerReference{
-							{UID: types.UID("john")},
-						},
-					},
-					Spec: kubermaticv1.ProjectSpec{
-						Name: "n2",
-					},
-				},
+				genProject("n2", kubermaticv1.ProjectActive, defaultCreationTimestamp(), genOwnerReference("john")),
 			},
 			expectedProjects: []*kubermaticv1.Project{
 				// bob's project
-				{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "id1",
-						OwnerReferences: []metav1.OwnerReference{
-							{UID: types.UID("bob")},
-						},
-					},
-					Spec: kubermaticv1.ProjectSpec{
-						Name: "n1",
-					},
-				},
+				genProject("n1", kubermaticv1.ProjectActive, defaultCreationTimestamp(), genOwnerReference("bob")),
 			},
 		},
 
@@ -175,55 +76,23 @@ func TestListProjects(t *testing.T) {
 			listOptions: &provider.ProjectListOptions{ProjectName: "n1"},
 			existingProjects: []*kubermaticv1.Project{
 				// bob's project
-				{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "id1",
-						OwnerReferences: []metav1.OwnerReference{
-							{UID: types.UID("bob")},
-						},
-					},
-					Spec: kubermaticv1.ProjectSpec{
-						Name: "n1",
-					},
-				},
+				genProject("n1", kubermaticv1.ProjectActive, defaultCreationTimestamp(), genOwnerReference("bob")),
 				// john's project
-				{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "id2",
-						OwnerReferences: []metav1.OwnerReference{
-							{UID: types.UID("john")},
-						},
-					},
-					Spec: kubermaticv1.ProjectSpec{
-						Name: "n1",
-					},
-				},
+				func() *kubermaticv1.Project {
+					project := genProject("n2", kubermaticv1.ProjectActive, defaultCreationTimestamp(), genOwnerReference("john"))
+					project.Spec.Name = "n1"
+					return project
+				}(),
 			},
 			expectedProjects: []*kubermaticv1.Project{
 				// bob's project
-				{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "id1",
-						OwnerReferences: []metav1.OwnerReference{
-							{UID: types.UID("bob")},
-						},
-					},
-					Spec: kubermaticv1.ProjectSpec{
-						Name: "n1",
-					},
-				},
+				genProject("n1", kubermaticv1.ProjectActive, defaultCreationTimestamp(), genOwnerReference("bob")),
 				// john's project
-				{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "id2",
-						OwnerReferences: []metav1.OwnerReference{
-							{UID: types.UID("john")},
-						},
-					},
-					Spec: kubermaticv1.ProjectSpec{
-						Name: "n1",
-					},
-				},
+				func() *kubermaticv1.Project {
+					project := genProject("n2", kubermaticv1.ProjectActive, defaultCreationTimestamp(), genOwnerReference("john"))
+					project.Spec.Name = "n1"
+					return project
+				}(),
 			},
 		},
 
@@ -232,43 +101,17 @@ func TestListProjects(t *testing.T) {
 			listOptions: &provider.ProjectListOptions{ProjectName: "n1", OwnerUID: types.UID("bob")},
 			existingProjects: []*kubermaticv1.Project{
 				// bob's project
-				{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "id1",
-						OwnerReferences: []metav1.OwnerReference{
-							{UID: types.UID("bob")},
-						},
-					},
-					Spec: kubermaticv1.ProjectSpec{
-						Name: "n1",
-					},
-				},
+				genProject("n1", kubermaticv1.ProjectActive, defaultCreationTimestamp(), genOwnerReference("bob")),
 				// john's project
-				{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "id2",
-						OwnerReferences: []metav1.OwnerReference{
-							{UID: types.UID("john")},
-						},
-					},
-					Spec: kubermaticv1.ProjectSpec{
-						Name: "n1",
-					},
-				},
+				func() *kubermaticv1.Project {
+					project := genProject("n2", kubermaticv1.ProjectActive, defaultCreationTimestamp(), genOwnerReference("john"))
+					project.Spec.Name = "n1"
+					return project
+				}(),
 			},
 			expectedProjects: []*kubermaticv1.Project{
 				// bob's project
-				{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "id1",
-						OwnerReferences: []metav1.OwnerReference{
-							{UID: types.UID("bob")},
-						},
-					},
-					Spec: kubermaticv1.ProjectSpec{
-						Name: "n1",
-					},
-				},
+				genProject("n1", kubermaticv1.ProjectActive, defaultCreationTimestamp(), genOwnerReference("bob")),
 			},
 		},
 	}
@@ -280,7 +123,7 @@ func TestListProjects(t *testing.T) {
 				kubermaticObjects = append(kubermaticObjects, binding)
 			}
 
-			impersonationClient, _, indexer, err := createFakeClients(kubermaticObjects)
+			impersonationClient, _, indexer, err := createFakeKubermaticClients(kubermaticObjects)
 			if err != nil {
 				t.Fatalf("unable to create fake clients, err = %v", err)
 			}
@@ -313,5 +156,90 @@ func TestListProjects(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestGetUnsecuredProjects(t *testing.T) {
+	// test data
+	testcases := []struct {
+		name             string
+		projectName      string
+		existingProjects []*kubermaticv1.Project
+		getOptions       *provider.ProjectGetOptions
+		expectedProject  *kubermaticv1.Project
+		expectedError    string
+	}{
+		{
+			name:          "scenario 1: get inactive project",
+			projectName:   "n1-ID",
+			getOptions:    &provider.ProjectGetOptions{IncludeUninitialized: true},
+			expectedError: "",
+			existingProjects: []*kubermaticv1.Project{
+				// bob's project
+				genProject("n1", kubermaticv1.ProjectInactive, defaultCreationTimestamp(), metav1.OwnerReference{UID: types.UID("bob")}),
+				// john's project
+				genProject("n2", kubermaticv1.ProjectActive, defaultCreationTimestamp(), metav1.OwnerReference{UID: types.UID("john")}),
+			},
+			expectedProject: genProject("n1", kubermaticv1.ProjectInactive, defaultCreationTimestamp(), metav1.OwnerReference{UID: types.UID("bob")}),
+		},
+		{
+			name:          "scenario 2: get only active project",
+			projectName:   "n1-ID",
+			getOptions:    &provider.ProjectGetOptions{IncludeUninitialized: false},
+			expectedError: "Project is not initialized yet",
+			existingProjects: []*kubermaticv1.Project{
+				// bob's project
+				genProject("n1", kubermaticv1.ProjectInactive, defaultCreationTimestamp(), metav1.OwnerReference{UID: types.UID("bob")}),
+				// john's project
+				genProject("n2", kubermaticv1.ProjectActive, defaultCreationTimestamp(), metav1.OwnerReference{UID: types.UID("john")}),
+			},
+		},
+	}
+	for _, tc := range testcases {
+		t.Run(tc.name, func(t *testing.T) {
+
+			kubermaticObjects := []runtime.Object{}
+			for _, binding := range tc.existingProjects {
+				kubermaticObjects = append(kubermaticObjects, binding)
+			}
+
+			impersonationClient, _, _, err := createFakeKubermaticClients(kubermaticObjects)
+			if err != nil {
+				t.Fatalf("unable to create fake clients, err = %v", err)
+			}
+
+			// act
+			target, err := kubernetes.NewPrivilegedProjectProvider(impersonationClient.CreateFakeImpersonatedClientSet)
+			if err != nil {
+				t.Fatal(err)
+			}
+			result, err := target.GetUnsecured(tc.projectName, tc.getOptions)
+
+			if len(tc.expectedError) == 0 {
+				// validate
+				if err != nil {
+					t.Fatal(err)
+				}
+
+				if !equality.Semantic.DeepEqual(result, tc.expectedProject) {
+					t.Fatalf("expected project: %v got: %v", tc.expectedProject, result)
+				}
+			} else {
+				if err == nil {
+					t.Fatalf("expected error message")
+				}
+				if err.Error() != tc.expectedError {
+					t.Fatalf("expected error message: %s got: %s", tc.expectedError, err.Error())
+				}
+			}
+
+		})
+	}
+}
+
+func genOwnerReference(name string) metav1.OwnerReference {
+	return metav1.OwnerReference{
+		Name: name,
+		UID:  types.UID(name),
 	}
 }

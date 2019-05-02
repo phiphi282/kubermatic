@@ -3,13 +3,6 @@ metadata:
   labels:
     app: metrics-server
   name: metrics-server
-  ownerReferences:
-  - apiVersion: kubermatic.k8s.io/v1
-    blockOwnerDeletion: true
-    controller: true
-    kind: Cluster
-    name: de-test-01
-    uid: "1234567890"
 spec:
   replicas: 2
   selector:
@@ -40,6 +33,12 @@ spec:
                   cluster: de-test-01
               topologyKey: kubernetes.io/hostname
             weight: 100
+          - podAffinityTerm:
+              labelSelector:
+                matchLabels:
+                  app: metrics-server
+              topologyKey: kubernetes.io/hostname
+            weight: 10
       containers:
       - args:
         - --kubeconfig
@@ -58,7 +57,7 @@ spec:
         - --logtostderr
         command:
         - /metrics-server
-        image: gcr.io/google_containers/metrics-server-amd64:v0.3.1
+        image: gcr.io/google_containers/metrics-server-amd64:v0.3.2
         imagePullPolicy: IfNotPresent
         name: metrics-server
         resources:
@@ -113,7 +112,7 @@ spec:
         - /dev/stdout
         command:
         - /usr/sbin/openvpn
-        image: docker.io/kubermatic/openvpn:v0.4
+        image: quay.io/kubermatic/openvpn:v0.5
         imagePullPolicy: IfNotPresent
         name: openvpn-client
         resources:
@@ -125,6 +124,7 @@ spec:
             memory: 5Mi
         securityContext:
           privileged: true
+          procMount: Default
         terminationMessagePath: /dev/termination-log
         terminationMessagePolicy: File
         volumeMounts:
@@ -132,16 +132,16 @@ spec:
           name: openvpn-client-certificates
           readOnly: true
       - args:
-        - --kubeconfig
+        - -kubeconfig
         - /etc/kubernetes/kubeconfig/kubeconfig
-        - --node-access-network
+        - -node-access-network
         - 192.0.2.0/24
         - -v
         - "4"
         - -logtostderr
         command:
         - /usr/local/bin/kubeletdnat-controller
-        image: quay.io/kubermatic/vpnsidecar-dnat-controller:v0.2.0
+        image: 'quay.io/kubermatic/api:'
         imagePullPolicy: IfNotPresent
         name: dnat-controller
         resources:
@@ -155,6 +155,8 @@ spec:
           capabilities:
             add:
             - NET_ADMIN
+          procMount: Default
+          runAsUser: 0
         terminationMessagePath: /dev/termination-log
         terminationMessagePolicy: File
         volumeMounts:
@@ -193,6 +195,6 @@ spec:
           secretName: openvpn-client-certificates
       - name: kubeletdnatcontroller-kubeconfig
         secret:
-          defaultMode: 256
+          defaultMode: 292
           secretName: kubeletdnatcontroller-kubeconfig
 status: {}

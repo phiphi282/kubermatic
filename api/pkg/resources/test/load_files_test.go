@@ -1,6 +1,7 @@
 package test
 
 import (
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -9,9 +10,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
-
-	appsv1 "k8s.io/api/apps/v1"
 
 	"github.com/Masterminds/semver"
 	"github.com/ghodss/yaml"
@@ -24,17 +22,20 @@ import (
 	"github.com/kubermatic/kubermatic/api/pkg/provider"
 	"github.com/kubermatic/kubermatic/api/pkg/resources"
 	"github.com/kubermatic/kubermatic/api/pkg/resources/machine"
+	"github.com/kubermatic/kubermatic/api/pkg/resources/reconciling"
 	ksemver "github.com/kubermatic/kubermatic/api/pkg/semver"
 	"github.com/kubermatic/kubermatic/api/pkg/version"
+	"github.com/kubermatic/machine-controller/pkg/providerconfig"
 
-	"k8s.io/api/core/v1"
+	appsv1 "k8s.io/api/apps/v1"
+	batchv1beta1 "k8s.io/api/batch/v1beta1"
 	corev1 "k8s.io/api/core/v1"
+	policyv1beta1 "k8s.io/api/policy/v1beta1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/wait"
-	"k8s.io/client-go/informers"
-	kubefake "k8s.io/client-go/kubernetes/fake"
+	ctrlruntimefakeclient "sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
 var update = flag.Bool("update", false, "Update test fixtures")
@@ -174,7 +175,11 @@ func TestLoadFiles(t *testing.T) {
 				RootPath:      "vs-cluster",
 			},
 			AWS: &provider.AWSSpec{
-				AMI:           "ami-aujakj",
+				Images: provider.ImageList{
+					providerconfig.OperatingSystemUbuntu: "ubuntu-ami",
+					providerconfig.OperatingSystemCentOS: "centos-ami",
+					providerconfig.OperatingSystemCoreos: "coreos-ami",
+				},
 				Region:        "us-central1",
 				ZoneCharacter: "a",
 			},
@@ -211,200 +216,218 @@ func TestLoadFiles(t *testing.T) {
 							},
 							DNSDomain: "cluster.local",
 						},
+						MachineNetworks: []kubermaticv1.MachineNetworkingConfig{
+							{
+								CIDR: "192.168.1.1/24",
+								DNSServers: []string{
+									"8.8.8.8",
+								},
+								Gateway: "192.168.1.1",
+							},
+						},
 					},
 					Address: kubermaticv1.ClusterAddress{
 						ExternalName: "jh8j81chn.europe-west3-c.dev.kubermatic.io",
 						IP:           "35.198.93.90",
 						AdminToken:   "6hzr76.u8txpkk4vhgmtgdp",
+						InternalName: "apiserver-external.cluster-de-test-01.svc.cluster.local.",
+						Port:         30000,
 					},
 					Status: kubermaticv1.ClusterStatus{
 						NamespaceName: "cluster-de-test-01",
 					},
 				}
 
-				kubeClient := kubefake.NewSimpleClientset(
-					&v1.Secret{
+				dynamicClient := ctrlruntimefakeclient.NewFakeClient(
+					&corev1.Secret{
 						ObjectMeta: metav1.ObjectMeta{
 							ResourceVersion: "123456",
 							Name:            resources.DexCASecretName,
 							Namespace:       cluster.Status.NamespaceName,
 						},
 					},
-					&v1.Secret{
+					&corev1.Secret{
 						ObjectMeta: metav1.ObjectMeta{
 							ResourceVersion: "123456",
 							Name:            resources.TokensSecretName,
 							Namespace:       cluster.Status.NamespaceName,
 						},
 					},
-					&v1.Secret{
+					&corev1.Secret{
 						ObjectMeta: metav1.ObjectMeta{
 							ResourceVersion: "123456",
 							Name:            resources.ServiceAccountKeySecretName,
 							Namespace:       cluster.Status.NamespaceName,
 						},
 					},
-					&v1.Secret{
+					&corev1.Secret{
 						ObjectMeta: metav1.ObjectMeta{
 							ResourceVersion: "123456",
 							Name:            resources.ApiserverTLSSecretName,
 							Namespace:       cluster.Status.NamespaceName,
 						},
 					},
-					&v1.Secret{
+					&corev1.Secret{
 						ObjectMeta: metav1.ObjectMeta{
 							ResourceVersion: "123456",
 							Name:            resources.KubeletClientCertificatesSecretName,
 							Namespace:       cluster.Status.NamespaceName,
 						},
 					},
-					&v1.Secret{
+					&corev1.Secret{
 						ObjectMeta: metav1.ObjectMeta{
 							ResourceVersion: "123456",
 							Name:            resources.CASecretName,
 							Namespace:       cluster.Status.NamespaceName,
 						},
 					},
-					&v1.Secret{
+					&corev1.Secret{
 						ObjectMeta: metav1.ObjectMeta{
 							ResourceVersion: "123456",
 							Name:            resources.OpenVPNCASecretName,
 							Namespace:       cluster.Status.NamespaceName,
 						},
 					},
-					&v1.Secret{
+					&corev1.Secret{
 						ObjectMeta: metav1.ObjectMeta{
 							ResourceVersion: "123456",
 							Name:            resources.ApiserverEtcdClientCertificateSecretName,
 							Namespace:       cluster.Status.NamespaceName,
 						},
 					},
-					&v1.Secret{
+					&corev1.Secret{
 						ObjectMeta: metav1.ObjectMeta{
 							ResourceVersion: "123456",
 							Name:            resources.ApiserverFrontProxyClientCertificateSecretName,
 							Namespace:       cluster.Status.NamespaceName,
 						},
 					},
-					&v1.Secret{
+					&corev1.Secret{
 						ObjectMeta: metav1.ObjectMeta{
 							ResourceVersion: "123456",
 							Name:            resources.EtcdTLSCertificateSecretName,
 							Namespace:       cluster.Status.NamespaceName,
 						},
 					},
-					&v1.Secret{
+					&corev1.Secret{
 						ObjectMeta: metav1.ObjectMeta{
 							ResourceVersion: "123456",
 							Name:            resources.MachineControllerKubeconfigSecretName,
 							Namespace:       cluster.Status.NamespaceName,
 						},
 					},
-					&v1.Secret{
+					&corev1.Secret{
 						ObjectMeta: metav1.ObjectMeta{
 							ResourceVersion: "123456",
 							Name:            resources.OpenVPNServerCertificatesSecretName,
 							Namespace:       cluster.Status.NamespaceName,
 						},
 					},
-					&v1.Secret{
+					&corev1.Secret{
 						ObjectMeta: metav1.ObjectMeta{
 							ResourceVersion: "123456",
 							Name:            resources.OpenVPNClientCertificatesSecretName,
 							Namespace:       cluster.Status.NamespaceName,
 						},
 					},
-					&v1.Secret{
+					&corev1.Secret{
 						ObjectMeta: metav1.ObjectMeta{
 							ResourceVersion: "123456",
 							Name:            resources.ControllerManagerKubeconfigSecretName,
 							Namespace:       cluster.Status.NamespaceName,
 						},
 					},
-					&v1.Secret{
+					&corev1.Secret{
 						ObjectMeta: metav1.ObjectMeta{
 							ResourceVersion: "123456",
 							Name:            resources.KubeStateMetricsKubeconfigSecretName,
 							Namespace:       cluster.Status.NamespaceName,
 						},
 					},
-					&v1.Secret{
+					&corev1.Secret{
 						ObjectMeta: metav1.ObjectMeta{
 							ResourceVersion: "123456",
 							Name:            resources.SchedulerKubeconfigSecretName,
 							Namespace:       cluster.Status.NamespaceName,
 						},
 					},
-					&v1.Secret{
+					&corev1.Secret{
 						ObjectMeta: metav1.ObjectMeta{
 							ResourceVersion: "123456",
 							Name:            resources.KubeletDnatControllerKubeconfigSecretName,
 							Namespace:       cluster.Status.NamespaceName,
 						},
 					},
-					&v1.Secret{
+					&corev1.Secret{
 						ObjectMeta: metav1.ObjectMeta{
 							ResourceVersion: "123456",
 							Name:            resources.FrontProxyCASecretName,
 							Namespace:       cluster.Status.NamespaceName,
 						},
 					},
-					&v1.Secret{
+					&corev1.Secret{
 						ObjectMeta: metav1.ObjectMeta{
 							ResourceVersion: "123456",
 							Name:            resources.MetricsServerKubeconfigSecretName,
 							Namespace:       cluster.Status.NamespaceName,
 						},
 					},
-					&v1.Secret{
+					&corev1.Secret{
 						ObjectMeta: metav1.ObjectMeta{
 							ResourceVersion: "123456",
 							Name:            resources.PrometheusApiserverClientCertificateSecretName,
 							Namespace:       cluster.Status.NamespaceName,
 						},
 					},
-					&v1.Secret{
+					&corev1.Secret{
 						ObjectMeta: metav1.ObjectMeta{
 							ResourceVersion: "123456",
 							Name:            resources.MachineControllerWebhookServingCertSecretName,
 							Namespace:       cluster.Status.NamespaceName,
 						},
 					},
-					&v1.ConfigMap{
+					&corev1.Secret{
+						ObjectMeta: metav1.ObjectMeta{
+							ResourceVersion: "123456",
+							Name:            resources.InternalUserClusterAdminKubeconfigSecretName,
+							Namespace:       cluster.Status.NamespaceName,
+						},
+					},
+					&corev1.ConfigMap{
 						ObjectMeta: metav1.ObjectMeta{
 							ResourceVersion: "123456",
 							Name:            resources.OpenVPNClientConfigsConfigMapName,
 							Namespace:       cluster.Status.NamespaceName,
 						},
 					},
-					&v1.ConfigMap{
+					&corev1.ConfigMap{
 						ObjectMeta: metav1.ObjectMeta{
 							ResourceVersion: "123456",
 							Name:            resources.CloudConfigConfigMapName,
 							Namespace:       cluster.Status.NamespaceName,
 						},
 					},
-					&v1.ConfigMap{
+					&corev1.ConfigMap{
 						ObjectMeta: metav1.ObjectMeta{
 							ResourceVersion: "123456",
 							Name:            resources.PrometheusConfigConfigMapName,
 							Namespace:       cluster.Status.NamespaceName,
 						},
 					},
-					&v1.ConfigMap{
+					&corev1.ConfigMap{
 						ObjectMeta: metav1.ObjectMeta{
 							ResourceVersion: "123456",
 							Name:            resources.DNSResolverConfigMapName,
 							Namespace:       cluster.Status.NamespaceName,
 						},
 					},
-					&v1.Service{
+					&corev1.Service{
 						ObjectMeta: metav1.ObjectMeta{
 							Name:      resources.ApiserverExternalServiceName,
 							Namespace: cluster.Status.NamespaceName,
 						},
-						Spec: v1.ServiceSpec{
-							Ports: []v1.ServicePort{
+						Spec: corev1.ServiceSpec{
+							Ports: []corev1.ServicePort{
 								{
 									NodePort: 30000,
 								},
@@ -412,13 +435,13 @@ func TestLoadFiles(t *testing.T) {
 							ClusterIP: "192.0.2.10",
 						},
 					},
-					&v1.Service{
+					&corev1.Service{
 						ObjectMeta: metav1.ObjectMeta{
 							Name:      resources.ApiserverInternalServiceName,
 							Namespace: cluster.Status.NamespaceName,
 						},
-						Spec: v1.ServiceSpec{
-							Ports: []v1.ServicePort{
+						Spec: corev1.ServiceSpec{
+							Ports: []corev1.ServicePort{
 								{
 									NodePort: 30001,
 								},
@@ -426,13 +449,13 @@ func TestLoadFiles(t *testing.T) {
 							ClusterIP: "192.0.2.11",
 						},
 					},
-					&v1.Service{
+					&corev1.Service{
 						ObjectMeta: metav1.ObjectMeta{
 							Name:      resources.OpenVPNServerServiceName,
 							Namespace: cluster.Status.NamespaceName,
 						},
-						Spec: v1.ServiceSpec{
-							Ports: []v1.ServicePort{
+						Spec: corev1.ServiceSpec{
+							Ports: []corev1.ServicePort{
 								{
 									NodePort: 30003,
 								},
@@ -440,13 +463,13 @@ func TestLoadFiles(t *testing.T) {
 							ClusterIP: "192.0.2.13",
 						},
 					},
-					&v1.Service{
+					&corev1.Service{
 						ObjectMeta: metav1.ObjectMeta{
 							Name:      resources.DNSResolverServiceName,
 							Namespace: cluster.Status.NamespaceName,
 						},
-						Spec: v1.ServiceSpec{
-							Ports: []v1.ServicePort{
+						Spec: corev1.ServiceSpec{
+							Ports: []corev1.ServicePort{
 								{
 									NodePort: 30003,
 								},
@@ -486,14 +509,13 @@ func TestLoadFiles(t *testing.T) {
 					}
 				})()
 
-				kubeInformerFactory := informers.NewSharedInformerFactory(kubeClient, 10*time.Millisecond)
+				ctx := context.Background()
 				data := resources.NewTemplateData(
+					ctx,
+					dynamicClient,
 					cluster,
 					&dc,
 					"testdc",
-					kubeInformerFactory.Core().V1().Secrets().Lister(),
-					kubeInformerFactory.Core().V1().ConfigMaps().Lister(),
-					kubeInformerFactory.Core().V1().Services().Lister(),
 					"",
 					"",
 					"192.0.2.0/24",
@@ -503,27 +525,17 @@ func TestLoadFiles(t *testing.T) {
 					false,
 					false,
 					tmpFilePath,
-					nil,
 					"test",
-					"",
-					"",
+					"https://dev.kubermatic.io/dex",
+					"kubermaticIssuer",
 				)
-				kubeInformerFactory.Start(wait.NeverStop)
-				kubeInformerFactory.WaitForCacheSync(wait.NeverStop)
 
-				dummyCluster := &kubermaticv1.Cluster{
-					Spec: kubermaticv1.ClusterSpec{
-						MachineNetworks: []kubermaticv1.MachineNetworkingConfig{
-							{},
-						},
-					},
-				}
-
-				var deploymentCreators []resources.DeploymentCreator
-				deploymentCreators = append(deploymentCreators, clustercontroller.GetDeploymentCreators(dummyCluster)...)
-				deploymentCreators = append(deploymentCreators, monitoringcontroller.GetDeploymentCreators(dummyCluster)...)
+				var deploymentCreators []reconciling.NamedDeploymentCreatorGetter
+				deploymentCreators = append(deploymentCreators, clustercontroller.GetDeploymentCreators(data, true)...)
+				deploymentCreators = append(deploymentCreators, monitoringcontroller.GetDeploymentCreators(data)...)
 				for _, create := range deploymentCreators {
-					res, err := create(data, nil)
+					_, creator := create()
+					res, err := creator(&appsv1.Deployment{})
 					if err != nil {
 						t.Fatalf("failed to create Deployment: %v", err)
 					}
@@ -539,24 +551,25 @@ func TestLoadFiles(t *testing.T) {
 					checkTestResult(t, fixturePath, res)
 				}
 
-				var configmapCreators []resources.ConfigMapCreator
-				configmapCreators = append(configmapCreators, clustercontroller.GetConfigMapCreators(data)...)
-				configmapCreators = append(configmapCreators, monitoringcontroller.GetConfigMapCreators(data)...)
-				for _, create := range configmapCreators {
-					res, err := create(nil)
+				var namedConfigMapCreatorGetters []reconciling.NamedConfigMapCreatorGetter
+				namedConfigMapCreatorGetters = append(namedConfigMapCreatorGetters, clustercontroller.GetConfigMapCreators(data)...)
+				namedConfigMapCreatorGetters = append(namedConfigMapCreatorGetters, monitoringcontroller.GetConfigMapCreators(data)...)
+				for _, namedGetter := range namedConfigMapCreatorGetters {
+					name, create := namedGetter()
+					res, err := create(&corev1.ConfigMap{})
 					if err != nil {
 						t.Fatalf("failed to create ConfigMap: %v", err)
 					}
 
-					fixturePath := fmt.Sprintf("configmap-%s-%s-%s", prov, ver.Version.String(), res.Name)
+					fixturePath := fmt.Sprintf("configmap-%s-%s-%s", prov, ver.Version.String(), name)
 					checkTestResult(t, fixturePath, res)
 				}
 
-				var serviceCreators []resources.ServiceCreator
-				serviceCreators = append(serviceCreators, clustercontroller.GetServiceCreators()...)
-				serviceCreators = append(serviceCreators, monitoringcontroller.GetServiceCreators()...)
-				for _, create := range serviceCreators {
-					res, err := create(data, nil)
+				var serviceCreators []reconciling.NamedServiceCreatorGetter
+				serviceCreators = append(serviceCreators, clustercontroller.GetServiceCreators(data)...)
+				for _, creatorGetter := range serviceCreators {
+					_, create := creatorGetter()
+					res, err := create(&corev1.Service{})
 					if err != nil {
 						t.Fatalf("failed to create Service: %v", err)
 					}
@@ -565,10 +578,11 @@ func TestLoadFiles(t *testing.T) {
 					checkTestResult(t, fixturePath, res)
 				}
 
-				var statefulSetCreators []resources.StatefulSetCreator
-				statefulSetCreators = append(statefulSetCreators, clustercontroller.GetStatefulSetCreators(data)...)
+				var statefulSetCreators []reconciling.NamedStatefulSetCreatorGetter
+				statefulSetCreators = append(statefulSetCreators, clustercontroller.GetStatefulSetCreators(data, false)...)
 				statefulSetCreators = append(statefulSetCreators, monitoringcontroller.GetStatefulSetCreators(data)...)
-				for _, create := range statefulSetCreators {
+				for _, creatorGetter := range statefulSetCreators {
+					_, create := creatorGetter()
 					res, err := create(&appsv1.StatefulSet{})
 					if err != nil {
 						t.Fatalf("failed to create StatefulSet: %v", err)
@@ -589,13 +603,14 @@ func TestLoadFiles(t *testing.T) {
 					checkTestResult(t, fixturePath, res)
 				}
 
-				for _, create := range clustercontroller.GetPodDisruptionBudgetCreators() {
-					res, err := create(data, nil)
+				for _, creatorGetter := range clustercontroller.GetPodDisruptionBudgetCreators(data) {
+					name, create := creatorGetter()
+					res, err := create(&policyv1beta1.PodDisruptionBudget{})
 					if err != nil {
 						t.Fatalf("failed to create PodDisruptionBudget: %v", err)
 					}
 
-					fixturePath := fmt.Sprintf("poddisruptionbudget-%s-%s-%s", prov, ver.Version.String(), res.Name)
+					fixturePath := fmt.Sprintf("poddisruptionbudget-%s-%s-%s", prov, ver.Version.String(), name)
 					if err != nil {
 						t.Fatalf("failed to create PodDisruptionBudget for %s: %v", fixturePath, err)
 					}
@@ -603,8 +618,9 @@ func TestLoadFiles(t *testing.T) {
 					checkTestResult(t, fixturePath, res)
 				}
 
-				for _, create := range clustercontroller.GetCronJobCreators() {
-					res, err := create(data, nil)
+				for _, creatorGetter := range clustercontroller.GetCronJobCreators(data) {
+					_, create := creatorGetter()
+					res, err := create(&batchv1beta1.CronJob{})
 					if err != nil {
 						t.Fatalf("failed to create CronJob: %v", err)
 					}
@@ -626,7 +642,7 @@ func TestLoadFiles(t *testing.T) {
 	}
 }
 
-func verifyContainerResources(owner string, podTemplateSpec v1.PodTemplateSpec, t *testing.T) {
+func verifyContainerResources(owner string, podTemplateSpec corev1.PodTemplateSpec, t *testing.T) {
 	// Verify that every pod has resource request's & limit's set.
 	for _, container := range podTemplateSpec.Spec.Containers {
 		resourceLists := map[string]corev1.ResourceList{
@@ -790,8 +806,12 @@ func TestExecute(t *testing.T) {
 					Country:  "DE",
 					Spec: provider.DatacenterSpec{
 						AWS: &provider.AWSSpec{
-							Region:        "fra1",
-							AMI:           "aws-ami",
+							Region: "fra1",
+							Images: provider.ImageList{
+								providerconfig.OperatingSystemUbuntu: "ubuntu-ami",
+								providerconfig.OperatingSystemCentOS: "centos-ami",
+								providerconfig.OperatingSystemCoreos: "coreos-ami",
+							},
 							ZoneCharacter: "aws-zone-character",
 						},
 					},

@@ -1,6 +1,7 @@
 package vpnsidecar
 
 import (
+	kubermaticv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
 	"github.com/kubermatic/kubermatic/api/pkg/resources"
 
 	corev1 "k8s.io/api/core/v1"
@@ -20,15 +21,21 @@ var (
 	}
 )
 
+type openvpnData interface {
+	ImageRegistry(string) string
+	Cluster() *kubermaticv1.Cluster
+}
+
 // OpenVPNSidecarContainer returns a `corev1.Container` for
 // running alongside a master component, providing vpn access
 // to user cluster networks.
 // Also required but not provided by this func:
 // * volumes: resources.OpenVPNClientCertificatesSecretName, resources.CACertSecretName
-func OpenVPNSidecarContainer(data resources.DeploymentDataProvider, name string) (*corev1.Container, error) {
+func OpenVPNSidecarContainer(data openvpnData, name string) (*corev1.Container, error) {
+	procMountType := corev1.DefaultProcMount
 	return &corev1.Container{
 		Name:            name,
-		Image:           data.ImageRegistry("docker.io") + "/kubermatic/openvpn:v0.4",
+		Image:           data.ImageRegistry(resources.RegistryQuay) + "/kubermatic/openvpn:v0.5",
 		ImagePullPolicy: corev1.PullIfNotPresent,
 		Command:         []string{"/usr/sbin/openvpn"},
 		Args: []string{
@@ -54,6 +61,7 @@ func OpenVPNSidecarContainer(data resources.DeploymentDataProvider, name string)
 		},
 		SecurityContext: &corev1.SecurityContext{
 			Privileged: resources.Bool(true),
+			ProcMount:  &procMountType,
 		},
 		TerminationMessagePath:   corev1.TerminationMessagePathDefault,
 		TerminationMessagePolicy: corev1.TerminationMessageReadFile,

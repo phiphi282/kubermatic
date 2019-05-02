@@ -1,6 +1,6 @@
 metadata:
   creationTimestamp: null
-  generateName: machine-kubermatic-openstackcluster-1a2b3c4d5e-
+  generateName: worker-
   namespace: kube-system
 spec:
   metadata:
@@ -26,6 +26,7 @@ spec:
           metakube-cluster: openstackcluster-1a2b3c4d5e
         tenantName: ""
         tokenId: ""
+        trustDevicePath: false
         username: ""
       operatingSystem: ubuntu
       operatingSystemSpec:

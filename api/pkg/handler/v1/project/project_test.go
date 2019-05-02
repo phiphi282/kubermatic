@@ -1,6 +1,7 @@
 package project_test
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -10,12 +11,22 @@ import (
 	"time"
 
 	apiv1 "github.com/kubermatic/kubermatic/api/pkg/api/v1"
+	kubermaticfakeclentset "github.com/kubermatic/kubermatic/api/pkg/crd/client/clientset/versioned/fake"
+	kubermaticclientv1 "github.com/kubermatic/kubermatic/api/pkg/crd/client/clientset/versioned/typed/kubermatic/v1"
+	kubermaticinformers "github.com/kubermatic/kubermatic/api/pkg/crd/client/informers/externalversions"
 	kubermaticapiv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
+	"github.com/kubermatic/kubermatic/api/pkg/handler/middleware"
 	"github.com/kubermatic/kubermatic/api/pkg/handler/test"
 	"github.com/kubermatic/kubermatic/api/pkg/handler/test/hack"
+	"github.com/kubermatic/kubermatic/api/pkg/handler/v1/project"
+	"github.com/kubermatic/kubermatic/api/pkg/provider/kubernetes"
+	"github.com/kubermatic/kubermatic/api/pkg/util/errors"
 
+	"k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/util/wait"
+	restclient "k8s.io/client-go/rest"
 )
 
 func TestRenameProjectEndpoint(t *testing.T) {
@@ -50,12 +61,12 @@ func TestRenameProjectEndpoint(t *testing.T) {
 				test.GenDefaultOwnerBinding(),
 			},
 			ExistingAPIUser:  *test.GenDefaultAPIUser(),
-			ExpectedResponse: `{"id":"my-first-project-ID","name":"Super-Project","creationTimestamp":"2013-02-03T19:54:00Z","status":"Active"}`,
+			ExpectedResponse: `{"id":"my-first-project-ID","name":"Super-Project","creationTimestamp":"2013-02-03T19:54:00Z","status":"Active","owners":[{"name":"Bob","creationTimestamp":"0001-01-01T00:00:00Z","email":"bob@acme.com"}]}`,
 		},
 		{
 			Name:            "scenario 2: rename existing project with existing name",
 			Body:            `{"Name": "my-second-project"}`,
-			HTTPStatus:      http.StatusConflict,
+			HTTPStatus:      http.StatusOK,
 			ProjectToRename: "my-first-project-ID",
 			ExistingKubermaticObjects: []runtime.Object{
 				// add some projects
@@ -68,7 +79,7 @@ func TestRenameProjectEndpoint(t *testing.T) {
 				test.GenBinding("my-third-project-ID", test.GenDefaultUser().Spec.Email, "owners"),
 			},
 			ExistingAPIUser:  *test.GenDefaultAPIUser(),
-			ExpectedResponse: `{"error":{"code":409,"message":"project name \"my-second-project\" already exists"}}`,
+			ExpectedResponse: `{"id":"my-first-project-ID","name":"my-second-project","creationTimestamp":"2013-02-03T19:54:00Z","status":"Active","owners":[{"name":"Bob","creationTimestamp":"0001-01-01T00:00:00Z","email":"bob@acme.com"}]}`,
 		},
 		{
 			Name:            "scenario 3: rename existing project with existing name where user is not the owner",
@@ -89,7 +100,7 @@ func TestRenameProjectEndpoint(t *testing.T) {
 				test.GenBinding("my-third-project-ID", "john@acme.com", "owners"),
 			},
 			ExistingAPIUser:  *test.GenAPIUser("John", "john@acme.com"),
-			ExpectedResponse: `{"id":"my-first-project-ID","name":"my-second-project","creationTimestamp":"2013-02-03T19:54:00Z","status":"Active"}`,
+			ExpectedResponse: `{"id":"my-first-project-ID","name":"my-second-project","creationTimestamp":"2013-02-03T19:54:00Z","status":"Active","owners":[{"name":"John","creationTimestamp":"0001-01-01T00:00:00Z","email":"john@acme.com"}]}`,
 		},
 
 		{
@@ -103,7 +114,7 @@ func TestRenameProjectEndpoint(t *testing.T) {
 				test.GenDefaultOwnerBinding(),
 			},
 			ExistingAPIUser:  *test.GenDefaultAPIUser(),
-			ExpectedResponse: `{"error":{"code":403,"message":"forbidden: The user \"bob@acme.com\" doesn't belong to the given project = some-ID"}}`,
+			ExpectedResponse: `{"error":{"code":403,"message":"forbidden: \"bob@acme.com\" doesn't belong to the given project = some-ID"}}`,
 		},
 		{
 			Name:            "scenario 5: rename a project with empty name",
@@ -179,6 +190,14 @@ func TestListProjectEndpoint(t *testing.T) {
 						Name:              "my-first-project",
 						CreationTimestamp: apiv1.Date(2013, 02, 03, 19, 54, 0, 0, time.UTC),
 					},
+					Owners: []apiv1.User{
+						{
+							ObjectMeta: apiv1.ObjectMeta{
+								Name: "John",
+							},
+							Email: "john@acme.com",
+						},
+					},
 				},
 				{
 					Status: "Active",
@@ -207,7 +226,7 @@ func TestListProjectEndpoint(t *testing.T) {
 
 			// validate
 			if res.Code != tc.HTTPStatus {
-				t.Fatalf("Expected HTTP status code %d, got %d: %s", tc.HTTPStatus, res.Code, res.Body.String())
+				t.Fatalf("expected HTTP status code %d, got %d: %s", tc.HTTPStatus, res.Code, res.Body.String())
 			}
 
 			actualProjects := test.ProjectV1SliceWrapper{}
@@ -217,6 +236,131 @@ func TestListProjectEndpoint(t *testing.T) {
 			wrappedExpectedProjects.Sort()
 
 			actualProjects.EqualOrDie(wrappedExpectedProjects, t)
+		})
+	}
+}
+
+func TestListProjectMethod(t *testing.T) {
+	t.Parallel()
+	testcases := []struct {
+		Name                      string
+		ExistingKubermaticObjects []runtime.Object
+		ExistingAPIUser           *kubermaticapiv1.User
+		ExpectedErrorMsg          string
+		ExpectedDetails           []string
+		ExpectedResponse          []apiv1.Project
+	}{
+		{
+			Name: "scenario 1: project doesn't exist and it's forbidden for impersonated client, skipped in the result list",
+			ExistingKubermaticObjects: []runtime.Object{
+				// add some projects
+				test.GenProject(test.NoExistingFakeProject, kubermaticapiv1.ProjectActive, test.DefaultCreationTimestamp()),
+				test.GenProject("my-second-project", kubermaticapiv1.ProjectActive, test.DefaultCreationTimestamp().Add(time.Minute)),
+				test.GenProject(test.ExistingFakeProject, kubermaticapiv1.ProjectActive, test.DefaultCreationTimestamp().Add(2*time.Minute)),
+				// add John
+				test.GenUser("JohnID", "John", "john@acme.com"),
+				// make John the owner of the first project and the editor of the second
+				test.GenBinding(test.NoExistingFakeProjectID, "john@acme.com", "owners"),
+				test.GenBinding(test.ExistingFakeProjectID, "john@acme.com", "editors"),
+			},
+			ExistingAPIUser: test.GenUser("JohnID", "John", "john@acme.com"),
+			ExpectedResponse: []apiv1.Project{
+				{
+					Status: "Active",
+					ObjectMeta: apiv1.ObjectMeta{
+						ID:                test.ExistingFakeProjectID,
+						Name:              test.ExistingFakeProject,
+						CreationTimestamp: apiv1.Date(2013, 02, 03, 19, 56, 0, 0, time.UTC),
+					},
+					Owners: []apiv1.User{},
+				},
+			},
+		},
+		{
+			Name: "scenario 2: two project providers return 404 error code, the first error is added to the final error details list",
+			ExistingKubermaticObjects: []runtime.Object{
+				// add some projects
+				test.GenProject(test.ForbiddenFakeProject, kubermaticapiv1.ProjectActive, test.DefaultCreationTimestamp()),
+				test.GenProject(test.ExistingFakeProject, kubermaticapiv1.ProjectActive, test.DefaultCreationTimestamp().Add(2*time.Minute)),
+				// add John
+				test.GenUser("JohnID", "John", "john@acme.com"),
+				// make John the owner of the first project and the editor of the second
+				test.GenBinding(test.ForbiddenFakeProjectID, "john@acme.com", "owners"),
+				test.GenBinding(test.ExistingFakeProjectID, "john@acme.com", "editors"),
+			},
+			ExistingAPIUser:  test.GenUser("JohnID", "John", "john@acme.com"),
+			ExpectedErrorMsg: "failed to get some projects, please examine details field for more info",
+			ExpectedDetails:  []string{test.ImpersonatedClientErrorMsg},
+			ExpectedResponse: []apiv1.Project{
+				{
+					Status: "Active",
+					ObjectMeta: apiv1.ObjectMeta{
+						ID:                test.ExistingFakeProjectID,
+						Name:              test.ExistingFakeProject,
+						CreationTimestamp: apiv1.Date(2013, 02, 03, 19, 56, 0, 0, time.UTC),
+					},
+					Owners: []apiv1.User{},
+				},
+			},
+		},
+	}
+
+	for _, tc := range testcases {
+		t.Run(tc.Name, func(t *testing.T) {
+
+			kubermaticClient := kubermaticfakeclentset.NewSimpleClientset(tc.ExistingKubermaticObjects...)
+			kubermaticInformerFactory := kubermaticinformers.NewSharedInformerFactory(kubermaticClient, 10*time.Millisecond)
+
+			fakeImpersonationClient := func(impCfg restclient.ImpersonationConfig) (kubermaticclientv1.KubermaticV1Interface, error) {
+				return kubermaticClient.KubermaticV1(), nil
+			}
+
+			userLister := kubermaticInformerFactory.Kubermatic().V1().Users().Lister()
+			projectBindingLister := kubermaticInformerFactory.Kubermatic().V1().UserProjectBindings().Lister()
+			projectMemberProvider := kubernetes.NewProjectMemberProvider(fakeImpersonationClient, projectBindingLister, userLister, kubernetes.IsServiceAccount)
+			userProvider := kubernetes.NewUserProvider(kubermaticClient, kubermaticInformerFactory.Kubermatic().V1().Users().Lister(), kubernetes.IsServiceAccount)
+
+			kubermaticInformerFactory.Start(wait.NeverStop)
+			kubermaticInformerFactory.WaitForCacheSync(wait.NeverStop)
+
+			endpointFun := project.ListEndpoint(test.NewFakeProjectProvider(), test.NewFakePrivilegedProjectProvider(), projectMemberProvider, projectMemberProvider, userProvider)
+
+			ctx := context.WithValue(context.TODO(), middleware.UserCRContextKey, tc.ExistingAPIUser)
+
+			projectsRaw, err := endpointFun(ctx, nil)
+			resultProjectList := make([]apiv1.Project, 0)
+
+			if len(tc.ExpectedErrorMsg) > 0 {
+				if err == nil {
+					t.Fatal("expected error")
+				}
+				kubermaticError, ok := err.(errors.HTTPError)
+				if !ok {
+					t.Fatal("expected HTTPError")
+				}
+				if kubermaticError.Error() != tc.ExpectedErrorMsg {
+					t.Fatalf("expected error message %s got %s", tc.ExpectedErrorMsg, kubermaticError.Error())
+				}
+				if !equality.Semantic.DeepEqual(kubermaticError.Details(), tc.ExpectedDetails) {
+					t.Fatalf("expected error details %v got %v", tc.ExpectedDetails, kubermaticError.Details())
+				}
+			} else {
+				if projectsRaw == nil {
+					t.Fatal("project endpoint can not be nil")
+				}
+
+				for _, project := range projectsRaw.([]*apiv1.Project) {
+					resultProjectList = append(resultProjectList, *project)
+				}
+
+				actualProjects := test.ProjectV1SliceWrapper(resultProjectList)
+				actualProjects.Sort()
+
+				wrappedExpectedProjects := test.ProjectV1SliceWrapper(tc.ExpectedResponse)
+				wrappedExpectedProjects.Sort()
+
+				actualProjects.EqualOrDie(wrappedExpectedProjects, t)
+			}
 		})
 	}
 }
@@ -237,7 +381,7 @@ func TestGetProjectEndpoint(t *testing.T) {
 			Name:                      "scenario 1: get an existing project assigned to the given user",
 			Body:                      ``,
 			ProjectToSync:             test.GenDefaultProject().Name,
-			ExpectedResponse:          `{"id":"my-first-project-ID","name":"my-first-project","creationTimestamp":"2013-02-03T19:54:00Z","status":"Active"}`,
+			ExpectedResponse:          `{"id":"my-first-project-ID","name":"my-first-project","creationTimestamp":"2013-02-03T19:54:00Z","status":"Active","owners":[{"name":"Bob","creationTimestamp":"0001-01-01T00:00:00Z","email":"bob@acme.com"}]}`,
 			HTTPStatus:                http.StatusOK,
 			ExistingKubermaticObjects: test.GenDefaultKubermaticObjects(),
 			ExistingAPIUser:           test.GenDefaultAPIUser(),
@@ -281,7 +425,7 @@ func TestCreateProjectEndpoint(t *testing.T) {
 			Name:             "scenario 1: a user doesn't have any projects, thus creating one succeeds",
 			Body:             `{"name":"my-first-project"}`,
 			RewriteProjectID: true,
-			ExpectedResponse: `{"id":"%s","name":"my-first-project","creationTimestamp":"0001-01-01T00:00:00Z","status":"Inactive"}`,
+			ExpectedResponse: `{"id":"%s","name":"my-first-project","creationTimestamp":"0001-01-01T00:00:00Z","status":"Inactive","owners":[{"name":"Bob","creationTimestamp":"0001-01-01T00:00:00Z","email":"bob@acme.com"}]}`,
 			HTTPStatus:       http.StatusCreated,
 			ExistingKubermaticObjects: []runtime.Object{
 				test.GenDefaultUser(),
@@ -290,10 +434,11 @@ func TestCreateProjectEndpoint(t *testing.T) {
 		},
 
 		{
-			Name:                      "scenario 2: a user has a project with the given name, thus creating one fails",
+			Name:                      "scenario 2: having more than one project with the same name is allowed",
 			Body:                      fmt.Sprintf(`{"name":"%s"}`, test.GenDefaultProject().Spec.Name),
-			ExpectedResponse:          `{"error":{"code":409,"message":"projects.kubermatic.k8s.io \"my-first-project\" already exists"}}`,
-			HTTPStatus:                http.StatusConflict,
+			RewriteProjectID:          true,
+			ExpectedResponse:          `{"id":"%s","name":"my-first-project","creationTimestamp":"0001-01-01T00:00:00Z","status":"Inactive","owners":[{"name":"Bob","creationTimestamp":"0001-01-01T00:00:00Z","email":"bob@acme.com"}]}`,
+			HTTPStatus:                http.StatusCreated,
 			ExistingKubermaticObjects: test.GenDefaultKubermaticObjects(),
 			ExistingAPIUser:           test.GenDefaultAPIUser(),
 		},

@@ -1,21 +1,15 @@
 package cluster
 
 import (
-	"log"
-	"time"
+	"testing"
 
-	"github.com/kubermatic/kubermatic/api/pkg/cluster/client"
-	kubermaticfakeclientset "github.com/kubermatic/kubermatic/api/pkg/crd/client/clientset/versioned/fake"
-	kubermaticinformers "github.com/kubermatic/kubermatic/api/pkg/crd/client/informers/externalversions"
+	kubermaticscheme "github.com/kubermatic/kubermatic/api/pkg/crd/client/clientset/versioned/scheme"
 	"github.com/kubermatic/kubermatic/api/pkg/provider"
-	"github.com/kubermatic/kubermatic/api/pkg/provider/cloud"
 
+	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/util/wait"
-	"k8s.io/client-go/informers"
-	kubefake "k8s.io/client-go/kubernetes/fake"
+	"k8s.io/client-go/kubernetes/scheme"
 
-	ctrlruntimefakeinformer "sigs.k8s.io/controller-runtime/pkg/cache/informertest"
 	ctrlruntimefakeclient "sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
@@ -24,69 +18,25 @@ const TestDC = "europe-west3-c"
 const TestExternalURL = "dev.kubermatic.io"
 const TestExternalPort = 30000
 
-func newTestController(kubeObjects []runtime.Object, kubermaticObjects []runtime.Object) *Controller {
-	dcs := buildDatacenterMeta()
-	cps := cloud.Providers(dcs)
-
-	kubeClient := kubefake.NewSimpleClientset(kubeObjects...)
-	kubermaticClient := kubermaticfakeclientset.NewSimpleClientset(kubermaticObjects...)
-
-	kubeInformerFactory := informers.NewSharedInformerFactory(kubeClient, time.Minute*5)
-	kubermaticInformerFactory := kubermaticinformers.NewSharedInformerFactory(kubermaticClient, time.Minute*5)
-
-	dynamicClient := ctrlruntimefakeclient.NewFakeClient()
-	controller, err := NewController(
-		kubeClient,
-		dynamicClient,
-		kubermaticClient,
-		TestExternalURL,
-		TestDC,
-		dcs,
-		cps,
-		client.New(kubeInformerFactory.Core().V1().Secrets().Lister()),
-		"",
-		"",
-		"192.0.2.0/24",
-		"5Gi",
-		"",
-		"",
-		false,
-		false,
-		"",
-		[]byte{},
-
-		&ctrlruntimefakeinformer.FakeInformers{},
-		kubermaticInformerFactory.Kubermatic().V1().Clusters(),
-		kubeInformerFactory.Core().V1().Namespaces(),
-		kubeInformerFactory.Core().V1().Secrets(),
-		kubeInformerFactory.Core().V1().Services(),
-		kubeInformerFactory.Core().V1().PersistentVolumeClaims(),
-		kubeInformerFactory.Core().V1().ConfigMaps(),
-		kubeInformerFactory.Core().V1().ServiceAccounts(),
-		kubeInformerFactory.Apps().V1().Deployments(),
-		kubeInformerFactory.Apps().V1().StatefulSets(),
-		kubeInformerFactory.Batch().V1beta1().CronJobs(),
-		kubeInformerFactory.Extensions().V1beta1().Ingresses(),
-		kubeInformerFactory.Rbac().V1().Roles(),
-		kubeInformerFactory.Rbac().V1().RoleBindings(),
-		kubeInformerFactory.Rbac().V1().ClusterRoleBindings(),
-		kubeInformerFactory.Policy().V1beta1().PodDisruptionBudgets(),
-		"",
-		"",
-		"",
-		true,
-	)
-	if err != nil {
-		log.Fatal(err)
+func newTestReconciler(t *testing.T, objects []runtime.Object) *Reconciler {
+	if err := kubermaticscheme.AddToScheme(scheme.Scheme); err != nil {
+		t.Fatalf("failed to add kubermatic scheme: %v", err)
 	}
 
-	kubeInformerFactory.Start(wait.NeverStop)
-	kubermaticInformerFactory.Start(wait.NeverStop)
+	dcs := buildDatacenterMeta()
 
-	kubeInformerFactory.WaitForCacheSync(wait.NeverStop)
-	kubermaticInformerFactory.WaitForCacheSync(wait.NeverStop)
+	dynamicClient := ctrlruntimefakeclient.NewFakeClient(objects...)
+	r := &Reconciler{
+		Client:                  dynamicClient,
+		userClusterConnProvider: nil,
+		externalURL:             TestExternalURL,
+		dc:                      TestDC,
+		dcs:                     dcs,
+		etcdDiskSize:            resource.MustParse("5Gi"),
+		nodeAccessNetwork:       "192.0.2.0/24",
+	}
 
-	return controller
+	return r
 }
 
 func buildDatacenterMeta() map[string]provider.DatacenterMeta {

@@ -1,6 +1,7 @@
 package cluster
 
 import (
+	"context"
 	"fmt"
 
 	kubermaticv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
@@ -11,360 +12,302 @@ import (
 	"github.com/kubermatic/kubermatic/api/pkg/resources/controllermanager"
 	"github.com/kubermatic/kubermatic/api/pkg/resources/dns"
 	"github.com/kubermatic/kubermatic/api/pkg/resources/etcd"
-	"github.com/kubermatic/kubermatic/api/pkg/resources/ipamcontroller"
 	"github.com/kubermatic/kubermatic/api/pkg/resources/machinecontroller"
-	metricsserver "github.com/kubermatic/kubermatic/api/pkg/resources/metrics-server"
+	"github.com/kubermatic/kubermatic/api/pkg/resources/metrics-server"
 	"github.com/kubermatic/kubermatic/api/pkg/resources/openvpn"
+	"github.com/kubermatic/kubermatic/api/pkg/resources/reconciling"
 	"github.com/kubermatic/kubermatic/api/pkg/resources/scheduler"
+	"github.com/kubermatic/kubermatic/api/pkg/resources/usercluster"
+
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-
-	autoscalingv1beta "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/apis/autoscaling.k8s.io/v1beta1"
+	"k8s.io/apimachinery/pkg/types"
 )
 
-const (
-	nodeDeletionFinalizer = "kubermatic.io/delete-nodes"
-)
-
-func (cc *Controller) ensureResourcesAreDeployed(cluster *kubermaticv1.Cluster) error {
-	data, err := cc.getClusterTemplateData(cluster)
+func (r *Reconciler) ensureResourcesAreDeployed(ctx context.Context, cluster *kubermaticv1.Cluster) error {
+	data, err := r.getClusterTemplateData(ctx, cluster)
 	if err != nil {
 		return err
 	}
 
 	// check that all services are available
-	if err := cc.ensureServices(cluster, data); err != nil {
+	if err := r.ensureServices(ctx, cluster, data); err != nil {
 		return err
 	}
 
 	// check that all secrets are available // New way of handling secrets
-	if err := cc.ensureSecrets(cluster, data); err != nil {
+	if err := r.ensureSecrets(ctx, cluster, data); err != nil {
 		return err
 	}
 
+	// check that all StatefulSets are created
+	if err := r.ensureStatefulSets(ctx, cluster, data); err != nil {
+		return err
+	}
+
+	// Wait until the cloud provider infra is ready before attempting
+	// to render the cloud-config
+	// TODO: Model resource deployment as a DAG so we don't need hacks
+	// like this combined with tribal knowledge and "someone is noticing this
+	// isn't working correctly"
+	// https://github.com/kubermatic/kubermatic/issues/2948
+	if !cluster.Status.Health.CloudProviderInfrastructure {
+		return nil
+	}
+
 	// check that all ConfigMaps are available
-	if err := cc.ensureConfigMaps(cluster, data); err != nil {
+	if err := r.ensureConfigMaps(ctx, cluster, data); err != nil {
 		return err
 	}
 
 	// check that all Deployments are available
-	if err := cc.ensureDeployments(cluster, data); err != nil {
-		return err
-	}
-
-	// check that all StatefulSets are created
-	if err := cc.ensureStatefulSets(cluster, data); err != nil {
+	if err := r.ensureDeployments(ctx, cluster, data); err != nil {
 		return err
 	}
 
 	// check that all CronJobs are created
-	if err := cc.ensureCronJobs(cluster, data); err != nil {
+	if err := r.ensureCronJobs(ctx, cluster, data); err != nil {
 		return err
 	}
 
 	// check that all PodDisruptionBudgets are created
-	if err := cc.ensurePodDisruptionBudgets(cluster, data); err != nil {
+	if err := r.ensurePodDisruptionBudgets(ctx, cluster, data); err != nil {
 		return err
 	}
 
-	// check that all StatefulSets are created
-	if err := cc.ensureVerticalPodAutoscalers(cluster, data); err != nil {
+	// check that all VerticalPodAutoscalers are created
+	if err := r.ensureVerticalPodAutoscalers(ctx, cluster, data); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-func (cc *Controller) getClusterTemplateData(c *kubermaticv1.Cluster) (*resources.TemplateData, error) {
-	dc, found := cc.dcs[c.Spec.Cloud.DatacenterName]
+func (r *Reconciler) getClusterTemplateData(ctx context.Context, cluster *kubermaticv1.Cluster) (*resources.TemplateData, error) {
+	dc, found := r.dcs[cluster.Spec.Cloud.DatacenterName]
 	if !found {
-		return nil, fmt.Errorf("failed to get datacenter %s", c.Spec.Cloud.DatacenterName)
+		return nil, fmt.Errorf("failed to get datacenter %s", cluster.Spec.Cloud.DatacenterName)
 	}
 
 	return resources.NewTemplateData(
-		c,
+		ctx,
+		r,
+		cluster,
 		&dc,
-		cc.dc,
-		cc.secretLister,
-		cc.configMapLister,
-		cc.serviceLister,
-		cc.overwriteRegistry,
-		cc.nodePortRange,
-		cc.nodeAccessNetwork,
-		cc.etcdDiskSize,
-		cc.monitoringScrapeAnnotationPrefix,
-		cc.inClusterPrometheusRulesFile,
-		cc.inClusterPrometheusDisableDefaultRules,
-		cc.inClusterPrometheusDisableDefaultScrapingConfigs,
-		cc.inClusterPrometheusScrapingConfigsFile,
-		cc.dockerPullConfigJSON,
-		cc.oidcCAFile,
-		cc.oidcIssuerURL,
-		cc.oidcIssuerClientID,
+		r.dc,
+		r.overwriteRegistry,
+		r.nodePortRange,
+		r.nodeAccessNetwork,
+		r.etcdDiskSize,
+		r.monitoringScrapeAnnotationPrefix,
+		r.inClusterPrometheusRulesFile,
+		r.inClusterPrometheusDisableDefaultRules,
+		r.inClusterPrometheusDisableDefaultScrapingConfigs,
+		r.inClusterPrometheusScrapingConfigsFile,
+		r.oidcCAFile,
+		r.oidcIssuerURL,
+		r.oidcIssuerClientID,
 	), nil
 }
 
 // ensureNamespaceExists will create the cluster namespace
-func (cc *Controller) ensureNamespaceExists(c *kubermaticv1.Cluster) (*kubermaticv1.Cluster, error) {
-	var err error
-	if c.Status.NamespaceName == "" {
-		c, err = cc.updateCluster(c.Name, func(c *kubermaticv1.Cluster) {
+func (r *Reconciler) ensureNamespaceExists(ctx context.Context, cluster *kubermaticv1.Cluster) error {
+	if cluster.Status.NamespaceName == "" {
+		err := r.updateCluster(ctx, cluster, func(c *kubermaticv1.Cluster) {
 			c.Status.NamespaceName = fmt.Sprintf("cluster-%s", c.Name)
 		})
 		if err != nil {
-			return nil, err
+			return err
 		}
 	}
 
-	if _, err := cc.namespaceLister.Get(c.Status.NamespaceName); !errors.IsNotFound(err) {
-		return c, err
+	ns := &corev1.Namespace{}
+	if err := r.Get(ctx, types.NamespacedName{Name: cluster.Status.NamespaceName}, ns); !errors.IsNotFound(err) {
+		return err
 	}
 
-	ns := &corev1.Namespace{
+	ns = &corev1.Namespace{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:            c.Status.NamespaceName,
-			OwnerReferences: []metav1.OwnerReference{cc.getOwnerRefForCluster(c)},
+			Name:            cluster.Status.NamespaceName,
+			OwnerReferences: []metav1.OwnerReference{r.getOwnerRefForCluster(cluster)},
 		},
 	}
-	if _, err := cc.kubeClient.CoreV1().Namespaces().Create(ns); err != nil {
-		return nil, fmt.Errorf("failed to create namespace %s: %v", c.Status.NamespaceName, err)
-	}
-
-	return c, nil
-}
-
-// GetServiceCreators returns all service creators that are currently in use
-func GetServiceCreators() []resources.ServiceCreator {
-	return []resources.ServiceCreator{
-		apiserver.Service,
-		apiserver.ExternalService,
-		openvpn.Service,
-		etcd.Service,
-		dns.Service,
-		machinecontroller.Service,
-		metricsserver.Service,
-	}
-}
-
-func (cc *Controller) ensureServices(c *kubermaticv1.Cluster, data *resources.TemplateData) error {
-	creators := GetServiceCreators()
-
-	for _, create := range creators {
-		if err := resources.EnsureService(data, create, cc.serviceLister.Services(c.Status.NamespaceName), cc.kubeClient.CoreV1().Services(c.Status.NamespaceName)); err != nil {
-			return fmt.Errorf("failed to ensure that the service exists: %v", err)
-		}
+	if err := r.Client.Create(ctx, ns); err != nil {
+		return fmt.Errorf("failed to create Namespace %s: %v", cluster.Status.NamespaceName, err)
 	}
 
 	return nil
 }
 
+// GetServiceCreators returns all service creators that are currently in use
+func GetServiceCreators(data *resources.TemplateData) []reconciling.NamedServiceCreatorGetter {
+	return []reconciling.NamedServiceCreatorGetter{
+		apiserver.InternalServiceCreator(),
+		apiserver.ExternalServiceCreator(),
+		openvpn.ServiceCreator(),
+		etcd.ServiceCreator(data),
+		dns.ServiceCreator(),
+		machinecontroller.ServiceCreator(),
+		metricsserver.ServiceCreator(),
+	}
+}
+
+func (r *Reconciler) ensureServices(ctx context.Context, c *kubermaticv1.Cluster, data *resources.TemplateData) error {
+	creators := GetServiceCreators(data)
+	return reconciling.ReconcileServices(ctx, creators, c.Status.NamespaceName, r, reconciling.OwnerRefWrapper(resources.GetClusterRef(c)))
+}
+
 // GetDeploymentCreators returns all DeploymentCreators that are currently in use
-func GetDeploymentCreators(c *kubermaticv1.Cluster) []resources.DeploymentCreator {
-	creators := []resources.DeploymentCreator{
-		machinecontroller.Deployment,
-		machinecontroller.WebhookDeployment,
-		openvpn.Deployment,
-		apiserver.Deployment,
-		scheduler.Deployment,
-		controllermanager.Deployment,
-		dns.Deployment,
-		metricsserver.Deployment,
+func GetDeploymentCreators(data *resources.TemplateData, enableAPIserverOIDCAuthentication bool) []reconciling.NamedDeploymentCreatorGetter {
+	return []reconciling.NamedDeploymentCreatorGetter{
+		openvpn.DeploymentCreator(data),
+		dns.DeploymentCreator(data),
+		apiserver.DeploymentCreator(data, enableAPIserverOIDCAuthentication),
+		scheduler.DeploymentCreator(data),
+		controllermanager.DeploymentCreator(data),
+		machinecontroller.DeploymentCreator(data),
+		machinecontroller.WebhookDeploymentCreator(data),
+		metricsserver.DeploymentCreator(data),
+		usercluster.DeploymentCreator(data, false),
+	}
+}
+
+func (r *Reconciler) ensureDeployments(ctx context.Context, cluster *kubermaticv1.Cluster, data *resources.TemplateData) error {
+	creators := GetDeploymentCreators(data, r.features.KubernetesOIDCAuthentication)
+	return reconciling.ReconcileDeployments(ctx, creators, cluster.Status.NamespaceName, r, reconciling.OwnerRefWrapper(resources.GetClusterRef(cluster)))
+}
+
+// GetSecretCreators returns all SecretCreators that are currently in use
+func (r *Reconciler) GetSecretCreators(data *resources.TemplateData) []reconciling.NamedSecretCreatorGetter {
+	creators := []reconciling.NamedSecretCreatorGetter{
+		certificates.RootCACreator(data),
+		openvpn.CACreator(),
+		certificates.FrontProxyCACreator(),
+		resources.ImagePullSecretCreator(r.dockerPullConfigJSON),
+		apiserver.FrontProxyClientCertificateCreator(data),
+		etcd.TLSCertificateCreator(data),
+		apiserver.EtcdClientCertificateCreator(data),
+		apiserver.TLSServingCertificateCreator(data),
+		apiserver.KubeletClientCertificateCreator(data),
+		apiserver.ServiceAccountKeyCreator(),
+		openvpn.TLSServingCertificateCreator(data),
+		openvpn.InternalClientCertificateCreator(data),
+		machinecontroller.TLSServingCertificateCreator(data),
+
+		// Kubeconfigs
+		resources.GetInternalKubeconfigCreator(resources.SchedulerKubeconfigSecretName, resources.SchedulerCertUsername, nil, data),
+		resources.GetInternalKubeconfigCreator(resources.KubeletDnatControllerKubeconfigSecretName, resources.KubeletDnatControllerCertUsername, nil, data),
+		resources.GetInternalKubeconfigCreator(resources.MachineControllerKubeconfigSecretName, resources.MachineControllerCertUsername, nil, data),
+		resources.GetInternalKubeconfigCreator(resources.ControllerManagerKubeconfigSecretName, resources.ControllerManagerCertUsername, nil, data),
+		resources.GetInternalKubeconfigCreator(resources.KubeStateMetricsKubeconfigSecretName, resources.KubeStateMetricsCertUsername, nil, data),
+		resources.GetInternalKubeconfigCreator(resources.MetricsServerKubeconfigSecretName, resources.MetricsServerCertUsername, nil, data),
+		resources.GetInternalKubeconfigCreator(resources.InternalUserClusterAdminKubeconfigSecretName, resources.InternalUserClusterAdminKubeconfigCertUsername, []string{"system:masters"}, data),
+		resources.AdminKubeconfigCreator(data),
+		apiserver.TokenUsersCreator(data),
 	}
 
-	if c != nil && len(c.Spec.MachineNetworks) > 0 {
-		creators = append(creators, ipamcontroller.Deployment)
+	if len(data.OIDCCAFile()) > 0 {
+		creators = append(creators, apiserver.DexCACertificateCreator(data.GetDexCA))
 	}
 
 	return creators
 }
 
-func (cc *Controller) ensureDeployments(c *kubermaticv1.Cluster, data *resources.TemplateData) error {
-	creators := GetDeploymentCreators(c)
+func (r *Reconciler) ensureSecrets(ctx context.Context, c *kubermaticv1.Cluster, data *resources.TemplateData) error {
+	namedSecretCreatorGetters := r.GetSecretCreators(data)
 
-	for _, create := range creators {
-		if err := resources.EnsureDeployment(data, create, cc.deploymentLister.Deployments(c.Status.NamespaceName), cc.kubeClient.AppsV1().Deployments(c.Status.NamespaceName)); err != nil {
-			return fmt.Errorf("failed to ensure that the Deployment exists: %v", err)
-		}
-	}
-
-	return nil
-}
-
-// SecretOperation returns a wrapper struct to utilize a sorted slice instead of an unsorted map
-type SecretOperation struct {
-	name   string
-	create resources.SecretCreator
-}
-
-// GetSecretCreatorOperations returns all SecretCreators that are currently in use
-func GetSecretCreatorOperations(c *kubermaticv1.Cluster, dockerPullConfigJSON []byte, enableDexCA bool) []SecretOperation {
-	secrets := []SecretOperation{
-		{resources.CASecretName, certificates.RootCA},
-		{resources.OpenVPNCASecretName, openvpn.CertificateAuthority},
-		{resources.FrontProxyCASecretName, certificates.FrontProxyCA},
-		{resources.ImagePullSecretName, resources.ImagePullSecretCreator(resources.ImagePullSecretName, dockerPullConfigJSON)},
-		{resources.ApiserverFrontProxyClientCertificateSecretName, apiserver.FrontProxyClientCertificate},
-		{resources.EtcdTLSCertificateSecretName, etcd.TLSCertificate},
-		{resources.ApiserverEtcdClientCertificateSecretName, apiserver.EtcdClientCertificate},
-		{resources.ApiserverTLSSecretName, apiserver.TLSServingCertificate},
-		{resources.KubeletClientCertificatesSecretName, apiserver.KubeletClientCertificate},
-		{resources.ServiceAccountKeySecretName, apiserver.ServiceAccountKey},
-		{resources.OpenVPNServerCertificatesSecretName, openvpn.TLSServingCertificate},
-		{resources.OpenVPNClientCertificatesSecretName, openvpn.InternalClientCertificate},
-		{resources.TokensSecretName, apiserver.TokenUsers},
-		{resources.AdminKubeconfigSecretName, resources.AdminKubeconfig},
-		{resources.InternalUserClusterAdminKubeconfigSecretName, resources.GetInternalKubeconfigCreator(resources.InternalUserClusterAdminKubeconfigSecretName, resources.InternalUserClusterAdminKubeconfigCertUsername, []string{"system:masters"})},
-		{resources.SchedulerKubeconfigSecretName, resources.GetInternalKubeconfigCreator(resources.SchedulerKubeconfigSecretName, resources.SchedulerCertUsername, nil)},
-		{resources.KubeletDnatControllerKubeconfigSecretName, resources.GetInternalKubeconfigCreator(resources.KubeletDnatControllerKubeconfigSecretName, resources.KubeletDnatControllerCertUsername, nil)},
-		{resources.MachineControllerKubeconfigSecretName, resources.GetInternalKubeconfigCreator(resources.MachineControllerKubeconfigSecretName, resources.MachineControllerCertUsername, nil)},
-		{resources.ControllerManagerKubeconfigSecretName, resources.GetInternalKubeconfigCreator(resources.ControllerManagerKubeconfigSecretName, resources.ControllerManagerCertUsername, nil)},
-		{resources.KubeStateMetricsKubeconfigSecretName, resources.GetInternalKubeconfigCreator(resources.KubeStateMetricsKubeconfigSecretName, resources.KubeStateMetricsCertUsername, nil)},
-		{resources.MachineControllerWebhookServingCertSecretName, machinecontroller.TLSServingCertificate},
-		{resources.MetricsServerKubeconfigSecretName, resources.GetInternalKubeconfigCreator(resources.MetricsServerKubeconfigSecretName, resources.MetricsServerCertUsername, nil)},
-	}
-
-	if enableDexCA {
-		secrets = append(secrets, SecretOperation{name: resources.DexCASecretName, create: apiserver.DexCACertificate})
-	}
-
-	if len(c.Spec.MachineNetworks) > 0 {
-		secrets = append(secrets, SecretOperation{resources.IPAMControllerKubeconfigSecretName, resources.GetInternalKubeconfigCreator(resources.IPAMControllerKubeconfigSecretName, resources.IPAMControllerCertUsername, nil)})
-	}
-	return secrets
-}
-
-func (cc *Controller) ensureSecrets(c *kubermaticv1.Cluster, data *resources.TemplateData) error {
-
-	var enableDexCA bool
-	if len(data.OIDCCAFile()) > 0 {
-		enableDexCA = true
-	}
-
-	operations := GetSecretCreatorOperations(c, cc.dockerPullConfigJSON, enableDexCA)
-
-	for _, op := range operations {
-		if err := resources.EnsureSecret(op.name, data, op.create, cc.secretLister.Secrets(c.Status.NamespaceName), cc.kubeClient.CoreV1().Secrets(c.Status.NamespaceName)); err != nil {
-			return fmt.Errorf("failed to ensure that the Secret exists: %v", err)
-		}
+	if err := reconciling.ReconcileSecrets(ctx, namedSecretCreatorGetters, c.Status.NamespaceName, r.Client, reconciling.OwnerRefWrapper(resources.GetClusterRef(c))); err != nil {
+		return fmt.Errorf("failed to ensure that the Secret exists: %v", err)
 	}
 
 	return nil
 }
 
 // GetConfigMapCreators returns all ConfigMapCreators that are currently in use
-func GetConfigMapCreators(data *resources.TemplateData) []resources.ConfigMapCreator {
-	return []resources.ConfigMapCreator{
+func GetConfigMapCreators(data *resources.TemplateData) []reconciling.NamedConfigMapCreatorGetter {
+	return []reconciling.NamedConfigMapCreatorGetter{
 		cloudconfig.ConfigMapCreator(data),
 		openvpn.ServerClientConfigsConfigMapCreator(data),
 		dns.ConfigMapCreator(data),
 	}
 }
 
-func (cc *Controller) ensureConfigMaps(c *kubermaticv1.Cluster, data *resources.TemplateData) error {
+func (r *Reconciler) ensureConfigMaps(ctx context.Context, c *kubermaticv1.Cluster, data *resources.TemplateData) error {
 	creators := GetConfigMapCreators(data)
 
-	for _, create := range creators {
-		if err := resources.EnsureConfigMap(create, cc.configMapLister.ConfigMaps(c.Status.NamespaceName), cc.kubeClient.CoreV1().ConfigMaps(c.Status.NamespaceName)); err != nil {
-			return fmt.Errorf("failed to ensure that the ConfigMap exists: %v", err)
-		}
+	if err := reconciling.ReconcileConfigMaps(ctx, creators, c.Status.NamespaceName, r.Client, reconciling.OwnerRefWrapper(resources.GetClusterRef(c))); err != nil {
+		return fmt.Errorf("failed to ensure that the ConfigMap exists: %v", err)
 	}
 
 	return nil
 }
 
 // GetStatefulSetCreators returns all StatefulSetCreators that are currently in use
-func GetStatefulSetCreators(data *resources.TemplateData) []resources.StatefulSetCreator {
-	return []resources.StatefulSetCreator{
-		etcd.StatefulSetCreator(data),
+func GetStatefulSetCreators(data *resources.TemplateData, enableDataCorruptionChecks bool) []reconciling.NamedStatefulSetCreatorGetter {
+	return []reconciling.NamedStatefulSetCreatorGetter{
+		etcd.StatefulSetCreator(data, enableDataCorruptionChecks),
 	}
 }
 
 // GetPodDisruptionBudgetCreators returns all PodDisruptionBudgetCreators that are currently in use
-func GetPodDisruptionBudgetCreators() []resources.PodDisruptionBudgetCreator {
-	return []resources.PodDisruptionBudgetCreator{
-		etcd.PodDisruptionBudget,
-		apiserver.PodDisruptionBudget,
-		metricsserver.PodDisruptionBudget,
+func GetPodDisruptionBudgetCreators(data *resources.TemplateData) []reconciling.NamedPodDisruptionBudgetCreatorGetter {
+	return []reconciling.NamedPodDisruptionBudgetCreatorGetter{
+		etcd.PodDisruptionBudgetCreator(data),
+		apiserver.PodDisruptionBudgetCreator(),
+		metricsserver.PodDisruptionBudgetCreator(),
 	}
 }
 
-func (cc *Controller) ensurePodDisruptionBudgets(c *kubermaticv1.Cluster, data *resources.TemplateData) error {
-	creators := GetPodDisruptionBudgetCreators()
+func (r *Reconciler) ensurePodDisruptionBudgets(ctx context.Context, c *kubermaticv1.Cluster, data *resources.TemplateData) error {
+	creators := GetPodDisruptionBudgetCreators(data)
 
-	for _, create := range creators {
-		if err := resources.EnsurePodDisruptionBudget(data, create, cc.podDisruptionBudgetLister.PodDisruptionBudgets(c.Status.NamespaceName), cc.kubeClient.PolicyV1beta1().PodDisruptionBudgets(c.Status.NamespaceName)); err != nil {
-			return fmt.Errorf("failed to ensure that the PodDisruptionBudget exists: %v", err)
-		}
+	if err := reconciling.ReconcilePodDisruptionBudgets(ctx, creators, c.Status.NamespaceName, r.Client, reconciling.OwnerRefWrapper(resources.GetClusterRef(c))); err != nil {
+		return fmt.Errorf("failed to ensure that the PodDisruptionBudget exists: %v", err)
 	}
 
 	return nil
 }
 
 // GetCronJobCreators returns all CronJobCreators that are currently in use
-func GetCronJobCreators() []resources.CronJobCreator {
-	return []resources.CronJobCreator{
-		etcd.CronJob,
+func GetCronJobCreators(data *resources.TemplateData) []reconciling.NamedCronJobCreatorGetter {
+	return []reconciling.NamedCronJobCreatorGetter{
+		etcd.CronJobCreator(data),
 	}
 }
 
-func (cc *Controller) ensureCronJobs(c *kubermaticv1.Cluster, data *resources.TemplateData) error {
-	creators := GetCronJobCreators()
+func (r *Reconciler) ensureCronJobs(ctx context.Context, c *kubermaticv1.Cluster, data *resources.TemplateData) error {
+	creators := GetCronJobCreators(data)
 
-	for _, create := range creators {
-		if err := resources.EnsureCronJob(data, create, cc.cronJobLister.CronJobs(c.Status.NamespaceName), cc.kubeClient.BatchV1beta1().CronJobs(c.Status.NamespaceName)); err != nil {
-			return fmt.Errorf("failed to ensure that the CronJob exists: %v", err)
-		}
+	if err := reconciling.ReconcileCronJobs(ctx, creators, c.Status.NamespaceName, r.Client, reconciling.OwnerRefWrapper(resources.GetClusterRef(c))); err != nil {
+		return fmt.Errorf("failed to ensure that the CronJobs exists: %v", err)
 	}
 
 	return nil
 }
 
-func (cc *Controller) ensureVerticalPodAutoscalers(c *kubermaticv1.Cluster, data *resources.TemplateData) error {
-	creators, err := resources.GetVerticalPodAutoscalersForAll([]string{
-		"apiserver",
-		"controller-manager",
-		"dns-resolver",
-		"machine-controller",
-		"machine-controller-webhook",
-		"metrics-server",
-		"openvpn-server",
-		"scheduler",
-	},
-		[]string{
-			"etcd",
-		}, c.Status.NamespaceName,
-		cc.dynamicCache)
+func (r *Reconciler) ensureVerticalPodAutoscalers(ctx context.Context, c *kubermaticv1.Cluster, data *resources.TemplateData) error {
+	controlPlaneDeploymentNames := []string{
+		resources.DNSResolverDeploymentName,
+		resources.MachineControllerDeploymentName,
+		resources.MachineControllerWebhookDeploymentName,
+		resources.OpenVPNServerDeploymentName,
+		resources.ApiserverDeploymentName,
+		resources.ControllerManagerDeploymentName,
+		resources.SchedulerDeploymentName,
+		resources.MetricsServerDeploymentName,
+	}
+
+	creators, err := resources.GetVerticalPodAutoscalersForAll(ctx, r.Client, controlPlaneDeploymentNames, []string{resources.EtcdStatefulSetName}, c.Status.NamespaceName, r.features.VPA)
 	if err != nil {
 		return fmt.Errorf("failed to create the functions to handle VPA resources: %v", err)
 	}
 
-	if !cc.enableVPA {
-		// If the feature is disabled, we just wrap the create function to disable the VPA.
-		// This is easier than passing a bool to all required functions.
-		for i, create := range creators {
-			creators[i] = func(existing *autoscalingv1beta.VerticalPodAutoscaler) (*autoscalingv1beta.VerticalPodAutoscaler, error) {
-				vpa, err := create(existing)
-				if err != nil {
-					return nil, err
-				}
-				if vpa.Spec.UpdatePolicy == nil {
-					vpa.Spec.UpdatePolicy = &autoscalingv1beta.PodUpdatePolicy{}
-				}
-				mode := autoscalingv1beta.UpdateModeOff
-				vpa.Spec.UpdatePolicy.UpdateMode = &mode
-
-				return vpa, nil
-			}
-		}
-	}
-
-	return resources.EnsureVerticalPodAutoscalers(creators, c.Status.NamespaceName, cc.dynamicClient, cc.dynamicCache)
+	return reconciling.ReconcileVerticalPodAutoscalers(ctx, creators, c.Status.NamespaceName, r.Client, reconciling.OwnerRefWrapper(resources.GetClusterRef(c)))
 }
 
-func (cc *Controller) ensureStatefulSets(c *kubermaticv1.Cluster, data *resources.TemplateData) error {
-	data.GetClusterRef()
-	creators := GetStatefulSetCreators(data)
+func (r *Reconciler) ensureStatefulSets(ctx context.Context, c *kubermaticv1.Cluster, data *resources.TemplateData) error {
+	creators := GetStatefulSetCreators(data, r.features.EtcdDataCorruptionChecks)
 
-	return resources.EnsureStatefulSets(creators, c.Status.NamespaceName, cc.dynamicClient, cc.dynamicCache, resources.ClusterRefWrapper(c))
+	return reconciling.ReconcileStatefulSets(ctx, creators, c.Status.NamespaceName, r.Client, reconciling.OwnerRefWrapper(resources.GetClusterRef(c)))
 }

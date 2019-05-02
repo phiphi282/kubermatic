@@ -3,6 +3,8 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"context"
+	"encoding/json"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -18,7 +20,6 @@ import (
 
 	kubermaticapiv1 "github.com/kubermatic/kubermatic/api/pkg/api/v1"
 	clusterclient "github.com/kubermatic/kubermatic/api/pkg/cluster/client"
-	clustercontroller "github.com/kubermatic/kubermatic/api/pkg/controller/cluster"
 	kubermaticclientset "github.com/kubermatic/kubermatic/api/pkg/crd/client/clientset/versioned"
 	kubermaticv1lister "github.com/kubermatic/kubermatic/api/pkg/crd/client/listers/kubermatic/v1"
 	kubermaticv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
@@ -29,11 +30,15 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/rand"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/util/retry"
+	clusterv1alpha1 "sigs.k8s.io/cluster-api/pkg/apis/cluster/v1alpha1"
+	ctrlruntimeclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 var (
@@ -50,7 +55,7 @@ var (
 type testScenario interface {
 	Name() string
 	Cluster(secrets secrets) *kubermaticv1.Cluster
-	Nodes(num int) []*kubermaticapiv1.Node
+	Nodes(num int) *kubermaticapiv1.NodeDeployment
 }
 
 func newRunner(scenarios []testScenario, opts *Opts) *testRunner {
@@ -74,6 +79,7 @@ func newRunner(scenarios []testScenario, opts *Opts) *testRunner {
 		homeDir:                      opts.homeDir,
 		seedKubeClient:               opts.seedKubeClient,
 		log:                          opts.log,
+		existingClusterLabel:         opts.existingClusterLabel,
 	}
 }
 
@@ -97,8 +103,12 @@ type testRunner struct {
 	kubermaticClient      kubermaticclientset.Interface
 	seedKubeClient        kubernetes.Interface
 	clusterLister         kubermaticv1lister.ClusterLister
-	clusterClientProvider *clusterclient.Provider
+	clusterClientProvider clusterclient.UserClusterConnectionProvider
 	dcs                   map[string]provider.DatacenterMeta
+
+	// The label to use to select an existing cluster to test against instead of
+	// creating a new one
+	existingClusterLabel string
 }
 
 type testResult struct {
@@ -203,9 +213,48 @@ func (r *testRunner) Run() error {
 }
 
 func (r *testRunner) executeScenario(log *logrus.Entry, scenario testScenario) (*reporters.JUnitTestSuite, error) {
-	cluster, err := r.setupCluster(log, scenario)
+	var err error
+	var cluster *kubermaticv1.Cluster
+
+	if r.existingClusterLabel == "" {
+		cluster, err = r.createCluster(log, scenario)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create cluster: %v", err)
+		}
+	} else {
+		selector, err := labels.Parse(r.existingClusterLabel)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse labelselector %q: %v", r.existingClusterLabel, err)
+		}
+		foundClusters, err := r.clusterLister.List(selector)
+		if err != nil {
+			return nil, fmt.Errorf("failed to list clusters: %v", err)
+		}
+		if foundClusterNum := len(foundClusters); foundClusterNum != 1 {
+			return nil, fmt.Errorf("expected to find exactly one existing cluster, but got %d", foundClusterNum)
+		}
+		cluster = foundClusters[0]
+	}
+
+	cluster, err = r.waitForControlPlane(log, cluster.Name)
 	if err != nil {
-		return nil, fmt.Errorf("failed to setup cluster: %v", err)
+		return nil, fmt.Errorf("failed waiting for control plane to become ready: %v", err)
+	}
+
+	// We must store the name here because the cluster object may be nil on error
+	clusterName := cluster.Name
+	err = retry.RetryOnConflict(retry.DefaultBackoff, func() error {
+		cluster, err = r.kubermaticClient.KubermaticV1().Clusters().Get(clusterName, metav1.GetOptions{})
+		if err != nil {
+			return err
+		}
+		cluster.Finalizers = append(cluster.Finalizers, kubermaticapiv1.InClusterPVCleanupFinalizer, kubermaticapiv1.InClusterLBCleanupFinalizer)
+		cluster, err = r.kubermaticClient.KubermaticV1().Clusters().Update(cluster)
+		return err
+
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to add PV and LB cleanup finalizers: %v", err)
 	}
 
 	providerName, err := provider.ClusterCloudProviderName(cluster.Spec.Cloud)
@@ -249,8 +298,8 @@ func (r *testRunner) executeScenario(log *logrus.Entry, scenario testScenario) (
 		return nil, fmt.Errorf("failed to get the client for the cluster: %v", err)
 	}
 
-	apiNodes := scenario.Nodes(r.nodeCount)
-	if err := r.setupNodes(log, scenario.Name(), cluster, clusterKubeClient, apiNodes, dc); err != nil {
+	nodeDeployment := scenario.Nodes(r.nodeCount)
+	if err := r.setupNodes(log, scenario.Name(), cluster, clusterKubeClient, nodeDeployment, dc); err != nil {
 		return nil, fmt.Errorf("failed to setup nodes: %v", err)
 	}
 
@@ -258,7 +307,7 @@ func (r *testRunner) executeScenario(log *logrus.Entry, scenario testScenario) (
 		return nil, fmt.Errorf("failed to wait until all pods are running after creating the cluster: %v", err)
 	}
 
-	report, err := r.testCluster(log, scenario.Name(), cluster, clusterKubeClient, apiNodes, dc, kubeconfigFilename, cloudConfigFilename)
+	report, err := r.testCluster(log, scenario.Name(), cluster, clusterKubeClient, nodeDeployment, dc, kubeconfigFilename, cloudConfigFilename)
 	if err != nil {
 		return nil, fmt.Errorf("failed to test cluster: %v", err)
 	}
@@ -287,7 +336,7 @@ func (r *testRunner) testCluster(
 	scenarioName string,
 	cluster *kubermaticv1.Cluster,
 	clusterKubeClient kubernetes.Interface,
-	apiNodes []*kubermaticapiv1.Node,
+	nd *kubermaticapiv1.NodeDeployment,
 	dc provider.DatacenterMeta,
 	kubeconfigFilename string,
 	cloudConfigFilename string,
@@ -308,7 +357,7 @@ func (r *testRunner) testCluster(
 		Name: scenarioName,
 	}
 
-	ginkgoRuns, err := r.getGinkgoRuns(log, scenarioName, kubeconfigFilename, cloudConfigFilename, cluster, apiNodes, dc)
+	ginkgoRuns, err := r.getGinkgoRuns(log, scenarioName, kubeconfigFilename, cloudConfigFilename, cluster, nd, dc)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get Ginkgo runs: %v", err)
 	}
@@ -369,6 +418,26 @@ func (r *testRunner) testCluster(
 		report.Tests++
 	}
 
+	// Do user cluster RBAC controller test - with retries
+	{
+		testStart := time.Now()
+		testCase := reporters.JUnitTestCase{
+			Name:      "Test user cluster RBAC controller",
+			ClassName: "Kubermatic custom tests",
+		}
+		err = retryNAttempts(maxTestAttempts, func(attempt int) error {
+			return r.testUserclusterControllerRBAC(log, cluster, clusterKubeClient, r.seedKubeClient)
+		})
+		if err != nil {
+			report.Errors++
+			testCase.FailureMessage = &reporters.JUnitFailureMessage{Message: err.Error()}
+			log.Errorf("Failed to verify that user cluster RBAC controller work: %v", err)
+		}
+		testCase.Time = time.Since(testStart).Seconds()
+		report.TestCases = append(report.TestCases, testCase)
+		report.Tests++
+	}
+
 	report.Time = time.Since(totalStart).Seconds()
 	b, err := xml.Marshal(report)
 	if err != nil {
@@ -412,9 +481,9 @@ func (r *testRunner) executeGinkgoRunWithRetries(log *logrus.Entry, run *ginkgoR
 	return ginkgoRes, err
 }
 
-func (r *testRunner) setupNodes(log *logrus.Entry, scenarioName string, cluster *kubermaticv1.Cluster, clusterKubeClient kubernetes.Interface, apiNodes []*kubermaticapiv1.Node, dc provider.DatacenterMeta) error {
-	log.Info("Creating machines...")
-	kubeMachineClient, err := r.clusterClientProvider.GetMachineClient(cluster)
+func (r *testRunner) setupNodes(log *logrus.Entry, scenarioName string, cluster *kubermaticv1.Cluster, clusterKubeClient kubernetes.Interface, nodeDeployment *kubermaticapiv1.NodeDeployment, dc provider.DatacenterMeta) error {
+	log.Info("Creating machineDeployment..")
+	client, err := r.clusterClientProvider.GetDynamicClient(cluster)
 	if err != nil {
 		return fmt.Errorf("failed to get the machine client for the cluster: %v", err)
 	}
@@ -428,36 +497,73 @@ func (r *testRunner) setupNodes(log *logrus.Entry, scenarioName string, cluster 
 		})
 	}
 
-	for i, node := range apiNodes {
-		m, err := machine.Machine(cluster, node, dc, keys)
-		if err != nil {
-			return fmt.Errorf("failed to create Machine from scenario node '%s': %v", node.Name, err)
-		}
-		// Make sure all nodes have different names across all scenarios - otherwise the Kubelet might not come up (OpenStack has this...)
-		m.Name = fmt.Sprintf("%s-machine-%d", scenarioName, i)
-		m.Spec.Name = strings.Replace(fmt.Sprintf("%s-node-%d", scenarioName, i), ".", "-", -1)
-
-		err = retryNAttempts(defaultAPIRetries, func(attempt int) error {
-			machineLog := log.WithFields(logrus.Fields{"machine": m.Name})
-			_, err := kubeMachineClient.ClusterV1alpha1().Machines(metav1.NamespaceSystem).Create(m)
-			if err != nil {
-				if kerrors.IsAlreadyExists(err) {
-					return nil
-				}
-
-				machineLog.Warnf("[Attempt %d/100] Failed to create the machine: %v. Retrying...", attempt, err)
-				time.Sleep(defaultUserClusterPollInterval)
-				return err
-			}
+	// When there are machines not owned by a MachineDeployment, we must decrement
+	// the nodeDeployments replicas by their count, this is needed in upgrade tests
+	if err := retryNAttempts(defaultAPIRetries, func(_ int) error {
+		if r.existingClusterLabel == "" {
 			return nil
-		})
-		if err != nil {
-			return fmt.Errorf("failed to create machine '%s' after %d attempts: %v", m.Name, defaultAPIRetries, err)
 		}
+		machineList := &clusterv1alpha1.MachineList{}
+		if err := client.List(context.TODO(), &ctrlruntimeclient.ListOptions{Namespace: metav1.NamespaceSystem}, machineList); err != nil {
+			return fmt.Errorf("failed to list machines: %v", err)
+		}
+		machinesWithoutOwner := int32(0)
+		for _, machine := range machineList.Items {
+			if len(machine.OwnerReferences) > 0 {
+				continue
+			}
+			machinesWithoutOwner++
+		}
+		nodeDeployment.Spec.Replicas = nodeDeployment.Spec.Replicas - machinesWithoutOwner
+		return nil
+	}); err != nil {
+		return fmt.Errorf("failed to cleanup machines that are not owned by a MachineDeployment: %v", err)
 	}
-	log.Infof("Successfully created %d machine(s)!", len(apiNodes))
+	// Explicitly set name. machine.MachineDeployment sets generateName if the name
+	// is unset but need a deterministic name because we retry creation and dont
+	// want to accidentally create multiple MachineDeployments
+	nodeDeployment.Name = fmt.Sprintf("md-%s", scenarioName)
+	machineDeployment, err := machine.Deployment(cluster, nodeDeployment, dc, keys)
+	if err != nil {
+		return fmt.Errorf("failed to get MachineDeployment from NodeDeployment: %v", err)
+	}
 
-	if err := r.waitForReadyNodes(log, clusterKubeClient, len(apiNodes)); err != nil {
+	if err := retryNAttempts(defaultAPIRetries, func(attempt int) error {
+		if err := client.Create(context.TODO(), machineDeployment); err != nil {
+			if kerrors.IsAlreadyExists(err) {
+				return nil
+			}
+			log.WithField("machineDeployment", machineDeployment.Name).
+				Warnf("[Attempt %d/%d] Failed to create MachineDeployment: %v. Retrying",
+					attempt, defaultAPIRetries, err)
+			time.Sleep(defaultUserClusterPollInterval)
+			return err
+		}
+		return nil
+	}); err != nil {
+		return fmt.Errorf("failed to create MachineDeployment %s after %d attempts: %v", machineDeployment.Name, defaultAPIRetries, err)
+	}
+
+	// Make sure replicas matches nodeDeployment replicas, this may differ on the second run on upgrade tests
+	// We dont explicitly catch that, as we ignore kerrors.IsAlreadyExists when creating the machineDeployment
+	// This is a very poor persons replication of `EnsureResources`, the problem is we want to use the apis `machine.Deployment`
+	// func which always returns a new MachineDeployment
+	if err := retryNAttempts(defaultAPIRetries, func(_ int) error {
+		mdName := machineDeployment.Name
+		if err := client.Get(context.TODO(), types.NamespacedName{Namespace: metav1.NamespaceSystem, Name: mdName}, machineDeployment); err != nil {
+			return fmt.Errorf("failed to get MachineDeployment %q: %v", mdName, err)
+		}
+		if *machineDeployment.Spec.Replicas == nodeDeployment.Spec.Replicas {
+			return nil
+		}
+		machineDeployment.Spec.Replicas = &nodeDeployment.Spec.Replicas
+		return client.Update(context.TODO(), machineDeployment)
+	}); err != nil {
+		return fmt.Errorf("failed to ensure machineDeployment has desired number of replicas: %v", err)
+	}
+	log.Infof("Successfully created %d machine(s)!", machineDeployment.Spec.Replicas)
+
+	if err := r.waitForReadyNodes(log, clusterKubeClient, r.nodeCount); err != nil {
 		return fmt.Errorf("failed waiting for nodes to become ready: %v", err)
 	}
 	return nil
@@ -503,7 +609,7 @@ func (r *testRunner) getCloudConfig(log *logrus.Entry, cluster *kubermaticv1.Clu
 	return filename, nil
 }
 
-func (r *testRunner) setupCluster(log *logrus.Entry, scenario testScenario) (*kubermaticv1.Cluster, error) {
+func (r *testRunner) createCluster(log *logrus.Entry, scenario testScenario) (*kubermaticv1.Cluster, error) {
 	// Always generate a random name
 	cluster := scenario.Cluster(r.secrets)
 	cluster.Name = rand.String(8)
@@ -525,28 +631,6 @@ func (r *testRunner) setupCluster(log *logrus.Entry, scenario testScenario) (*ku
 		return nil, fmt.Errorf("failed to create the cluster resource: %v", err)
 	}
 	log.Debug("Successfully created cluster!")
-
-	cluster, err = r.waitForControlPlane(log, cluster.Name)
-	if err != nil {
-		return nil, fmt.Errorf("failed waiting for control plane to become ready: %v", err)
-	}
-
-	// We must store the name here because the cluster object may be nil on error
-	clusterName := cluster.Name
-	err = retry.RetryOnConflict(retry.DefaultBackoff, func() error {
-		cluster, err = r.kubermaticClient.KubermaticV1().Clusters().Get(clusterName, metav1.GetOptions{})
-		if err != nil {
-			return err
-		}
-		cluster.Finalizers = append(cluster.Finalizers, clustercontroller.InClusterPVCleanupFinalizer, clustercontroller.InClusterLBCleanupFinalizer)
-		cluster, err = r.kubermaticClient.KubermaticV1().Clusters().Update(cluster)
-		return err
-
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to add PV and LB cleanup finalizers: %v", err)
-	}
-
 	return cluster, nil
 }
 
@@ -624,7 +708,10 @@ func (r *testRunner) waitForControlPlane(log *logrus.Entry, clusterName string) 
 	})
 	// Timeout or other error
 	if err != nil {
-		// Be helpful and log which pods are not ready
+		// Be helpful and log what is not ready
+		if err := r.logNotReadyControlplaneComponents(clusterName); err != nil {
+			r.log.Infof("failed to log not ready controlplane compoenents: %v", err)
+		}
 		if err := r.logNotReadyControlplanePods(clusterName); err != nil {
 			r.log.Infof("failed to log not ready controlplane pods: %v", err)
 		}
@@ -690,7 +777,7 @@ func (r *testRunner) getGinkgoRuns(
 	kubeconfigFilename,
 	cloudConfigFilename string,
 	cluster *kubermaticv1.Cluster,
-	nodes []*kubermaticapiv1.Node,
+	nd *kubermaticapiv1.NodeDeployment,
 	dc provider.DatacenterMeta,
 ) ([]*ginkgoRun, error) {
 	kubeconfigFilename = path.Clean(kubeconfigFilename)
@@ -707,7 +794,7 @@ func (r *testRunner) getGinkgoRuns(
 			name:          "parallel",
 			ginkgoFocus:   `\[Conformance\]`,
 			ginkgoSkip:    `\[Serial\]`,
-			parallelTests: len(nodes) * 10,
+			parallelTests: int(nd.Spec.Replicas) * 10,
 		},
 		{
 			name:          "serial",
@@ -744,7 +831,7 @@ func (r *testRunner) getGinkgoRuns(
 			fmt.Sprintf("--report-prefix=%s", run.name),
 			fmt.Sprintf("--kubectl-path=%s", path.Join(binRoot, "kubectl")),
 			fmt.Sprintf("--kubeconfig=%s", kubeconfigFilename),
-			fmt.Sprintf("--num-nodes=%d", len(nodes)),
+			fmt.Sprintf("--num-nodes=%d", nd.Spec.Replicas),
 			fmt.Sprintf("--cloud-config-file=%s", cloudConfigFilename),
 		}
 
@@ -761,13 +848,13 @@ func (r *testRunner) getGinkgoRuns(
 			args = append(args, "--provider=local")
 		}
 
-		if nodes[0].Spec.OperatingSystem.Ubuntu != nil {
+		if nd.Spec.Template.OperatingSystem.Ubuntu != nil {
 			args = append(args, "--node-os-distro=ubuntu")
 			env = append(env, "KUBE_SSH_USER=ubuntu")
-		} else if nodes[0].Spec.OperatingSystem.CentOS != nil {
+		} else if nd.Spec.Template.OperatingSystem.CentOS != nil {
 			args = append(args, "--node-os-distro=centos")
 			env = append(env, "KUBE_SSH_USER=centos")
-		} else if nodes[0].Spec.OperatingSystem.ContainerLinux != nil {
+		} else if nd.Spec.Template.OperatingSystem.ContainerLinux != nil {
 			args = append(args, "--node-os-distro=coreos")
 			env = append(env, "KUBE_SSH_USER=core")
 		}
@@ -898,5 +985,18 @@ func (r *testRunner) logNotReadyControlplanePods(clusterName string) error {
 		}
 	}
 	r.log.Infof("Failed because these controlplane pods didn't get ready: %v", notReadyControlPlanePods.List())
+	return nil
+}
+
+func (r *testRunner) logNotReadyControlplaneComponents(clusterName string) error {
+	cluster, err := r.clusterLister.Get(clusterName)
+	if err != nil {
+		return err
+	}
+	clusterHealthStatus, err := json.Marshal(cluster.Status.Health.ClusterHealthStatus)
+	if err != nil {
+		return fmt.Errorf("failed to marshal cluster health status: %v", err)
+	}
+	r.log.Infof("ClusterHealthStatus: %q", string(clusterHealthStatus))
 	return nil
 }

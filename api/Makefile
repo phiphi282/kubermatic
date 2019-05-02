@@ -1,14 +1,16 @@
 export CGO_ENABLED?=0
-REPO=kubermatic/api
+REPO=quay.io/kubermatic/api
 GO?=go
-CMD=$(filter-out OWNERS, $(notdir $(wildcard ./cmd/*)))
+CMD=$(filter-out OWNERS nodeport-proxy, $(notdir $(wildcard ./cmd/*)))
 GOBUILDFLAGS?=-v
 GITTAG=$(shell git describe --tags --always)
 TAGS?=$(GITTAG)
 DOCKERTAGS=$(TAGS) latestbuild
 DOCKER_BUILD_FLAG += $(foreach tag, $(DOCKERTAGS), -t $(REPO):$(tag))
-KUBERMATICCOMMIT=$(shell git log -1 --format=%H)
-LDFLAGS += -extldflags '-static' -X github.com/kubermatic/kubermatic/api/pkg/resources.KUBERMATICCOMMIT=$(KUBERMATICCOMMIT)
+KUBERMATICCOMMIT?=$(shell git log -1 --format=%H)
+LDFLAGS += -extldflags '-static' \
+  -X github.com/kubermatic/kubermatic/api/pkg/resources.KUBERMATICCOMMIT=$(KUBERMATICCOMMIT) \
+  -X github.com/kubermatic/kubermatic/api/pkg/resources.KUBERMATICGITTAG=$(GITTAG)
 HAS_DEP:= $(shell command -v dep 2> /dev/null)
 HAS_GIT:= $(shell command -v git 2> /dev/null)
 BUILD_DEST?=_build
@@ -32,10 +34,10 @@ showenv:
 check: gofmt lint
 
 test:
-	$(GO) test -v ./...
+	$(GO) test ./...
 
 test-update:
-	-$(GO) test -v ./... -update
+	-$(GO) test ./... -update
 
 clean:
 	rm -f $(TARGET)
@@ -75,8 +77,8 @@ run-controller-manager:
 run-api-server:
 	./hack/run-api.sh
 
-run-rbac-generator:
-	./hack/run-rbac-generator.sh
+run-master-controller-manager:
+	./hack/run-master-controller-manager.sh
 
 verify: gofmt
 		./hack/verify-codegen.sh

@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"github.com/kubermatic/kubermatic/api/pkg/handler/v1/cluster"
 	"net/http"
 
 	"github.com/go-kit/kit/endpoint"
@@ -34,13 +35,13 @@ func (r Routing) RegisterV1Alpha(mux *mux.Router) {
 func (r Routing) getClusterMetrics() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			r.oidcAuthenticator.Verifier(),
+			middleware.TokenVerifier(r.tokenVerifiers),
 			middleware.UserSaver(r.userProvider),
 			middleware.Datacenter(r.clusterProviders, r.datacenters),
-			middleware.UserInfo(r.userProjectMapper),
-		)(getClusterMetrics(r.projectProvider, r.prometheusClient)),
+			middleware.UserInfoExtractor(r.userProjectMapper),
+		)(cluster.GetMetricsEndpoint(r.projectProvider, r.prometheusClient)),
 		common.DecodeGetClusterReq,
-		EncodeJSON,
+		encodeJSON,
 		r.defaultServerOptions()...,
 	)
 }

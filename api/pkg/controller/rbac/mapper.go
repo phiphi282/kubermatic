@@ -14,14 +14,18 @@ const (
 	// OwnerGroupNamePrefix represents owners group prefix
 	OwnerGroupNamePrefix = "owners"
 
-	// editorGroupNamePrefix represents editors group prefix
-	editorGroupNamePrefix = "editors"
+	// EditorGroupNamePrefix represents editors group prefix
+	EditorGroupNamePrefix = "editors"
 
-	// viewerGroupNamePrefix represents viewers group prefix
-	viewerGroupNamePrefix = "viewers"
+	// ViewerGroupNamePrefix represents viewers group prefix
+	ViewerGroupNamePrefix = "viewers"
 
-	// rbacResourcesNamePrefix represents kubermatic group prefix
-	rbacResourcesNamePrefix = "kubermatic"
+	// RBACResourcesNamePrefix represents kubermatic group prefix
+	RBACResourcesNamePrefix = "kubermatic"
+)
+
+const (
+	saSecretsNamespaceName = "kubermatic"
 )
 
 // AllGroupsPrefixes holds a list of groups with prefixes that we will generate RBAC Roles/Binding for.
@@ -31,8 +35,8 @@ const (
 // the actual names of groups are different see generateActualGroupNameFor function
 var AllGroupsPrefixes = []string{
 	OwnerGroupNamePrefix,
-	editorGroupNamePrefix,
-	viewerGroupNamePrefix,
+	EditorGroupNamePrefix,
+	ViewerGroupNamePrefix,
 }
 
 // GenerateActualGroupNameFor generates a group name for the given project and group prefix.
@@ -50,12 +54,12 @@ func ExtractGroupPrefix(groupName string) string {
 }
 
 func generateRBACRoleNameForNamedResource(kind, resourceName, groupName string) string {
-	return fmt.Sprintf("%s:%s-%s:%s", rbacResourcesNamePrefix, strings.ToLower(kind), resourceName, groupName)
+	return fmt.Sprintf("%s:%s-%s:%s", RBACResourcesNamePrefix, strings.ToLower(kind), resourceName, groupName)
 }
 
 func generateRBACRoleNameForResources(resourceName, groupName string) string {
 	groupPrefix := ExtractGroupPrefix(groupName)
-	return fmt.Sprintf("%s:%s:%s", rbacResourcesNamePrefix, resourceName, groupPrefix)
+	return fmt.Sprintf("%s:%s:%s", RBACResourcesNamePrefix, resourceName, groupPrefix)
 }
 
 // generateClusterRBACRoleNamedResource generates ClusterRole for a named resource.
@@ -163,6 +167,115 @@ func generateClusterRBACRoleBindingForResource(resourceName, groupName string) *
 	return binding
 }
 
+func generateRBACRoleBindingForResource(resourceName, groupName, namespace string) *rbacv1.RoleBinding {
+	binding := &rbacv1.RoleBinding{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      generateRBACRoleNameForResources(resourceName, groupName),
+			Namespace: namespace,
+		},
+		Subjects: []rbacv1.Subject{
+			{
+				APIGroup: rbacv1.GroupName,
+				Kind:     "Group",
+				Name:     groupName,
+			},
+		},
+		RoleRef: rbacv1.RoleRef{
+			APIGroup: rbacv1.GroupName,
+			Kind:     "Role",
+			Name:     generateRBACRoleNameForResources(resourceName, groupName),
+		},
+	}
+	return binding
+}
+
+// generateRBACRoleForResource generates Role for the given resource in the given namespace
+// Note that for some groups we don't want to generate Role in that case a nil will be returned
+func generateRBACRoleForResource(groupName, policyResource, policyAPIGroups, kind string, namespace string) (*rbacv1.Role, error) {
+	verbs, err := generateVerbsForNamespacedResource(groupName, kind, namespace)
+	if err != nil {
+		return nil, err
+	}
+	if len(verbs) == 0 {
+		return nil, nil
+	}
+	role := &rbacv1.Role{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      generateRBACRoleNameForResources(policyResource, groupName),
+			Namespace: namespace,
+		},
+		Rules: []rbacv1.PolicyRule{
+			{
+				APIGroups: []string{policyAPIGroups},
+				Resources: []string{policyResource},
+				Verbs:     verbs,
+			},
+		},
+	}
+	return role, nil
+}
+
+// generateRBACRoleNamedResource generates Role for a named resource.
+// named resources have its rules set to a resource with the given name for example:
+// the following rule allows reading a ConfigMap named “my-config”
+//  rules:
+//   - apiGroups: [""]
+//   resources: ["configmaps"]
+//   resourceNames: ["my-config"]
+//   verbs: ["get"]
+//
+// Note that for some kinds we don't want to generate Role in that case a nil cluster resource will be returned without an error
+func generateRBACRoleNamedResource(kind, groupName, policyResource, policyAPIGroups, policyResourceName string, namespace string, oRef metav1.OwnerReference) (*rbacv1.Role, error) {
+	verbs, err := generateVerbsForNamedResourceInNamespace(groupName, kind, namespace)
+	if err != nil {
+		return nil, err
+	}
+	if len(verbs) == 0 {
+		return nil, nil
+	}
+	role := &rbacv1.Role{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:            generateRBACRoleNameForNamedResource(kind, policyResourceName, groupName),
+			OwnerReferences: []metav1.OwnerReference{oRef},
+			Namespace:       namespace,
+		},
+		Rules: []rbacv1.PolicyRule{
+			{
+				APIGroups:     []string{policyAPIGroups},
+				Resources:     []string{policyResource},
+				ResourceNames: []string{policyResourceName},
+				Verbs:         verbs,
+			},
+		},
+	}
+	return role, nil
+}
+
+// generateRBACRoleBindingNamedResource generates RoleBiding for the given group
+// that will be bound to the corresponding Role
+func generateRBACRoleBindingNamedResource(kind, resourceName, groupName, namespace string, oRef metav1.OwnerReference) *rbacv1.RoleBinding {
+	binding := &rbacv1.RoleBinding{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:            generateRBACRoleNameForNamedResource(kind, resourceName, groupName),
+			OwnerReferences: []metav1.OwnerReference{oRef},
+			Namespace:       namespace,
+		},
+		Subjects: []rbacv1.Subject{
+			{
+				APIGroup: rbacv1.GroupName,
+				Kind:     "Group",
+				Name:     groupName,
+			},
+		},
+		RoleRef: rbacv1.RoleRef{
+			APIGroup: rbacv1.GroupName,
+			Kind:     "Role",
+			Name:     generateRBACRoleNameForNamedResource(kind, resourceName, groupName),
+		},
+	}
+	return binding
+}
+
 // generateVerbsForNamedResource generates a set of verbs for a named resource
 // for example a "cluster" named "beefy-john"
 func generateVerbsForNamedResource(groupName, resourceKind string) ([]string, error) {
@@ -177,16 +290,20 @@ func generateVerbsForNamedResource(groupName, resourceKind string) ([]string, er
 	//
 	// editors of a project
 	// special case - editors are not allowed to delete a project
-	if strings.HasPrefix(groupName, editorGroupNamePrefix) && resourceKind == kubermaticv1.ProjectKindName {
+	if strings.HasPrefix(groupName, EditorGroupNamePrefix) && resourceKind == kubermaticv1.ProjectKindName {
 		return []string{"get", "update"}, nil
 	}
 	// special case - editors are not allowed to interact with members of a project (UserProjectBinding)
-	if strings.HasPrefix(groupName, editorGroupNamePrefix) && resourceKind == kubermaticv1.UserProjectBindingKind {
-		return []string{}, nil
+	if strings.HasPrefix(groupName, EditorGroupNamePrefix) && resourceKind == kubermaticv1.UserProjectBindingKind {
+		return nil, nil
+	}
+	// special case - editors are not allowed to interact with service accounts (User)
+	if strings.HasPrefix(groupName, EditorGroupNamePrefix) && resourceKind == kubermaticv1.UserKindName {
+		return nil, nil
 	}
 
 	// editors of a named resource
-	if strings.HasPrefix(groupName, editorGroupNamePrefix) {
+	if strings.HasPrefix(groupName, EditorGroupNamePrefix) {
 		return []string{"get", "update", "delete"}, nil
 	}
 
@@ -194,16 +311,19 @@ func generateVerbsForNamedResource(groupName, resourceKind string) ([]string, er
 	//
 	// viewers of a named resource
 	// special case - viewers are not allowed to interact with members of a project (UserProjectBinding)
-	if strings.HasPrefix(groupName, viewerGroupNamePrefix) && resourceKind == kubermaticv1.UserProjectBindingKind {
-		return []string{}, nil
-
+	if strings.HasPrefix(groupName, ViewerGroupNamePrefix) && resourceKind == kubermaticv1.UserProjectBindingKind {
+		return nil, nil
 	}
-	if strings.HasPrefix(groupName, viewerGroupNamePrefix) {
+	// special case - viewers are not allowed to interact with service accounts (User)
+	if strings.HasPrefix(groupName, ViewerGroupNamePrefix) && resourceKind == kubermaticv1.UserKindName {
+		return nil, nil
+	}
+	if strings.HasPrefix(groupName, ViewerGroupNamePrefix) {
 		return []string{"get"}, nil
 	}
 
 	// unknown group passed
-	return []string{}, fmt.Errorf("unable to generate verbs, unknown group name passed in = %s", groupName)
+	return nil, fmt.Errorf("unable to generate verbs, unknown group name passed in = %s", groupName)
 }
 
 // generateVerbsForResource generates verbs for a resource for example "cluster"
@@ -214,23 +334,65 @@ func generateVerbsForResource(groupName, resourceKind string) ([]string, error) 
 	if strings.HasPrefix(groupName, OwnerGroupNamePrefix) && resourceKind == kubermaticv1.UserProjectBindingKind {
 		return []string{"create"}, nil
 	} else if resourceKind == kubermaticv1.UserProjectBindingKind {
-		return []string{}, nil
+		return nil, nil
+	}
+
+	// special case - only the owners of a project can create service account (aka. users)
+	//
+	if strings.HasPrefix(groupName, OwnerGroupNamePrefix) && resourceKind == kubermaticv1.UserKindName {
+		return []string{"create"}, nil
+	} else if resourceKind == kubermaticv1.UserKindName {
+		return nil, nil
 	}
 
 	// verbs for owners and editors
 	//
 	// owners and editors can create resources
-	if strings.HasPrefix(groupName, OwnerGroupNamePrefix) || strings.HasPrefix(groupName, editorGroupNamePrefix) {
+	if strings.HasPrefix(groupName, OwnerGroupNamePrefix) || strings.HasPrefix(groupName, EditorGroupNamePrefix) {
 		return []string{"create"}, nil
 	}
 
 	// verbs for readers
 	//
 	// viewers cannot create resources
-	if strings.HasPrefix(groupName, viewerGroupNamePrefix) {
-		return []string{}, nil
+	if strings.HasPrefix(groupName, ViewerGroupNamePrefix) {
+		return nil, nil
 	}
 
 	// unknown group passed
-	return []string{}, fmt.Errorf("unable to generate verbs, unknown group name passed in = %s", groupName)
+	return nil, fmt.Errorf("unable to generate verbs, unknown group name passed in = %s", groupName)
+}
+
+func generateVerbsForNamespacedResource(groupName, resourceKind, namespace string) ([]string, error) {
+	// special case - only the owners of a project can create secrets in "saSecretsNamespaceName" namespace
+	//
+	if namespace == saSecretsNamespaceName {
+		secretV1Kind := "Secret"
+		if strings.HasPrefix(groupName, OwnerGroupNamePrefix) && resourceKind == secretV1Kind {
+			return []string{"create"}, nil
+		} else if resourceKind == secretV1Kind {
+			return nil, nil
+		}
+	}
+
+	// unknown group passed
+	return nil, fmt.Errorf("unable to generate verbs, unknown group name passed in = %s, namespace = %s", groupName, namespace)
+}
+
+// generateVerbsForNamedResourceInNamespace generates a set of verbs for a named resource in a given namespace
+// for example a "cluster" named "beefy-john"
+func generateVerbsForNamedResourceInNamespace(groupName, resourceKind, namespace string) ([]string, error) {
+	// special case - only the owners of a project can manipulate secrets in "ssaSecretsNamespaceNam" namespace
+	//
+	if namespace == saSecretsNamespaceName {
+		secretV1Kind := "Secret"
+		if strings.HasPrefix(groupName, OwnerGroupNamePrefix) && resourceKind == secretV1Kind {
+			return []string{"get", "update", "delete"}, nil
+		} else if resourceKind == secretV1Kind {
+			return nil, nil
+		}
+	}
+
+	// unknown group passed
+	return nil, fmt.Errorf("unable to generate verbs for group = %s, kind = %s, namespace = %s", groupName, resourceKind, namespace)
 }

@@ -17,7 +17,7 @@ spec:
     matchLabels:
       app: prometheus
       cluster: de-test-01
-  serviceName: prometheus
+  serviceName: ""
   template:
     metadata:
       creationTimestamp: null
@@ -38,7 +38,7 @@ spec:
         - --web.enable-lifecycle
         - --storage.tsdb.no-lockfile
         - --web.route-prefix=/
-        image: quay.io/prometheus/prometheus:v2.8.1
+        image: quay.io/prometheus/prometheus:v2.9.2
         imagePullPolicy: IfNotPresent
         livenessProbe:
           failureThreshold: 10
@@ -61,7 +61,7 @@ spec:
             path: /-/healthy
             port: web
             scheme: HTTP
-          initialDelaySeconds: 30
+          initialDelaySeconds: 5
           periodSeconds: 5
           successThreshold: 1
           timeoutSeconds: 3

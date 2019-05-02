@@ -18,6 +18,7 @@ type serverRunOptions struct {
 	workerName      string
 	versionsFile    string
 	updatesFile     string
+	domain          string
 
 	// OIDC configuration
 	oidcURL                        string
@@ -29,6 +30,9 @@ type serverRunOptions struct {
 	oidcIssuerCookieSecureMode     bool
 	oidcSkipTLSVerify              bool
 	oidcIssuerOfflineAccessAsScope bool
+
+	//service account configuration
+	serviceAccountSigningKey string
 
 	featureGates features.FeatureGate
 }
@@ -56,6 +60,7 @@ func newServerRunOptions() (serverRunOptions, error) {
 	flag.BoolVar(&s.oidcIssuerCookieSecureMode, "oidc-issuer-cookie-secure-mode", true, "When true cookie received only with HTTPS. Set false for local deployment with HTTP")
 	flag.BoolVar(&s.oidcIssuerOfflineAccessAsScope, "oidc-issuer-offline-access-as-scope", true, "Set it to false if OIDC provider requires to set \"access_type=offline\" query param when accessing the refresh token")
 	flag.StringVar(&rawFeatureGates, "feature-gates", "", "A set of key=value pairs that describe feature gates for various features.")
+	flag.StringVar(&s.domain, "domain", "localhost", "A domain name on which the server is deployed")
 	flag.Parse()
 
 	featureGates, err := features.NewFeatures(rawFeatureGates)
@@ -67,6 +72,10 @@ func newServerRunOptions() (serverRunOptions, error) {
 }
 
 func (o serverRunOptions) validate() error {
+	// OpenShift always requires those flags, but as long as OpenShift support is not stable/testable
+	// we only validate them when the OIDCKubeCfgEndpoint feature flag is set (Kubernetes specific).
+	// Otherwise we force users to set those flags without any result (for Kubernetes clusters)
+	// TODO: Enforce validation as soon as OpenShift support is testable
 	if o.featureGates.Enabled(OIDCKubeCfgEndpoint) {
 		if len(o.oidcIssuerClientSecret) == 0 {
 			return fmt.Errorf("%s feature is enabled but \"oidc-client-secret\" flag was not specified", OIDCKubeCfgEndpoint)
@@ -81,16 +90,21 @@ func (o serverRunOptions) validate() error {
 			return fmt.Errorf("%s feature is enabled but \"oidc-issuer-client-id\" flag was not specified", OIDCKubeCfgEndpoint)
 		}
 	}
+
 	return nil
 }
 
 type providers struct {
-	sshKey        provider.SSHKeyProvider
-	user          provider.UserProvider
-	project       provider.ProjectProvider
-	projectMember provider.ProjectMemberProvider
-	memberMapper  provider.ProjectMemberMapper
-	cloud         provider.CloudRegistry
-	clusters      map[string]provider.ClusterProvider
-	datacenters   map[string]provider.DatacenterMeta
+	sshKey                                provider.SSHKeyProvider
+	user                                  provider.UserProvider
+	serviceAccountProvider                provider.ServiceAccountProvider
+	serviceAccountTokenProvider           provider.ServiceAccountTokenProvider
+	privilegedServiceAccountTokenProvider provider.PrivilegedServiceAccountTokenProvider
+	project                               provider.ProjectProvider
+	privilegedProject                     provider.PrivilegedProjectProvider
+	projectMember                         provider.ProjectMemberProvider
+	memberMapper                          provider.ProjectMemberMapper
+	cloud                                 provider.CloudRegistry
+	clusters                              map[string]provider.ClusterProvider
+	datacenters                           map[string]provider.DatacenterMeta
 }

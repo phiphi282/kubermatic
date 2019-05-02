@@ -4,58 +4,58 @@ import (
 	"fmt"
 	"strings"
 
+	kubermaticv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
+	"github.com/kubermatic/kubermatic/api/pkg/provider"
 	"github.com/kubermatic/kubermatic/api/pkg/resources"
+	"github.com/kubermatic/kubermatic/api/pkg/resources/reconciling"
 	"github.com/kubermatic/machine-controller/pkg/cloudprovider/provider/aws"
 	"github.com/kubermatic/machine-controller/pkg/cloudprovider/provider/azure"
 	"github.com/kubermatic/machine-controller/pkg/cloudprovider/provider/openstack"
 	"github.com/kubermatic/machine-controller/pkg/cloudprovider/provider/vsphere"
 
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 const (
 	name = "cloud-config"
 )
 
+type configMapCreatorData interface {
+	DC() *provider.DatacenterMeta
+	Cluster() *kubermaticv1.Cluster
+}
+
 // ConfigMapCreator returns a function to create the ConfigMap containing the cloud-config
-func ConfigMapCreator(data resources.ConfigMapDataProvider) resources.ConfigMapCreator {
-	return func(existing *corev1.ConfigMap) (*corev1.ConfigMap, error) {
-		var cm *corev1.ConfigMap
-		if existing != nil {
-			cm = existing
-		} else {
-			cm = &corev1.ConfigMap{}
-		}
-		if cm.Data == nil {
-			cm.Data = map[string]string{}
-		}
+func ConfigMapCreator(data configMapCreatorData) reconciling.NamedConfigMapCreatorGetter {
+	return func() (string, reconciling.ConfigMapCreator) {
+		return resources.CloudConfigConfigMapName, func(cm *corev1.ConfigMap) (*corev1.ConfigMap, error) {
+			if cm.Data == nil {
+				cm.Data = map[string]string{}
+			}
 
-		cloudConfig, err := CloudConfig(data)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create cloud-config: %v", err)
+			cloudConfig, err := CloudConfig(data.Cluster(), data.DC())
+			if err != nil {
+				return nil, fmt.Errorf("failed to create cloud-config: %v", err)
+			}
+
+			cm.Labels = resources.BaseAppLabel(name, nil)
+			cm.Data["config"] = cloudConfig
+			cm.Data[FakeVMWareUUIDKeyName] = fakeVMWareUUID
+
+			return cm, nil
 		}
-
-		cm.Name = resources.CloudConfigConfigMapName
-		cm.OwnerReferences = []metav1.OwnerReference{data.GetClusterRef()}
-		cm.Labels = resources.BaseAppLabel(name, nil)
-		cm.Data["config"] = cloudConfig
-		cm.Data[FakeVMWareUUIDKeyName] = fakeVMWareUUID
-
-		return cm, nil
 	}
 }
 
 // CloudConfig returns the cloud-config for the supplied data
-func CloudConfig(data resources.ConfigMapDataProvider) (cloudConfig string, err error) {
-	cloud := data.Cluster().Spec.Cloud
-	dc := data.DC()
+func CloudConfig(cluster *kubermaticv1.Cluster, dc *provider.DatacenterMeta) (cloudConfig string, err error) {
+	cloud := cluster.Spec.Cloud
 	if cloud.AWS != nil {
 		awsCloudConfig := &aws.CloudConfig{
 			Global: aws.GlobalOpts{
 				Zone:                        cloud.AWS.AvailabilityZone,
 				VPC:                         cloud.AWS.VPCID,
-				KubernetesClusterID:         data.Cluster().Name,
+				KubernetesClusterID:         cluster.Name,
 				DisableSecurityGroupIngress: false,
 				SubnetID:                    cloud.AWS.SubnetID,
 				RouteTableID:                cloud.AWS.RouteTableID,
@@ -90,6 +90,7 @@ func CloudConfig(data resources.ConfigMapDataProvider) (cloudConfig string, err 
 		}
 	} else if cloud.Openstack != nil {
 		manageSecurityGroups := dc.Spec.Openstack.ManageSecurityGroups
+		trustDevicePath := dc.Spec.Openstack.TrustDevicePath
 		openstackCloudConfig := &openstack.CloudConfig{
 			Global: openstack.GlobalOpts{
 				AuthURL:    dc.Spec.Openstack.AuthURL,
@@ -100,14 +101,14 @@ func CloudConfig(data resources.ConfigMapDataProvider) (cloudConfig string, err 
 				Region:     dc.Spec.Openstack.Region,
 			},
 			BlockStorage: openstack.BlockStorageOpts{
-				BSVersion:       "v2",
-				TrustDevicePath: false,
+				BSVersion:       "auto",
+				TrustDevicePath: trustDevicePath != nil && *trustDevicePath,
 				IgnoreVolumeAZ:  dc.Spec.Openstack.IgnoreVolumeAZ,
 			},
 			LoadBalancer: openstack.LoadBalancerOpts{
 				ManageSecurityGroups: manageSecurityGroups == nil || *manageSecurityGroups,
 			},
-			Version: data.Cluster().Spec.Version.String(),
+			Version: cluster.Spec.Version.String(),
 		}
 		cloudConfig, err = openstack.CloudConfigToString(openstackCloudConfig)
 		if err != nil {
@@ -123,7 +124,7 @@ func CloudConfig(data resources.ConfigMapDataProvider) (cloudConfig string, err 
 				InsecureFlag:     dc.Spec.VSphere.AllowInsecure,
 				Datacenter:       dc.Spec.VSphere.Datacenter,
 				DefaultDatastore: dc.Spec.VSphere.Datastore,
-				WorkingDir:       data.Cluster().Name,
+				WorkingDir:       cluster.Name,
 			},
 			Workspace: vsphere.WorkspaceOpts{
 				// This is redudant with what the Vsphere cloud provider itself does:
@@ -134,7 +135,7 @@ func CloudConfig(data resources.ConfigMapDataProvider) (cloudConfig string, err 
 				// if they are not - But maybe that will change at some point
 				VCenterIP:        strings.Replace(dc.Spec.VSphere.Endpoint, "https://", "", -1),
 				Datacenter:       dc.Spec.VSphere.Datacenter,
-				Folder:           data.Cluster().Name,
+				Folder:           cluster.Name,
 				DefaultDatastore: dc.Spec.VSphere.Datastore,
 			},
 			Disk: vsphere.DiskOpts{

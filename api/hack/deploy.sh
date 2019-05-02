@@ -20,6 +20,9 @@ if [[ "${1}" = "master" ]]; then
 else
   MASTER_FLAG="--set=kubermatic.isMaster=false"
 fi
+DEPLOY_NODEPORT_PROXY=${DEPLOY_NODEPORT_PROXY:-true}
+DEPLOY_ALERTMANAGER=${DEPLOY_ALERTMANAGER:-true}
+TILLER_NAMESPACE=${TILLER_NAMESPACE:-kubermatic}
 
 cd "$(dirname "$0")/../../"
 
@@ -30,8 +33,17 @@ function deploy {
   local namespace=$2
   local path=$3
 
-  retry 5 helm upgrade --install --force --wait --timeout 300 ${MASTER_FLAG} ${HELM_EXTRA_ARGS} --values ${VALUES_FILE} --namespace ${namespace} ${name} ${path}
+  echo "Upgrading ${name}..."
+  retry 5 helm --tiller-namespace ${TILLER_NAMESPACE} upgrade --install --atomic ${MASTER_FLAG} ${HELM_EXTRA_ARGS} --values ${VALUES_FILE} --namespace ${namespace} ${name} ${path}
 }
+
+echodate "Initializing Tiller in namespace ${TILLER_NAMESPACE}"
+# In clusters which have not been initialized yet, this will fail
+helm version --tiller-namespace ${TILLER_NAMESPACE} || true
+kubectl create serviceaccount -n ${TILLER_NAMESPACE} tiller-sa || true
+kubectl create clusterrolebinding tiller-cluster-role --clusterrole=cluster-admin --serviceaccount=${TILLER_NAMESPACE}:tiller-sa  || true
+retry 5 helm --tiller-namespace ${TILLER_NAMESPACE} init --service-account tiller-sa --replicas 3 --history-max 100 --force-upgrade --wait
+echodate "Tiller initialized successfully"
 
 echo "Deploying the CRD's..."
 retry 5 kubectl apply -f ./config/kubermatic/crd/
@@ -41,18 +53,24 @@ if [[ "${1}" = "master" ]]; then
     deploy "cert-manager" "cert-manager" ./config/cert-manager/
     deploy "certs" "default" ./config/certs/
     deploy "oauth" "oauth" ./config/oauth/
-    deploy "iap" "iap" ./config/iap/
+    # We might have not configured IAP which results in nothing being deployed. This triggers https://github.com/helm/helm/issues/4295 and marks this as failed
+    deploy "iap" "iap" ./config/iap/ || true
 fi
 
 deploy "minio" "minio" ./config/minio/
-deploy "nodeport-proxy" "nodeport-proxy" ./config/nodeport-proxy/
+# The NodePort proxy is only relevant in cloud environments (Where LB services can be used)
+if [[ "${DEPLOY_NODEPORT_PROXY}" = true ]]; then
+  deploy "nodeport-proxy" "nodeport-proxy" ./config/nodeport-proxy/
+fi
 
 #Monitoring
 deploy "prometheus" "monitoring" ./config/monitoring/prometheus/
 deploy "node-exporter" "monitoring" ./config/monitoring/node-exporter/
 deploy "kube-state-metrics" "monitoring" ./config/monitoring/kube-state-metrics/
 deploy "grafana" "monitoring" ./config/monitoring/grafana/
-deploy "alertmanager" "monitoring" ./config/monitoring/alertmanager/
+if [[ "${DEPLOY_ALERTMANAGER}" = true ]]; then
+  deploy "alertmanager" "monitoring" ./config/monitoring/alertmanager/
+fi
 
 #Logging
 deploy "elasticsearch" "logging" ./config/logging/elasticsearch/

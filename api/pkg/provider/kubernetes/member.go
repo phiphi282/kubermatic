@@ -18,10 +18,12 @@ import (
 )
 
 // NewProjectMemberProvider returns a project members provider
-func NewProjectMemberProvider(createMasterImpersonatedClient kubermaticImpersonationClient, membersLister kubermaticv1lister.UserProjectBindingLister) *ProjectMemberProvider {
+func NewProjectMemberProvider(createMasterImpersonatedClient kubermaticImpersonationClient, membersLister kubermaticv1lister.UserProjectBindingLister, userLister kubermaticv1lister.UserLister, isServiceAccountFunc func(string) bool) *ProjectMemberProvider {
 	return &ProjectMemberProvider{
 		createMasterImpersonatedClient: createMasterImpersonatedClient,
 		membersLister:                  membersLister,
+		userLister:                     userLister,
+		isServiceAccountFunc:           isServiceAccountFunc,
 	}
 }
 
@@ -34,10 +36,21 @@ type ProjectMemberProvider struct {
 
 	// membersLister local cache that stores bindings for members and projects
 	membersLister kubermaticv1lister.UserProjectBindingLister
+
+	// userLister local cache that stores users
+	userLister kubermaticv1lister.UserLister
+
+	// since service account are special type of user this functions
+	// helps to determine if the given email address belongs to a service account
+	isServiceAccountFunc func(email string) bool
 }
 
 // Create creates a binding for the given member and the given project
 func (p *ProjectMemberProvider) Create(userInfo *provider.UserInfo, project *kubermaticapiv1.Project, memberEmail, group string) (*kubermaticapiv1.UserProjectBinding, error) {
+	if p.isServiceAccountFunc(memberEmail) {
+		return nil, kerrors.NewBadRequest(fmt.Sprintf("cannot add the given member %s to the project %s because the email indicates a service account", memberEmail, project.Spec.Name))
+	}
+
 	finalizers := []string{}
 	if rbac.ExtractGroupPrefix(group) == rbac.OwnerGroupNamePrefix {
 		finalizers = append(finalizers, rbac.CleanupFinalizerName)
@@ -63,7 +76,7 @@ func (p *ProjectMemberProvider) Create(userInfo *provider.UserInfo, project *kub
 		},
 	}
 
-	masterImpersonatedClient, err := createImpersonationClientWrapperFromUserInfo(userInfo, p.createMasterImpersonatedClient)
+	masterImpersonatedClient, err := createKubermaticImpersonationClientWrapperFromUserInfo(userInfo, p.createMasterImpersonatedClient)
 	if err != nil {
 		return nil, err
 	}
@@ -80,26 +93,38 @@ func (p *ProjectMemberProvider) List(userInfo *provider.UserInfo, project *kuber
 	projectMembers := []*kubermaticapiv1.UserProjectBinding{}
 	for _, member := range allMembers {
 		if member.Spec.ProjectID == project.Name {
-			projectMembers = append(projectMembers, member)
+
+			// The provider should serve only regular users as a members.
+			// The ServiceAccount is another type of the user and should not be append to project members.
+			if p.isServiceAccountFunc(member.Spec.UserEmail) {
+				continue
+			}
+			projectMembers = append(projectMembers, member.DeepCopy())
 		}
+	}
+
+	if options == nil {
+		options = &provider.ProjectMemberListOptions{}
 	}
 
 	// Note:
 	// After we get the list of members we try to get at least one item using unprivileged account to see if the user have read access
 	if len(projectMembers) > 0 {
-		masterImpersonatedClient, err := createImpersonationClientWrapperFromUserInfo(userInfo, p.createMasterImpersonatedClient)
-		if err != nil {
-			return nil, err
-		}
+		if !options.SkipPrivilegeVerification {
+			masterImpersonatedClient, err := createKubermaticImpersonationClientWrapperFromUserInfo(userInfo, p.createMasterImpersonatedClient)
+			if err != nil {
+				return nil, err
+			}
 
-		memberToGet := projectMembers[0]
-		_, err = masterImpersonatedClient.UserProjectBindings().Get(memberToGet.Name, metav1.GetOptions{})
-		if err != nil {
-			return nil, err
+			memberToGet := projectMembers[0]
+			_, err = masterImpersonatedClient.UserProjectBindings().Get(memberToGet.Name, metav1.GetOptions{})
+			if err != nil {
+				return nil, err
+			}
 		}
 	}
 
-	if options == nil {
+	if len(options.MemberEmail) == 0 {
 		return projectMembers, nil
 	}
 
@@ -120,7 +145,7 @@ func (p *ProjectMemberProvider) List(userInfo *provider.UserInfo, project *kuber
 // Note:
 // Use List to get binding for the specific member of the given project
 func (p *ProjectMemberProvider) Delete(userInfo *provider.UserInfo, bindingName string) error {
-	masterImpersonatedClient, err := createImpersonationClientWrapperFromUserInfo(userInfo, p.createMasterImpersonatedClient)
+	masterImpersonatedClient, err := createKubermaticImpersonationClientWrapperFromUserInfo(userInfo, p.createMasterImpersonatedClient)
 	if err != nil {
 		return err
 	}
@@ -134,7 +159,7 @@ func (p *ProjectMemberProvider) Update(userInfo *provider.UserInfo, binding *kub
 		finalizers.Insert(rbac.CleanupFinalizerName)
 		binding.Finalizers = finalizers.List()
 	}
-	masterImpersonatedClient, err := createImpersonationClientWrapperFromUserInfo(userInfo, p.createMasterImpersonatedClient)
+	masterImpersonatedClient, err := createKubermaticImpersonationClientWrapperFromUserInfo(userInfo, p.createMasterImpersonatedClient)
 	if err != nil {
 		return nil, err
 	}
@@ -155,7 +180,7 @@ func (p *ProjectMemberProvider) MapUserToGroup(userEmail string, projectID strin
 		}
 	}
 
-	return "", kerrors.NewForbidden(schema.GroupResource{}, projectID, fmt.Errorf("The user %q doesn't belong to the given project = %s", userEmail, projectID))
+	return "", kerrors.NewForbidden(schema.GroupResource{}, projectID, fmt.Errorf("%q doesn't belong to the given project = %s", userEmail, projectID))
 }
 
 // MappingsFor returns the list of projects (bindings) for the given user

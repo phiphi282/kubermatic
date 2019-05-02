@@ -13,18 +13,16 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/rand"
-	"k8s.io/client-go/kubernetes"
 	restclient "k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 
-	clusterv1alpha1clientset "sigs.k8s.io/cluster-api/pkg/client/clientset_generated/clientset"
+	ctrlruntimeclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 // UserClusterConnectionProvider offers functions to interact with a user cluster
 type UserClusterConnectionProvider interface {
-	GetClient(*kubermaticapiv1.Cluster, ...k8cuserclusterclient.ConfigOption) (kubernetes.Interface, error)
-	GetMachineClient(*kubermaticapiv1.Cluster, ...k8cuserclusterclient.ConfigOption) (clusterv1alpha1clientset.Interface, error)
+	GetDynamicClient(*kubermaticapiv1.Cluster, ...k8cuserclusterclient.ConfigOption) (ctrlruntimeclient.Client, error)
 	GetAdminKubeconfig(*kubermaticapiv1.Cluster) ([]byte, error)
 }
 
@@ -94,7 +92,7 @@ func (p *ClusterProvider) New(project *kubermaticapiv1.Project, userInfo *provid
 		Address: kubermaticapiv1.ClusterAddress{},
 	}
 
-	seedImpersonatedClient, err := createImpersonationClientWrapperFromUserInfo(userInfo, p.createSeedImpersonatedClient)
+	seedImpersonatedClient, err := createKubermaticImpersonationClientWrapperFromUserInfo(userInfo, p.createSeedImpersonatedClient)
 	if err != nil {
 		return nil, err
 	}
@@ -124,7 +122,7 @@ func (p *ClusterProvider) List(project *kubermaticapiv1.Project, options *provid
 	projectClusters := []*kubermaticapiv1.Cluster{}
 	for _, cluster := range clusters {
 		if clusterProject := cluster.GetLabels()[kubermaticapiv1.ProjectIDLabelKey]; clusterProject == project.Name {
-			projectClusters = append(projectClusters, cluster)
+			projectClusters = append(projectClusters, cluster.DeepCopy())
 		}
 	}
 
@@ -147,7 +145,7 @@ func (p *ClusterProvider) List(project *kubermaticapiv1.Project, options *provid
 
 // Get returns the given cluster, it uses the projectInternalName to determine the group the user belongs to
 func (p *ClusterProvider) Get(userInfo *provider.UserInfo, clusterName string, options *provider.ClusterGetOptions) (*kubermaticapiv1.Cluster, error) {
-	seedImpersonatedClient, err := createImpersonationClientWrapperFromUserInfo(userInfo, p.createSeedImpersonatedClient)
+	seedImpersonatedClient, err := createKubermaticImpersonationClientWrapperFromUserInfo(userInfo, p.createSeedImpersonatedClient)
 	if err != nil {
 		return nil, err
 	}
@@ -157,12 +155,7 @@ func (p *ClusterProvider) Get(userInfo *provider.UserInfo, clusterName string, o
 		return nil, err
 	}
 	if options.CheckInitStatus {
-		isHealthy := cluster.Status.Health.Apiserver &&
-			cluster.Status.Health.Scheduler &&
-			cluster.Status.Health.Controller &&
-			cluster.Status.Health.MachineController &&
-			cluster.Status.Health.Etcd
-		if !isHealthy {
+		if !cluster.Status.Health.AllHealthy() {
 			return nil, kerrors.NewServiceUnavailable("Cluster components are not ready yet")
 		}
 	}
@@ -171,7 +164,7 @@ func (p *ClusterProvider) Get(userInfo *provider.UserInfo, clusterName string, o
 
 // Delete deletes the given cluster
 func (p *ClusterProvider) Delete(userInfo *provider.UserInfo, clusterName string) error {
-	seedImpersonatedClient, err := createImpersonationClientWrapperFromUserInfo(userInfo, p.createSeedImpersonatedClient)
+	seedImpersonatedClient, err := createKubermaticImpersonationClientWrapperFromUserInfo(userInfo, p.createSeedImpersonatedClient)
 	if err != nil {
 		return err
 	}
@@ -185,7 +178,7 @@ func (p *ClusterProvider) Delete(userInfo *provider.UserInfo, clusterName string
 
 // Update updates a cluster
 func (p *ClusterProvider) Update(userInfo *provider.UserInfo, newCluster *kubermaticapiv1.Cluster) (*kubermaticapiv1.Cluster, error) {
-	seedImpersonatedClient, err := createImpersonationClientWrapperFromUserInfo(userInfo, p.createSeedImpersonatedClient)
+	seedImpersonatedClient, err := createKubermaticImpersonationClientWrapperFromUserInfo(userInfo, p.createSeedImpersonatedClient)
 	if err != nil {
 		return nil, err
 	}
@@ -203,33 +196,26 @@ func (p *ClusterProvider) GetAdminKubeconfigForCustomerCluster(c *kubermaticapiv
 	return clientcmd.Load(b)
 }
 
-// Deprecated use GetMachineClientForCustomerCluster instead
-// GetAdminMachineClientForCustomerCluster returns a client to interact with machine resources in the given cluster
+// GetAdminClientForCustomerCluster returns a client to interact with all resources in the given cluster
 //
 // Note that the client you will get has admin privileges
-func (p *ClusterProvider) GetAdminMachineClientForCustomerCluster(c *kubermaticapiv1.Cluster) (clusterv1alpha1clientset.Interface, error) {
-	return p.userClusterConnProvider.GetMachineClient(c)
+func (p *ClusterProvider) GetAdminClientForCustomerCluster(c *kubermaticapiv1.Cluster) (ctrlruntimeclient.Client, error) {
+	return p.userClusterConnProvider.GetDynamicClient(c)
 }
 
-// GetAdminKubernetesClientForCustomerCluster returns a client to interact with the given cluster
-//
-// Note that the client you will get has admin privileges
-func (p *ClusterProvider) GetAdminKubernetesClientForCustomerCluster(c *kubermaticapiv1.Cluster) (kubernetes.Interface, error) {
-	return p.userClusterConnProvider.GetClient(c)
-}
-
-// GetMachineClientForCustomerCluster returns a client to interact with machine resources in the given cluster
+// GetClientForCustomerCluster returns a client to interact with all resources in the given cluster
 //
 // Note that the client doesn't use admin account instead it authn/authz as userInfo(email, group)
-func (p *ClusterProvider) GetMachineClientForCustomerCluster(userInfo *provider.UserInfo, c *kubermaticapiv1.Cluster) (clusterv1alpha1clientset.Interface, error) {
-	return p.userClusterConnProvider.GetMachineClient(c, p.withImpersonation(userInfo))
+// This implies that you have to make sure the user has the appropriate permissions inside the user cluster
+func (p *ClusterProvider) GetClientForCustomerCluster(userInfo *provider.UserInfo, c *kubermaticapiv1.Cluster) (ctrlruntimeclient.Client, error) {
+	return p.userClusterConnProvider.GetDynamicClient(c, p.withImpersonation(userInfo))
 }
 
 func (p *ClusterProvider) withImpersonation(userInfo *provider.UserInfo) k8cuserclusterclient.ConfigOption {
 	return func(cfg *restclient.Config) *restclient.Config {
 		cfg.Impersonate = restclient.ImpersonationConfig{
 			UserName: userInfo.Email,
-			Groups:   []string{p.extractGroupPrefix(userInfo.Group)},
+			Groups:   []string{p.extractGroupPrefix(userInfo.Group), "system:authenticated"},
 		}
 		return cfg
 	}

@@ -1,10 +1,8 @@
 package provider
 
 import (
-	"bufio"
 	"fmt"
 	"io/ioutil"
-	"os"
 	"strings"
 
 	"github.com/kubermatic/machine-controller/pkg/providerconfig"
@@ -46,6 +44,9 @@ type OpenstackSpec struct {
 	// See https://kubernetes.io/docs/concepts/cluster-administration/cloud-providers/#load-balancer
 	// To make this change backwards compatible, this will default to true.
 	ManageSecurityGroups *bool `yaml:"manage_security_groups"`
+	// Gets mapped to the "trust-device-path" setting in the cloud config.
+	// See https://kubernetes.io/docs/concepts/cluster-administration/cloud-providers/#block-storage
+	TrustDevicePath *bool `yaml:"trust_device_path"`
 }
 
 // AzureSpec describes an Azure cloud datacenter
@@ -79,9 +80,9 @@ type VSphereSpec struct {
 
 // AWSSpec describes a aws datacenter
 type AWSSpec struct {
-	Region        string `yaml:"region"`
-	AMI           string `yaml:"ami"`
-	ZoneCharacter string `yaml:"zone_character"`
+	Region        string    `yaml:"region"`
+	Images        ImageList `yaml:"images"`
+	ZoneCharacter string    `yaml:"zone_character"`
 }
 
 // BringYourOwnSpec describes a datacenter our of bring your own nodes
@@ -117,12 +118,7 @@ type datacentersMeta struct {
 
 // LoadDatacentersMeta loads datacenter metadata from the given path.
 func LoadDatacentersMeta(path string) (map[string]DatacenterMeta, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, err
-	}
-
-	bytes, err := ioutil.ReadAll(bufio.NewReader(f))
+	bytes, err := ioutil.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}

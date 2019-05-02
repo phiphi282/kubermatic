@@ -256,10 +256,11 @@
             "required": true
           },
           {
-            "type": "string",
-            "x-go-name": "Name",
-            "name": "name",
-            "in": "query"
+            "name": "Body",
+            "in": "body",
+            "schema": {
+              "$ref": "#/definitions/Project"
+            }
           }
         ],
         "responses": {
@@ -433,7 +434,7 @@
             "name": "Body",
             "in": "body",
             "schema": {
-              "$ref": "#/definitions/Cluster"
+              "$ref": "#/definitions/CreateClusterSpec"
             }
           }
         ],
@@ -1222,15 +1223,15 @@
       }
     },
     "/api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/nodes/upgrades": {
-      "get": {
-        "description": "Gets possible node upgrades for a cluster",
+      "put": {
+        "description": "Upgrades node deployments in a cluster",
         "produces": [
           "application/json"
         ],
         "tags": [
           "project"
         ],
-        "operationId": "getClusterNodeUpgrades",
+        "operationId": "upgradeClusterNodeDeployments",
         "parameters": [
           {
             "type": "string",
@@ -1252,17 +1253,18 @@
             "name": "cluster_id",
             "in": "path",
             "required": true
+          },
+          {
+            "name": "Body",
+            "in": "body",
+            "schema": {
+              "$ref": "#/definitions/MasterVersion"
+            }
           }
         ],
         "responses": {
           "200": {
-            "description": "MasterVersion",
-            "schema": {
-              "type": "array",
-              "items": {
-                "$ref": "#/definitions/MasterVersion"
-              }
-            }
+            "$ref": "#/responses/empty"
           },
           "401": {
             "$ref": "#/responses/empty"
@@ -2164,6 +2166,462 @@
         }
       }
     },
+    "/api/v1/projects/{project_id}/serviceaccounts": {
+      "get": {
+        "description": "List Service Accounts for the given project",
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "serviceaccounts"
+        ],
+        "operationId": "listServiceAccounts",
+        "parameters": [
+          {
+            "type": "string",
+            "x-go-name": "ProjectID",
+            "name": "project_id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ServiceAccount",
+            "schema": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/ServiceAccount"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/responses/empty"
+          },
+          "403": {
+            "$ref": "#/responses/empty"
+          },
+          "default": {
+            "$ref": "#/responses/errorResponse"
+          }
+        }
+      },
+      "post": {
+        "description": "Adds the given service account to the given project",
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "serviceaccounts"
+        ],
+        "operationId": "addServiceAccountToProject",
+        "parameters": [
+          {
+            "type": "string",
+            "x-go-name": "ProjectID",
+            "name": "project_id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "name": "Body",
+            "in": "body",
+            "schema": {
+              "$ref": "#/definitions/ServiceAccount"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "ServiceAccount",
+            "schema": {
+              "$ref": "#/definitions/ServiceAccount"
+            }
+          },
+          "401": {
+            "$ref": "#/responses/empty"
+          },
+          "403": {
+            "$ref": "#/responses/empty"
+          },
+          "default": {
+            "$ref": "#/responses/errorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/projects/{project_id}/serviceaccounts/{serviceaccount_id}": {
+      "put": {
+        "description": "Updates service account for the given project",
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "serviceaccounts"
+        ],
+        "operationId": "updateServiceAccount",
+        "parameters": [
+          {
+            "type": "string",
+            "x-go-name": "ProjectID",
+            "name": "project_id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "name": "Body",
+            "in": "body",
+            "schema": {
+              "$ref": "#/definitions/ServiceAccount"
+            }
+          },
+          {
+            "type": "string",
+            "x-go-name": "ServiceAccountID",
+            "name": "serviceaccount_id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ServiceAccount",
+            "schema": {
+              "$ref": "#/definitions/ServiceAccount"
+            }
+          },
+          "401": {
+            "$ref": "#/responses/empty"
+          },
+          "403": {
+            "$ref": "#/responses/empty"
+          },
+          "default": {
+            "$ref": "#/responses/errorResponse"
+          }
+        }
+      },
+      "delete": {
+        "description": "Deletes service account for the given project",
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "serviceaccounts"
+        ],
+        "operationId": "deleteServiceAccount",
+        "parameters": [
+          {
+            "type": "string",
+            "x-go-name": "ProjectID",
+            "name": "project_id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "x-go-name": "ServiceAccountID",
+            "name": "serviceaccount_id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/responses/empty"
+          },
+          "401": {
+            "$ref": "#/responses/empty"
+          },
+          "403": {
+            "$ref": "#/responses/empty"
+          },
+          "default": {
+            "$ref": "#/responses/errorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/projects/{project_id}/serviceaccounts/{serviceaccount_id}/tokens": {
+      "get": {
+        "description": "List tokens for the given service account",
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "tokens"
+        ],
+        "operationId": "listServiceAccountTokens",
+        "parameters": [
+          {
+            "type": "string",
+            "x-go-name": "ProjectID",
+            "name": "project_id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "x-go-name": "ServiceAccountID",
+            "name": "serviceaccount_id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "PublicServiceAccountToken",
+            "schema": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/PublicServiceAccountToken"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/responses/empty"
+          },
+          "403": {
+            "$ref": "#/responses/empty"
+          },
+          "default": {
+            "$ref": "#/responses/errorResponse"
+          }
+        }
+      },
+      "post": {
+        "description": "Generates a token for the given service account",
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "tokens"
+        ],
+        "operationId": "addTokenToServiceAccount",
+        "parameters": [
+          {
+            "type": "string",
+            "x-go-name": "ProjectID",
+            "name": "project_id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "x-go-name": "ServiceAccountID",
+            "name": "serviceaccount_id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "name": "Body",
+            "in": "body",
+            "schema": {
+              "$ref": "#/definitions/ServiceAccountToken"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "ServiceAccountToken",
+            "schema": {
+              "$ref": "#/definitions/ServiceAccountToken"
+            }
+          },
+          "401": {
+            "$ref": "#/responses/empty"
+          },
+          "403": {
+            "$ref": "#/responses/empty"
+          },
+          "default": {
+            "$ref": "#/responses/errorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/projects/{project_id}/serviceaccounts/{serviceaccount_id}/tokens/{token_id}": {
+      "put": {
+        "description": "Updates and regenerates the token",
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "tokens"
+        ],
+        "operationId": "updateServiceAccountToken",
+        "parameters": [
+          {
+            "type": "string",
+            "x-go-name": "ProjectID",
+            "name": "project_id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "x-go-name": "ServiceAccountID",
+            "name": "serviceaccount_id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "x-go-name": "TokenID",
+            "name": "token_id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "name": "Body",
+            "in": "body",
+            "schema": {
+              "$ref": "#/definitions/PublicServiceAccountToken"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ServiceAccountToken",
+            "schema": {
+              "$ref": "#/definitions/ServiceAccountToken"
+            }
+          },
+          "401": {
+            "$ref": "#/responses/empty"
+          },
+          "403": {
+            "$ref": "#/responses/empty"
+          },
+          "default": {
+            "$ref": "#/responses/errorResponse"
+          }
+        }
+      },
+      "delete": {
+        "description": "Deletes the token",
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "tokens"
+        ],
+        "operationId": "deleteServiceAccountToken",
+        "parameters": [
+          {
+            "type": "string",
+            "x-go-name": "ProjectID",
+            "name": "project_id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "x-go-name": "ServiceAccountID",
+            "name": "serviceaccount_id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "x-go-name": "TokenID",
+            "name": "token_id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/responses/empty"
+          },
+          "401": {
+            "$ref": "#/responses/empty"
+          },
+          "403": {
+            "$ref": "#/responses/empty"
+          },
+          "default": {
+            "$ref": "#/responses/errorResponse"
+          }
+        }
+      },
+      "patch": {
+        "description": "Patches the token name",
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "tokens"
+        ],
+        "operationId": "patchServiceAccountToken",
+        "parameters": [
+          {
+            "type": "string",
+            "x-go-name": "ProjectID",
+            "name": "project_id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "x-go-name": "ServiceAccountID",
+            "name": "serviceaccount_id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "x-go-name": "TokenID",
+            "name": "token_id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "name": "Body",
+            "in": "body",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "integer",
+                "format": "uint8"
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "PublicServiceAccountToken",
+            "schema": {
+              "$ref": "#/definitions/PublicServiceAccountToken"
+            }
+          },
+          "401": {
+            "$ref": "#/responses/empty"
+          },
+          "403": {
+            "$ref": "#/responses/empty"
+          },
+          "default": {
+            "$ref": "#/responses/errorResponse"
+          }
+        }
+      }
+    },
     "/api/v1/projects/{project_id}/sshkeys": {
       "get": {
         "description": "The returned collection is sorted by creation timestamp.",
@@ -2761,7 +3219,7 @@
         }
       }
     },
-    "/api/v1/versions": {
+    "/api/v1/upgrades/cluster": {
       "get": {
         "description": "Lists all versions which don't result in automatic updates",
         "produces": [
@@ -2779,6 +3237,68 @@
               "items": {
                 "$ref": "#/definitions/MasterVersion"
               }
+            }
+          },
+          "default": {
+            "$ref": "#/responses/errorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/upgrades/node": {
+      "get": {
+        "description": "Gets possible node upgrades for a specific control plane version",
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "versions"
+        ],
+        "operationId": "getNodeUpgrades",
+        "parameters": [
+          {
+            "type": "string",
+            "name": "ControlPlaneVersion",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "MasterVersion",
+            "schema": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/MasterVersion"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/responses/empty"
+          },
+          "403": {
+            "$ref": "#/responses/empty"
+          },
+          "default": {
+            "$ref": "#/responses/errorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/version": {
+      "get": {
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "versions"
+        ],
+        "summary": "Get versions of running Kubermatic components.",
+        "operationId": "getKubermaticVersion",
+        "responses": {
+          "200": {
+            "description": "KubermaticVersions",
+            "schema": {
+              "$ref": "#/definitions/KubermaticVersions"
             }
           },
           "default": {
@@ -3403,6 +3923,10 @@
           "type": "boolean",
           "x-go-name": "Apiserver"
         },
+        "cloudProviderInfrastructure": {
+          "type": "boolean",
+          "x-go-name": "CloudProviderInfrastructure"
+        },
         "controller": {
           "type": "boolean",
           "x-go-name": "Controller"
@@ -3418,6 +3942,10 @@
         "scheduler": {
           "type": "boolean",
           "x-go-name": "Scheduler"
+        },
+        "userClusterControllerManager": {
+          "type": "boolean",
+          "x-go-name": "UserClusterControllerManager"
         }
       },
       "x-go-package": "github.com/kubermatic/kubermatic/api/pkg/api/v1"
@@ -3526,6 +4054,19 @@
         }
       },
       "x-go-package": "github.com/kubermatic/kubermatic/api/vendor/k8s.io/client-go/tools/clientcmd/api/v1"
+    },
+    "CreateClusterSpec": {
+      "description": "CreateClusterSpec is the structure that is used to create cluster with its initial node deployment",
+      "type": "object",
+      "properties": {
+        "cluster": {
+          "$ref": "#/definitions/Cluster"
+        },
+        "nodeDeployment": {
+          "$ref": "#/definitions/NodeDeployment"
+        }
+      },
+      "x-go-package": "github.com/kubermatic/kubermatic/api/pkg/api/v1"
     },
     "Datacenter": {
       "type": "object",
@@ -3744,8 +4285,11 @@
           "x-go-name": "Code"
         },
         "details": {
-          "description": "Additional error message",
-          "type": "string",
+          "description": "Additional error messages",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
           "x-go-name": "Additional"
         },
         "message": {
@@ -3783,10 +4327,8 @@
           "type": "string",
           "x-go-name": "ID"
         },
-        "involvedObjectName": {
-          "description": "The object name that those events are about.",
-          "type": "string",
-          "x-go-name": "InvolvedObjectName"
+        "involvedObject": {
+          "$ref": "#/definitions/ObjectReference"
         },
         "lastTimestamp": {
           "description": "The time at which the most recent occurrence of this event was recorded.",
@@ -4027,6 +4569,18 @@
       },
       "x-go-package": "github.com/kubermatic/kubermatic/api/pkg/api/v1"
     },
+    "KubermaticVersions": {
+      "type": "object",
+      "title": "KubermaticVersions describes the versions of running Kubermatic components.",
+      "properties": {
+        "api": {
+          "description": "Version of the Kubermatic API server.",
+          "type": "string",
+          "x-go-name": "API"
+        }
+      },
+      "x-go-package": "github.com/kubermatic/kubermatic/api/pkg/api/v1"
+    },
     "LegacyObjectMeta": {
       "description": "Deprecated: LegacyObjectMeta is deprecated use ObjectMeta instead.",
       "type": "object",
@@ -4143,6 +4697,11 @@
         "default": {
           "type": "boolean",
           "x-go-name": "Default"
+        },
+        "restrictedByKubeletVersion": {
+          "description": "If true, then given version control plane version is not compatible\nwith one of the kubelets inside cluster and shouldn't be used.",
+          "type": "boolean",
+          "x-go-name": "RestrictedByKubeletVersion"
         },
         "version": {
           "$ref": "#/definitions/Version"
@@ -4372,6 +4931,14 @@
         "cloud": {
           "$ref": "#/definitions/NodeCloudSpec"
         },
+        "labels": {
+          "description": "Map of string keys and values that can be used to organize and categorize (scope and select) objects.\nIt will be applied to Nodes allowing users run their apps on specific Node using labelSelector.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "x-go-name": "Labels"
+        },
         "operatingSystem": {
           "$ref": "#/definitions/OperatingSystemSpec"
         },
@@ -4487,6 +5054,28 @@
           "description": "Name represents human readable name for the resource",
           "type": "string",
           "x-go-name": "Name"
+        }
+      },
+      "x-go-package": "github.com/kubermatic/kubermatic/api/pkg/api/v1"
+    },
+    "ObjectReference": {
+      "type": "object",
+      "title": "ObjectReference contains basic information about referred object.",
+      "properties": {
+        "name": {
+          "description": "Name of the referent.\nMore info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names\n+optional",
+          "type": "string",
+          "x-go-name": "Name"
+        },
+        "namespace": {
+          "description": "Namespace of the referent.\nMore info: https://kubernetes.io/docs/concepts/overview/working-with-objects/namespaces/\n+optional",
+          "type": "string",
+          "x-go-name": "Namespace"
+        },
+        "type": {
+          "description": "Type of the referent.",
+          "type": "string",
+          "x-go-name": "Type"
         }
       },
       "x-go-package": "github.com/kubermatic/kubermatic/api/pkg/api/v1"
@@ -4776,6 +5365,14 @@
           "type": "string",
           "x-go-name": "Name"
         },
+        "owners": {
+          "description": "Owners an optional owners list for the given project",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/User"
+          },
+          "x-go-name": "Owners"
+        },
         "status": {
           "type": "string",
           "x-go-name": "Status"
@@ -4874,6 +5471,41 @@
       },
       "x-go-package": "github.com/kubermatic/kubermatic/api/pkg/api/v1"
     },
+    "PublicServiceAccountToken": {
+      "description": "PublicServiceAccountToken represent an API service account token without secret fields",
+      "type": "object",
+      "properties": {
+        "creationTimestamp": {
+          "description": "CreationTimestamp is a timestamp representing the server time when this object was created.",
+          "type": "string",
+          "format": "date-time",
+          "x-go-name": "CreationTimestamp"
+        },
+        "deletionTimestamp": {
+          "description": "DeletionTimestamp is a timestamp representing the server time when this object was deleted.",
+          "type": "string",
+          "format": "date-time",
+          "x-go-name": "DeletionTimestamp"
+        },
+        "expiry": {
+          "description": "Expiry is a timestamp representing the time when this token will expire.",
+          "type": "string",
+          "format": "date-time",
+          "x-go-name": "Expiry"
+        },
+        "id": {
+          "description": "ID unique value that identifies the resource generated by the server",
+          "type": "string",
+          "x-go-name": "ID"
+        },
+        "name": {
+          "description": "Name represents human readable name for the resource",
+          "type": "string",
+          "x-go-name": "Name"
+        }
+      },
+      "x-go-package": "github.com/kubermatic/kubermatic/api/pkg/api/v1"
+    },
     "PublicVSphereCloudSpec": {
       "type": "object",
       "title": "PublicVSphereCloudSpec is a public counterpart of apiv1.VSphereCloudSpec.",
@@ -4968,6 +5600,85 @@
       "description": "Semver is struct that encapsulates semver.Semver struct so we can use it in API\n+k8s:deepcopy-gen=true",
       "type": "object",
       "x-go-package": "github.com/kubermatic/kubermatic/api/pkg/semver"
+    },
+    "ServiceAccount": {
+      "description": "ServiceAccount represent an API service account",
+      "type": "object",
+      "properties": {
+        "creationTimestamp": {
+          "description": "CreationTimestamp is a timestamp representing the server time when this object was created.",
+          "type": "string",
+          "format": "date-time",
+          "x-go-name": "CreationTimestamp"
+        },
+        "deletionTimestamp": {
+          "description": "DeletionTimestamp is a timestamp representing the server time when this object was deleted.",
+          "type": "string",
+          "format": "date-time",
+          "x-go-name": "DeletionTimestamp"
+        },
+        "group": {
+          "description": "Group that a service account belongs to",
+          "type": "string",
+          "x-go-name": "Group"
+        },
+        "id": {
+          "description": "ID unique value that identifies the resource generated by the server",
+          "type": "string",
+          "x-go-name": "ID"
+        },
+        "name": {
+          "description": "Name represents human readable name for the resource",
+          "type": "string",
+          "x-go-name": "Name"
+        },
+        "status": {
+          "description": "Status describes three stages of ServiceAccount life including Active, Inactive and Terminating",
+          "type": "string",
+          "x-go-name": "Status"
+        }
+      },
+      "x-go-package": "github.com/kubermatic/kubermatic/api/pkg/api/v1"
+    },
+    "ServiceAccountToken": {
+      "description": "ServiceAccountToken represent an API service account token",
+      "type": "object",
+      "properties": {
+        "creationTimestamp": {
+          "description": "CreationTimestamp is a timestamp representing the server time when this object was created.",
+          "type": "string",
+          "format": "date-time",
+          "x-go-name": "CreationTimestamp"
+        },
+        "deletionTimestamp": {
+          "description": "DeletionTimestamp is a timestamp representing the server time when this object was deleted.",
+          "type": "string",
+          "format": "date-time",
+          "x-go-name": "DeletionTimestamp"
+        },
+        "expiry": {
+          "description": "Expiry is a timestamp representing the time when this token will expire.",
+          "type": "string",
+          "format": "date-time",
+          "x-go-name": "Expiry"
+        },
+        "id": {
+          "description": "ID unique value that identifies the resource generated by the server",
+          "type": "string",
+          "x-go-name": "ID"
+        },
+        "name": {
+          "description": "Name represents human readable name for the resource",
+          "type": "string",
+          "x-go-name": "Name"
+        },
+        "token": {
+          "description": "Token the JWT token",
+          "type": "string",
+          "x-go-name": "Token"
+        }
+      },
+      "x-go-package": "github.com/kubermatic/kubermatic/api/pkg/api/v1"
     },
     "Time": {
       "description": "Time is a wrapper around time.Time which supports correct\nmarshaling JSON.  Wrappers are provided for many\nof the factory methods that the time package offers.",

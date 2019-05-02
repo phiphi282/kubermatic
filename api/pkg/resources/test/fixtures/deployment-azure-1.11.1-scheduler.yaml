@@ -3,13 +3,6 @@ metadata:
   labels:
     app: scheduler
   name: scheduler
-  ownerReferences:
-  - apiVersion: kubermatic.k8s.io/v1
-    blockOwnerDeletion: true
-    controller: true
-    kind: Cluster
-    name: de-test-01
-    uid: "1234567890"
 spec:
   replicas: 1
   selector:
@@ -44,6 +37,12 @@ spec:
                   cluster: de-test-01
               topologyKey: kubernetes.io/hostname
             weight: 100
+          - podAffinityTerm:
+              labelSelector:
+                matchLabels:
+                  app: scheduler
+              topologyKey: kubernetes.io/hostname
+            weight: 10
       containers:
       - args:
         - --client
@@ -84,7 +83,7 @@ spec:
         - /dev/stdout
         command:
         - /usr/sbin/openvpn
-        image: docker.io/kubermatic/openvpn:v0.4
+        image: quay.io/kubermatic/openvpn:v0.5
         imagePullPolicy: IfNotPresent
         name: openvpn-client
         resources:
@@ -96,6 +95,7 @@ spec:
             memory: 5Mi
         securityContext:
           privileged: true
+          procMount: Default
         terminationMessagePath: /dev/termination-log
         terminationMessagePolicy: File
         volumeMounts:

@@ -1,15 +1,16 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"os"
 	"os/exec"
 	"strings"
-	"time"
 
 	"github.com/Masterminds/semver"
 	"github.com/golang/glog"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	backupcontroller "github.com/kubermatic/kubermatic/api/pkg/controller/backup"
 	"github.com/kubermatic/kubermatic/api/pkg/controller/cluster"
@@ -21,12 +22,11 @@ import (
 	"github.com/kubermatic/kubermatic/api/pkg/version"
 
 	appsv1 "k8s.io/api/apps/v1"
+	batchv1beta1 "k8s.io/api/batch/v1beta1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	kubeinformers "k8s.io/client-go/informers"
-	kubefake "k8s.io/client-go/kubernetes/fake"
 )
 
 const mockNamespaceName = "mock-namespace"
@@ -159,16 +159,17 @@ func getImagesForVersion(versions []*version.MasterVersion, requestedVersion str
 }
 
 func getImagesFromCreators(templateData *resources.TemplateData) (images []string, err error) {
-	statefulsetCreators := cluster.GetStatefulSetCreators(templateData)
+	statefulsetCreators := cluster.GetStatefulSetCreators(templateData, false)
 	statefulsetCreators = append(statefulsetCreators, monitoring.GetStatefulSetCreators(templateData)...)
 
-	deploymentCreators := cluster.GetDeploymentCreators(nil)
-	deploymentCreators = append(deploymentCreators, monitoring.GetDeploymentCreators(nil)...)
+	deploymentCreators := cluster.GetDeploymentCreators(templateData, false)
+	deploymentCreators = append(deploymentCreators, monitoring.GetDeploymentCreators(templateData)...)
 
-	cronjobCreators := cluster.GetCronJobCreators()
+	cronjobCreators := cluster.GetCronJobCreators(templateData)
 
-	for _, createFunc := range statefulsetCreators {
-		statefulset, err := createFunc(&appsv1.StatefulSet{})
+	for _, creatorGetter := range statefulsetCreators {
+		_, creator := creatorGetter()
+		statefulset, err := creator(&appsv1.StatefulSet{})
 		if err != nil {
 			return nil, err
 		}
@@ -176,7 +177,8 @@ func getImagesFromCreators(templateData *resources.TemplateData) (images []strin
 	}
 
 	for _, createFunc := range deploymentCreators {
-		deployment, err := createFunc(templateData, nil)
+		_, creator := createFunc()
+		deployment, err := creator(&appsv1.Deployment{})
 		if err != nil {
 			return nil, err
 		}
@@ -184,7 +186,8 @@ func getImagesFromCreators(templateData *resources.TemplateData) (images []strin
 	}
 
 	for _, createFunc := range cronjobCreators {
-		cronJob, err := createFunc(templateData, nil)
+		_, creator := createFunc()
+		cronJob, err := creator(&batchv1beta1.CronJob{})
 		if err != nil {
 			return nil, err
 		}
@@ -323,17 +326,9 @@ func getTemplateData(versions []*version.MasterVersion, requestedVersion string)
 		resources.PrometheusApiserverClientCertificateSecretName,
 		resources.MetricsServerKubeconfigSecretName,
 		resources.MachineControllerWebhookServingCertSecretName,
+		resources.InternalUserClusterAdminKubeconfigSecretName,
 	})
 	objects := []runtime.Object{configMapList, secretList, serviceList}
-	client := kubefake.NewSimpleClientset(objects...)
-
-	kubeInformerFactory := kubeinformers.NewSharedInformerFactory(client, time.Second*30)
-	configMapInformer := kubeInformerFactory.Core().V1().ConfigMaps()
-	configMapLister := configMapInformer.Lister()
-	secretInformer := kubeInformerFactory.Core().V1().Secrets()
-	secretLister := secretInformer.Lister()
-	serviceInformer := kubeInformerFactory.Core().V1().Services()
-	serviceLister := serviceInformer.Lister()
 
 	clusterVersion, err := ksemver.NewSemver(masterVersion.Version.String())
 	if err != nil {
@@ -347,17 +342,14 @@ func getTemplateData(versions []*version.MasterVersion, requestedVersion string)
 	fakeCluster.Spec.ClusterNetwork.DNSDomain = "cluster.local"
 	fakeCluster.Status.NamespaceName = mockNamespaceName
 
-	stopChannel := make(chan struct{})
-	kubeInformerFactory.Start(stopChannel)
-	kubeInformerFactory.WaitForCacheSync(stopChannel)
+	fakeDynamicClient := fake.NewFakeClient(objects...)
 
 	return resources.NewTemplateData(
+		context.Background(),
+		fakeDynamicClient,
 		fakeCluster,
 		&provider.DatacenterMeta{},
 		"",
-		secretLister,
-		configMapLister,
-		serviceLister,
 		"",
 		"",
 		"192.0.2.0/24",
@@ -367,10 +359,10 @@ func getTemplateData(versions []*version.MasterVersion, requestedVersion string)
 		false,
 		false,
 		"",
-		nil,
 		"",
 		"",
-		""), nil
+		"",
+	), nil
 }
 
 func createNamedSecrets(secretNames []string) *corev1.SecretList {

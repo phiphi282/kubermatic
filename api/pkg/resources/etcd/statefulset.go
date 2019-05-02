@@ -6,12 +6,13 @@ import (
 	"text/template"
 
 	"github.com/Masterminds/sprig"
+
 	kubermaticv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
 	"github.com/kubermatic/kubermatic/api/pkg/resources"
+	"github.com/kubermatic/kubermatic/api/pkg/resources/reconciling"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -33,167 +34,174 @@ const (
 	name    = "etcd"
 	dataDir = "/var/run/etcd/pod_${POD_NAME}/"
 	// ImageTag defines the image tag to use for the etcd image
-	ImageTag = "v3.3.9"
+	ImageTag = "v3.3.12"
 )
 
+type etcdStatefulSetCreatorData interface {
+	Cluster() *kubermaticv1.Cluster
+	GetPodTemplateLabels(string, []corev1.Volume, map[string]string) (map[string]string, error)
+	HasEtcdOperatorService() (bool, error)
+	ImageRegistry(string) string
+	EtcdDiskSize() resource.Quantity
+	GetClusterRef() metav1.OwnerReference
+}
+
 // StatefulSetCreator returns the function to reconcile the etcd StatefulSet
-func StatefulSetCreator(data *resources.TemplateData) resources.StatefulSetCreator {
-	return func(set *appsv1.StatefulSet) (*appsv1.StatefulSet, error) {
-		set.Name = resources.EtcdStatefulSetName
+func StatefulSetCreator(data etcdStatefulSetCreatorData, enableDataCorruptionChecks bool) reconciling.NamedStatefulSetCreatorGetter {
+	return func() (string, reconciling.StatefulSetCreator) {
+		return resources.EtcdStatefulSetName, func(set *appsv1.StatefulSet) (*appsv1.StatefulSet, error) {
+			set.Name = resources.EtcdStatefulSetName
 
-		set.Spec.Replicas = resources.Int32(resources.EtcdClusterSize)
-		set.Spec.UpdateStrategy.Type = appsv1.RollingUpdateStatefulSetStrategyType
-		set.Spec.PodManagementPolicy = appsv1.ParallelPodManagement
-		set.Spec.ServiceName = resources.EtcdServiceName
-		set.Spec.Template.Spec.ImagePullSecrets = []corev1.LocalObjectReference{{Name: resources.ImagePullSecretName}}
+			set.Spec.Replicas = resources.Int32(resources.EtcdClusterSize)
+			set.Spec.UpdateStrategy.Type = appsv1.RollingUpdateStatefulSetStrategyType
+			set.Spec.PodManagementPolicy = appsv1.ParallelPodManagement
+			set.Spec.ServiceName = resources.EtcdServiceName
+			set.Spec.Template.Spec.ImagePullSecrets = []corev1.LocalObjectReference{{Name: resources.ImagePullSecretName}}
 
-		baseLabels := getBasePodLabels(data.Cluster())
-		set.Spec.Selector = &metav1.LabelSelector{
-			MatchLabels: baseLabels,
-		}
+			baseLabels := getBasePodLabels(data.Cluster())
+			set.Spec.Selector = &metav1.LabelSelector{
+				MatchLabels: baseLabels,
+			}
 
-		volumes := getVolumes()
-		podLabels, err := data.GetPodTemplateLabels(resources.EtcdStatefulSetName, volumes, baseLabels)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create pod labels: %v", err)
-		}
+			volumes := getVolumes()
+			podLabels, err := data.GetPodTemplateLabels(resources.EtcdStatefulSetName, volumes, baseLabels)
+			if err != nil {
+				return nil, fmt.Errorf("failed to create pod labels: %v", err)
+			}
 
-		set.Spec.Template.ObjectMeta = metav1.ObjectMeta{
-			Name:   name,
-			Labels: podLabels,
-		}
+			set.Spec.Template.ObjectMeta = metav1.ObjectMeta{
+				Name:   name,
+				Labels: podLabels,
+			}
 
-		// For migration purpose.
-		// We switched from the etcd-operator to a simple etcd-StatefulSet. Therefore we need to migrate the data.
-		var migrate bool
-		if _, err := data.ServiceLister().Services(data.Cluster().Status.NamespaceName).Get("etcd-cluster-client"); err != nil {
-			if !errors.IsNotFound(err) {
+			// For migration purpose.
+			// We switched from the etcd-operator to a simple etcd-StatefulSet. Therefore we need to migrate the data.
+			migrate, err := data.HasEtcdOperatorService()
+			if err != nil {
+				return nil, fmt.Errorf("failed to check if we need to include the etcd-operator migration code: %v", err)
+			}
+
+			etcdStartCmd, err := getEtcdCommand(data.Cluster().Name, data.Cluster().Status.NamespaceName, migrate, enableDataCorruptionChecks)
+			if err != nil {
 				return nil, err
 			}
-		} else {
-			migrate = true
-		}
-
-		etcdStartCmd, err := getEtcdCommand(data.Cluster().Name, data.Cluster().Status.NamespaceName, migrate)
-		if err != nil {
-			return nil, err
-		}
-		resourceRequirements := defaultResourceRequirements
-		if data.Cluster().Spec.ComponentsOverride.Etcd.Resources != nil {
-			resourceRequirements = *data.Cluster().Spec.ComponentsOverride.Etcd.Resources
-		}
-		set.Spec.Template.Spec.Containers = []corev1.Container{
-			{
-				Name:                     name,
-				Image:                    data.ImageRegistry(resources.RegistryGCR) + "/etcd-development/etcd:" + ImageTag,
-				ImagePullPolicy:          corev1.PullIfNotPresent,
-				Command:                  etcdStartCmd,
-				TerminationMessagePath:   corev1.TerminationMessagePathDefault,
-				TerminationMessagePolicy: corev1.TerminationMessageReadFile,
-				Env: []corev1.EnvVar{
-					{
-						Name: "POD_NAME",
-						ValueFrom: &corev1.EnvVarSource{
-							FieldRef: &corev1.ObjectFieldSelector{
-								APIVersion: "v1",
-								FieldPath:  "metadata.name",
-							},
-						},
-					},
-					{
-						Name: "POD_IP",
-						ValueFrom: &corev1.EnvVarSource{
-							FieldRef: &corev1.ObjectFieldSelector{
-								APIVersion: "v1",
-								FieldPath:  "status.podIP",
-							},
-						},
-					},
-					{
-						Name:  "ETCDCTL_API",
-						Value: "3",
-					},
-				},
-				Ports: []corev1.ContainerPort{
-					{
-						ContainerPort: 2379,
-						Protocol:      corev1.ProtocolTCP,
-						Name:          "client",
-					},
-					{
-						ContainerPort: 2380,
-						Protocol:      corev1.ProtocolTCP,
-						Name:          "peer",
-					},
-				},
-				Resources: resourceRequirements,
-				ReadinessProbe: &corev1.Probe{
-					TimeoutSeconds:      10,
-					PeriodSeconds:       30,
-					SuccessThreshold:    1,
-					FailureThreshold:    3,
-					InitialDelaySeconds: 15,
-					Handler: corev1.Handler{
-						Exec: &corev1.ExecAction{
-							Command: []string{
-								"/usr/local/bin/etcdctl",
-								"--command-timeout", "10s",
-								"--cacert", "/etc/etcd/pki/ca/ca.crt",
-								"--cert", "/etc/etcd/pki/client/apiserver-etcd-client.crt",
-								"--key", "/etc/etcd/pki/client/apiserver-etcd-client.key",
-								"--endpoints", "https://127.0.0.1:2379", "endpoint", "health",
-							},
-						},
-					},
-				},
-				VolumeMounts: []corev1.VolumeMount{
-					{
-						Name:      "data",
-						MountPath: "/var/run/etcd",
-					},
-					{
-						Name:      resources.EtcdTLSCertificateSecretName,
-						MountPath: "/etc/etcd/pki/tls",
-					},
-					{
-						Name:      resources.CASecretName,
-						MountPath: "/etc/etcd/pki/ca",
-					},
-					{
-						Name:      resources.ApiserverEtcdClientCertificateSecretName,
-						MountPath: "/etc/etcd/pki/client",
-						ReadOnly:  true,
-					},
-				},
-			},
-		}
-
-		set.Spec.Template.Spec.Affinity = resources.HostnameAntiAffinity(baseLabels)
-
-		set.Spec.Template.Spec.Volumes = volumes
-
-		// Make sure, we don't change size of existing pvc's
-		// Phase needs to be taken from an existing
-		diskSize := data.EtcdDiskSize()
-		if len(set.Spec.VolumeClaimTemplates) == 0 {
-			set.Spec.VolumeClaimTemplates = []corev1.PersistentVolumeClaim{
+			resourceRequirements := defaultResourceRequirements
+			if data.Cluster().Spec.ComponentsOverride.Etcd.Resources != nil {
+				resourceRequirements = *data.Cluster().Spec.ComponentsOverride.Etcd.Resources
+			}
+			set.Spec.Template.Spec.Containers = []corev1.Container{
 				{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:            "data",
-						OwnerReferences: []metav1.OwnerReference{data.GetClusterRef()},
+					Name:                     name,
+					Image:                    data.ImageRegistry(resources.RegistryGCR) + "/etcd-development/etcd:" + ImageTag,
+					ImagePullPolicy:          corev1.PullIfNotPresent,
+					Command:                  etcdStartCmd,
+					TerminationMessagePath:   corev1.TerminationMessagePathDefault,
+					TerminationMessagePolicy: corev1.TerminationMessageReadFile,
+					Env: []corev1.EnvVar{
+						{
+							Name: "POD_NAME",
+							ValueFrom: &corev1.EnvVarSource{
+								FieldRef: &corev1.ObjectFieldSelector{
+									APIVersion: "v1",
+									FieldPath:  "metadata.name",
+								},
+							},
+						},
+						{
+							Name: "POD_IP",
+							ValueFrom: &corev1.EnvVarSource{
+								FieldRef: &corev1.ObjectFieldSelector{
+									APIVersion: "v1",
+									FieldPath:  "status.podIP",
+								},
+							},
+						},
+						{
+							Name:  "ETCDCTL_API",
+							Value: "3",
+						},
 					},
-					Spec: corev1.PersistentVolumeClaimSpec{
-						StorageClassName: resources.String("kubermatic-fast"),
-						AccessModes:      []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
-						Resources: corev1.ResourceRequirements{
-							Requests: corev1.ResourceList{corev1.ResourceStorage: diskSize},
+					Ports: []corev1.ContainerPort{
+						{
+							ContainerPort: 2379,
+							Protocol:      corev1.ProtocolTCP,
+							Name:          "client",
+						},
+						{
+							ContainerPort: 2380,
+							Protocol:      corev1.ProtocolTCP,
+							Name:          "peer",
+						},
+					},
+					Resources: resourceRequirements,
+					ReadinessProbe: &corev1.Probe{
+						TimeoutSeconds:      10,
+						PeriodSeconds:       30,
+						SuccessThreshold:    1,
+						FailureThreshold:    3,
+						InitialDelaySeconds: 15,
+						Handler: corev1.Handler{
+							Exec: &corev1.ExecAction{
+								Command: []string{
+									"/usr/local/bin/etcdctl",
+									"--command-timeout", "10s",
+									"--cacert", "/etc/etcd/pki/ca/ca.crt",
+									"--cert", "/etc/etcd/pki/client/apiserver-etcd-client.crt",
+									"--key", "/etc/etcd/pki/client/apiserver-etcd-client.key",
+									"--endpoints", "https://127.0.0.1:2379", "endpoint", "health",
+								},
+							},
+						},
+					},
+					VolumeMounts: []corev1.VolumeMount{
+						{
+							Name:      "data",
+							MountPath: "/var/run/etcd",
+						},
+						{
+							Name:      resources.EtcdTLSCertificateSecretName,
+							MountPath: "/etc/etcd/pki/tls",
+						},
+						{
+							Name:      resources.CASecretName,
+							MountPath: "/etc/etcd/pki/ca",
+						},
+						{
+							Name:      resources.ApiserverEtcdClientCertificateSecretName,
+							MountPath: "/etc/etcd/pki/client",
+							ReadOnly:  true,
 						},
 					},
 				},
 			}
-		}
 
-		return set, nil
+			set.Spec.Template.Spec.Affinity = resources.HostnameAntiAffinity(resources.EtcdStatefulSetName, data.Cluster().Name)
+
+			set.Spec.Template.Spec.Volumes = volumes
+
+			// Make sure, we don't change size of existing pvc's
+			// Phase needs to be taken from an existing
+			diskSize := data.EtcdDiskSize()
+			if len(set.Spec.VolumeClaimTemplates) == 0 {
+				set.Spec.VolumeClaimTemplates = []corev1.PersistentVolumeClaim{
+					{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:            "data",
+							OwnerReferences: []metav1.OwnerReference{data.GetClusterRef()},
+						},
+						Spec: corev1.PersistentVolumeClaimSpec{
+							StorageClassName: resources.String("kubermatic-fast"),
+							AccessModes:      []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
+							Resources: corev1.ResourceRequirements{
+								Requests: corev1.ResourceList{corev1.ResourceStorage: diskSize},
+							},
+						},
+					},
+				}
+			}
+
+			return set, nil
+		}
 	}
 }
 
@@ -243,25 +251,27 @@ func getBasePodLabels(cluster *kubermaticv1.Cluster) map[string]string {
 }
 
 type commandTplData struct {
-	ServiceName string
-	Namespace   string
-	Token       string
-	DataDir     string
-	Migrate     bool
+	ServiceName           string
+	Namespace             string
+	Token                 string
+	DataDir               string
+	Migrate               bool
+	EnableCorruptionCheck bool
 }
 
-func getEtcdCommand(name, namespace string, migrate bool) ([]string, error) {
+func getEtcdCommand(name, namespace string, migrate, enableCorruptionCheck bool) ([]string, error) {
 	tpl, err := template.New("base").Funcs(sprig.TxtFuncMap()).Parse(etcdStartCommandTpl)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse etcd command template: %v", err)
 	}
 
 	tplData := commandTplData{
-		ServiceName: resources.EtcdServiceName,
-		Token:       name,
-		Namespace:   namespace,
-		DataDir:     dataDir,
-		Migrate:     migrate,
+		ServiceName:           resources.EtcdServiceName,
+		Token:                 name,
+		Namespace:             namespace,
+		DataDir:               dataDir,
+		Migrate:               migrate,
+		EnableCorruptionCheck: enableCorruptionCheck,
 	}
 
 	buf := bytes.Buffer{}
@@ -349,6 +359,10 @@ exec /usr/local/bin/etcd \
     --client-cert-auth \
     --cert-file /etc/etcd/pki/tls/etcd-tls.crt \
     --key-file /etc/etcd/pki/tls/etcd-tls.key \
+{{- if .EnableCorruptionCheck }}
+    --experimental-initial-corrupt-check=true \
+    --experimental-corrupt-check-time=10m \
+{{- end }}
     --auto-compaction-retention=8
 `
 )

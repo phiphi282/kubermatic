@@ -46,11 +46,11 @@ func (r Routing) RegisterV1SysEleven(mux *mux.Router) {
 func (r Routing) listOpenstackImages() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			r.oidcAuthenticator.Verifier(),
+			middleware.TokenVerifier(r.tokenVerifiers),
 			middleware.UserSaver(r.userProvider),
 		)(provider.OpenstackImageEndpoint(r.cloudProviders)),
 		provider.DecodeOpenstackReq,
-		EncodeJSON,
+		encodeJSON,
 		r.defaultServerOptions()...,
 	)
 }
@@ -68,11 +68,11 @@ func (r Routing) listOpenstackImages() http.Handler {
 func (r Routing) listOpenstackQuotaLimits() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			r.oidcAuthenticator.Verifier(),
+			middleware.TokenVerifier(r.tokenVerifiers),
 			middleware.UserSaver(r.userProvider),
 		)(provider.OpenstackQuotaLimitEndpoint(r.cloudProviders)),
 		provider.DecodeOpenstackReq,
-		EncodeJSON,
+		encodeJSON,
 		r.defaultServerOptions()...,
 	)
 }
@@ -90,13 +90,13 @@ func (r Routing) listOpenstackQuotaLimits() http.Handler {
 func (r Routing) listOpenstackImagesNoCredentials() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			r.oidcAuthenticator.Verifier(),
+			middleware.TokenVerifier(r.tokenVerifiers),
 			middleware.UserSaver(r.userProvider),
 			middleware.Datacenter(r.clusterProviders, r.datacenters),
-			middleware.UserInfo(r.userProjectMapper),
+			middleware.UserInfoExtractor(r.userProjectMapper),
 		)(provider.OpenstackImageNoCredentialsEndpoint(r.projectProvider, r.cloudProviders)),
 		provider.DecodeOpenstackNoCredentialsReq,
-		EncodeJSON,
+		encodeJSON,
 		r.defaultServerOptions()...,
 	)
 }
@@ -114,13 +114,13 @@ func (r Routing) listOpenstackImagesNoCredentials() http.Handler {
 func (r Routing) listOpenstackQuotaLimitsNoCredentials() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			r.oidcAuthenticator.Verifier(),
+			middleware.TokenVerifier(r.tokenVerifiers),
 			middleware.UserSaver(r.userProvider),
 			middleware.Datacenter(r.clusterProviders, r.datacenters),
-			middleware.UserInfo(r.userProjectMapper),
+			middleware.UserInfoExtractor(r.userProjectMapper),
 		)(provider.OpenstackQuotaLimitNoCredentialsEndpoint(r.projectProvider, r.cloudProviders)),
 		provider.DecodeOpenstackNoCredentialsReq,
-		EncodeJSON,
+		encodeJSON,
 		r.defaultServerOptions()...,
 	)
 }

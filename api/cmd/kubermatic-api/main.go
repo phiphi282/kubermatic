@@ -37,12 +37,15 @@ import (
 	kubermaticinformers "github.com/kubermatic/kubermatic/api/pkg/crd/client/informers/externalversions"
 	"github.com/kubermatic/kubermatic/api/pkg/handler"
 	"github.com/kubermatic/kubermatic/api/pkg/handler/auth"
-	"github.com/kubermatic/kubermatic/api/pkg/metrics"
+	"github.com/kubermatic/kubermatic/api/pkg/handler/v1/common"
+	metricspkg "github.com/kubermatic/kubermatic/api/pkg/metrics"
 	"github.com/kubermatic/kubermatic/api/pkg/provider"
 	"github.com/kubermatic/kubermatic/api/pkg/provider/cloud"
 	kubernetesprovider "github.com/kubermatic/kubermatic/api/pkg/provider/kubernetes"
+	"github.com/kubermatic/kubermatic/api/pkg/serviceaccount"
 	"github.com/kubermatic/kubermatic/api/pkg/util/informer"
 	"github.com/kubermatic/kubermatic/api/pkg/version"
+	ctrlruntimeclient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/informers"
@@ -63,30 +66,29 @@ func main() {
 	if err != nil {
 		glog.Fatalf("failed to create and initialize providers due to %v", err)
 	}
-	authenticator, issuerVerifier, err := createOIDCAuthenticatorIssuer(options)
+	oidcIssuerVerifier, err := createOIDCClients(options)
 	if err != nil {
-		glog.Fatalf("failed to create a openid authenticator for issuer %s (oidcClientID=%s) due to %v", options.oidcURL, options.oidcAuthenticatorClientID, err)
+		glog.Fatalf("failed to create an openid authenticator for issuer %s (oidcClientID=%s) due to %v", options.oidcURL, options.oidcAuthenticatorClientID, err)
+	}
+	tokenVerifiers, tokenExtractors, err := createAuthClients(options, providers)
+	if err != nil {
+		glog.Fatalf("failed to create auth clients due to %v", err)
 	}
 	updateManager, err := version.NewFromFiles(options.versionsFile, options.updatesFile)
 	if err != nil {
 		glog.Fatal(fmt.Sprintf("failed to create update manager due to %v", err))
 	}
-	apiHandler, err := createAPIHandler(options, providers, authenticator, issuerVerifier, updateManager)
+	apiHandler, err := createAPIHandler(options, providers, oidcIssuerVerifier, tokenVerifiers, tokenExtractors, updateManager)
 	if err != nil {
 		glog.Fatalf(fmt.Sprintf("failed to create API Handler due to %v", err))
 	}
 
-	go metrics.ServeForever(options.internalAddr, "/metrics")
+	go metricspkg.ServeForever(options.internalAddr, "/metrics")
 	glog.Info(fmt.Sprintf("Listening on %s", options.listenAddress))
 	glog.Fatal(http.ListenAndServe(options.listenAddress, handlers.CombinedLoggingHandler(os.Stdout, apiHandler)))
 }
 
 func createInitProviders(options serverRunOptions) (providers, error) {
-	config, err := clientcmd.BuildConfigFromFlags("", options.kubeconfig)
-	if err != nil {
-		return providers{}, fmt.Errorf("unable to build client configuration from kubeconfig due to %v", err)
-	}
-
 	// create cluster providers - one foreach context
 	clusterProviders := map[string]provider.ClusterProvider{}
 	{
@@ -113,10 +115,19 @@ func createInitProviders(options serverRunOptions) (providers, error) {
 			kubermaticSeedClient := kubermaticclientset.NewForConfigOrDie(cfg)
 			kubermaticSeedInformerFactory := kubermaticinformers.NewSharedInformerFactory(kubermaticSeedClient, informer.DefaultInformerResyncPeriod)
 			defaultImpersonationClientForSeed := kubernetesprovider.NewKubermaticImpersonationClient(cfg)
+			seedCtrlruntimeClient, err := ctrlruntimeclient.New(cfg, ctrlruntimeclient.Options{})
+			if err != nil {
+				return providers{}, fmt.Errorf("failed to create dynamic seed client: %v", err)
+			}
+
+			userClusterConnectionProvider, err := client.NewExternal(seedCtrlruntimeClient)
+			if err != nil {
+				return providers{}, fmt.Errorf("failed to get userClusterConnectionProvider: %v", err)
+			}
 
 			clusterProviders[ctx] = kubernetesprovider.NewClusterProvider(
-				defaultImpersonationClientForSeed.CreateImpersonatedClientSet,
-				client.New(kubeInformerFactory.Core().V1().Secrets().Lister()),
+				defaultImpersonationClientForSeed.CreateImpersonatedKubermaticClientSet,
+				userClusterConnectionProvider,
 				kubermaticSeedInformerFactory.Kubermatic().V1().Clusters().Lister(),
 				options.workerName,
 				rbac.ExtractGroupPrefix,
@@ -129,32 +140,82 @@ func createInitProviders(options serverRunOptions) (providers, error) {
 		}
 	}
 
+	masterCfg, err := clientcmd.BuildConfigFromFlags("", options.kubeconfig)
+	if err != nil {
+		return providers{}, fmt.Errorf("unable to build client configuration from kubeconfig due to %v", err)
+	}
+
 	// create other providers
-	kubermaticMasterClient := kubermaticclientset.NewForConfigOrDie(config)
+	kubeMasterClient := kubernetes.NewForConfigOrDie(masterCfg)
+	kubeMasterInformerFactory := informers.NewSharedInformerFactory(kubeMasterClient, informer.DefaultInformerResyncPeriod)
+	kubermaticMasterClient := kubermaticclientset.NewForConfigOrDie(masterCfg)
 	kubermaticMasterInformerFactory := kubermaticinformers.NewSharedInformerFactory(kubermaticMasterClient, informer.DefaultInformerResyncPeriod)
-	defaultImpersonationClient := kubernetesprovider.NewKubermaticImpersonationClient(config)
+	defaultKubermaticImpersonationClient := kubernetesprovider.NewKubermaticImpersonationClient(masterCfg)
+	defaultKubernetesImpersonationClient := kubernetesprovider.NewKubernetesImpersonationClient(masterCfg)
 
 	datacenters, err := provider.LoadDatacentersMeta(options.dcFile)
 	if err != nil {
 		return providers{}, fmt.Errorf("failed to load datacenter yaml %q: %v", options.dcFile, err)
 	}
 	cloudProviders := cloud.Providers(datacenters)
-	sshKeyProvider := kubernetesprovider.NewSSHKeyProvider(defaultImpersonationClient.CreateImpersonatedClientSet, kubermaticMasterInformerFactory.Kubermatic().V1().UserSSHKeys().Lister())
-	userProvider := kubernetesprovider.NewUserProvider(kubermaticMasterClient, kubermaticMasterInformerFactory.Kubermatic().V1().Users().Lister())
-	projectMemberProvider := kubernetesprovider.NewProjectMemberProvider(defaultImpersonationClient.CreateImpersonatedClientSet, kubermaticMasterInformerFactory.Kubermatic().V1().UserProjectBindings().Lister())
-	projectProvider, err := kubernetesprovider.NewProjectProvider(defaultImpersonationClient.CreateImpersonatedClientSet, kubermaticMasterInformerFactory.Kubermatic().V1().Projects().Lister())
+	userMasterLister := kubermaticMasterInformerFactory.Kubermatic().V1().Users().Lister()
+	sshKeyProvider := kubernetesprovider.NewSSHKeyProvider(defaultKubermaticImpersonationClient.CreateImpersonatedKubermaticClientSet, kubermaticMasterInformerFactory.Kubermatic().V1().UserSSHKeys().Lister())
+	userProvider := kubernetesprovider.NewUserProvider(kubermaticMasterClient, userMasterLister, kubernetesprovider.IsServiceAccount)
+
+	serviceAccountTokenProvider, err := kubernetesprovider.NewServiceAccountTokenProvider(defaultKubernetesImpersonationClient.CreateImpersonatedKubernetesClientSet, kubeMasterInformerFactory.Core().V1().Secrets().Lister())
+	if err != nil {
+		return providers{}, fmt.Errorf("failed to create service account token provider due to %v", err)
+	}
+	serviceAccountProvider := kubernetesprovider.NewServiceAccountProvider(defaultKubermaticImpersonationClient.CreateImpersonatedKubermaticClientSet, userMasterLister, options.domain)
+
+	projectMemberProvider := kubernetesprovider.NewProjectMemberProvider(defaultKubermaticImpersonationClient.CreateImpersonatedKubermaticClientSet, kubermaticMasterInformerFactory.Kubermatic().V1().UserProjectBindings().Lister(), userMasterLister, kubernetesprovider.IsServiceAccount)
+	projectProvider, err := kubernetesprovider.NewProjectProvider(defaultKubermaticImpersonationClient.CreateImpersonatedKubermaticClientSet, kubermaticMasterInformerFactory.Kubermatic().V1().Projects().Lister())
 	if err != nil {
 		return providers{}, fmt.Errorf("failed to create project provider due to %v", err)
 	}
 
+	privilegedProjectProvider, err := kubernetesprovider.NewPrivilegedProjectProvider(defaultKubermaticImpersonationClient.CreateImpersonatedKubermaticClientSet)
+	if err != nil {
+		return providers{}, fmt.Errorf("failed to create privileged project provider due to %v", err)
+	}
+
+	kubeMasterInformerFactory.Start(wait.NeverStop)
+	kubeMasterInformerFactory.WaitForCacheSync(wait.NeverStop)
 	kubermaticMasterInformerFactory.Start(wait.NeverStop)
 	kubermaticMasterInformerFactory.WaitForCacheSync(wait.NeverStop)
 
-	return providers{sshKey: sshKeyProvider, user: userProvider, project: projectProvider, projectMember: projectMemberProvider, memberMapper: projectMemberProvider, cloud: cloudProviders, clusters: clusterProviders, datacenters: datacenters}, nil
+	return providers{
+			sshKey:                                sshKeyProvider,
+			user:                                  userProvider,
+			serviceAccountProvider:                serviceAccountProvider,
+			serviceAccountTokenProvider:           serviceAccountTokenProvider,
+			privilegedServiceAccountTokenProvider: serviceAccountTokenProvider,
+			project:                               projectProvider,
+			privilegedProject:                     privilegedProjectProvider,
+			projectMember:                         projectMemberProvider,
+			memberMapper:                          projectMemberProvider,
+			cloud:                                 cloudProviders,
+			clusters:                              clusterProviders,
+			datacenters:                           datacenters},
+		nil
 }
 
-func createOIDCAuthenticatorIssuer(options serverRunOptions) (auth.OIDCAuthenticator, auth.OIDCIssuerVerifier, error) {
-	authenticator, err := auth.NewOpenIDAuthenticator(
+func createOIDCClients(options serverRunOptions) (auth.OIDCIssuerVerifier, error) {
+	return auth.NewOpenIDClient(
+		options.oidcURL,
+		options.oidcIssuerClientID,
+		options.oidcIssuerClientSecret,
+		options.oidcIssuerRedirectURI,
+		auth.NewCombinedExtractor(
+			auth.NewHeaderBearerTokenExtractor("Authorization"),
+			auth.NewQueryParamBearerTokenExtractor("token"),
+		),
+		options.oidcSkipTLSVerify,
+	)
+}
+
+func createAuthClients(options serverRunOptions, prov providers) (auth.TokenVerifier, auth.TokenExtractor, error) {
+	oidcExtractorVerifier, err := auth.NewOpenIDClient(
 		options.oidcURL,
 		options.oidcAuthenticatorClientID,
 		"",
@@ -170,22 +231,18 @@ func createOIDCAuthenticatorIssuer(options serverRunOptions) (auth.OIDCAuthentic
 		return nil, nil, fmt.Errorf("failed to create OIDC Authenticator: %v", err)
 	}
 
-	issuer, err := auth.NewOpenIDAuthenticator(
-		options.oidcURL,
-		options.oidcIssuerClientID,
-		options.oidcIssuerClientSecret,
-		options.oidcIssuerRedirectURI,
-		auth.NewCombinedExtractor(
-			auth.NewHeaderBearerTokenExtractor("Authorization"),
-			auth.NewQueryParamBearerTokenExtractor("token"),
-		),
-		options.oidcSkipTLSVerify,
+	jwtExtractorVerifier := auth.NewServiceAccountAuthClient(
+		auth.NewHeaderBearerTokenExtractor("Authorization"),
+		serviceaccount.JWTTokenAuthenticator([]byte(options.serviceAccountSigningKey)),
+		prov.privilegedServiceAccountTokenProvider,
 	)
 
-	return authenticator, issuer, err
+	tokenVerifiers := auth.NewTokenVerifierPlugins([]auth.TokenVerifier{oidcExtractorVerifier, jwtExtractorVerifier})
+	tokenExtractors := auth.NewTokenExtractorPlugins([]auth.TokenExtractor{oidcExtractorVerifier, jwtExtractorVerifier})
+	return tokenVerifiers, tokenExtractors, nil
 }
 
-func createAPIHandler(options serverRunOptions, prov providers, oidcAuthenticator auth.OIDCAuthenticator, oidcIssuerVerifier auth.OIDCIssuerVerifier, updateManager *version.Manager) (http.HandlerFunc, error) {
+func createAPIHandler(options serverRunOptions, prov providers, oidcIssuerVerifier auth.OIDCIssuerVerifier, tokenVerifiers auth.TokenVerifier, tokenExtractors auth.TokenExtractor, updateManager common.UpdateManager) (http.HandlerFunc, error) {
 	var prometheusClient prometheusapi.Client
 	if options.featureGates.Enabled(PrometheusEndpoint) {
 		var err error
@@ -202,22 +259,31 @@ func createAPIHandler(options serverRunOptions, prov providers, oidcAuthenticato
 		prov.cloud,
 		prov.sshKey,
 		prov.user,
+		prov.serviceAccountProvider,
+		prov.serviceAccountTokenProvider,
 		prov.project,
-		oidcAuthenticator,
+		prov.privilegedProject,
 		oidcIssuerVerifier,
+		tokenVerifiers,
+		tokenExtractors,
 		updateManager,
 		prometheusClient,
 		prov.projectMember,
 		prov.memberMapper,
+		nil,
+		nil,
 	)
+
+	registerMetrics()
 
 	mainRouter := mux.NewRouter()
 	v1Router := mainRouter.PathPrefix("/api/v1").Subrouter()
 	v1AlphaRouter := mainRouter.PathPrefix("/api/v1alpha").Subrouter()
-	r.RegisterV1(v1Router)
+	r.RegisterV1(v1Router, metrics)
+	r.RegisterV1Legacy(v1Router)
 	r.RegisterV1Optional(v1Router,
 		options.featureGates.Enabled(OIDCKubeCfgEndpoint),
-		handler.OIDCConfiguration{
+		common.OIDCConfiguration{
 			URL:                  options.oidcURL,
 			ClientID:             options.oidcIssuerClientID,
 			ClientSecret:         options.oidcIssuerClientSecret,
@@ -228,7 +294,6 @@ func createAPIHandler(options serverRunOptions, prov providers, oidcAuthenticato
 		mainRouter)
 	r.RegisterV1Alpha(v1AlphaRouter)
 	r.RegisterV1SysEleven(v1Router)
-	metrics.RegisterHTTPVecs()
 
 	lookupRoute := func(r *http.Request) string {
 		var match mux.RouteMatch
@@ -250,5 +315,5 @@ func createAPIHandler(options serverRunOptions, prov providers, oidcAuthenticato
 		return name
 	}
 
-	return metrics.InstrumentHandler(mainRouter, lookupRoute), nil
+	return instrumentHandler(mainRouter, lookupRoute), nil
 }

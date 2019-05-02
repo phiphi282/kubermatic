@@ -1,6 +1,7 @@
 package monitoring
 
 import (
+	"context"
 	"fmt"
 
 	kubermaticv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
@@ -8,197 +9,166 @@ import (
 	"github.com/kubermatic/kubermatic/api/pkg/resources/certificates"
 	"github.com/kubermatic/kubermatic/api/pkg/resources/kubestatemetrics"
 	"github.com/kubermatic/kubermatic/api/pkg/resources/prometheus"
+	"github.com/kubermatic/kubermatic/api/pkg/resources/reconciling"
+	"k8s.io/apimachinery/pkg/api/resource"
+
+	ctrlruntimeclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-func (c *Controller) getClusterTemplateData(cluster *kubermaticv1.Cluster) (*resources.TemplateData, error) {
-	dc, found := c.dcs[cluster.Spec.Cloud.DatacenterName]
+func (r *Reconciler) getClusterTemplateData(ctx context.Context, client ctrlruntimeclient.Client, cluster *kubermaticv1.Cluster) (*resources.TemplateData, error) {
+	dc, found := r.dcs[cluster.Spec.Cloud.DatacenterName]
 	if !found {
 		return nil, fmt.Errorf("failed to get datacenter %s", cluster.Spec.Cloud.DatacenterName)
 	}
 
 	return resources.NewTemplateData(
+		ctx,
+		client,
 		cluster,
 		&dc,
-		c.dc,
-		c.secretLister,
-		c.configMapLister,
-		c.serviceLister,
-		c.overwriteRegistry,
-		c.nodePortRange,
-		c.nodeAccessNetwork,
-		c.etcdDiskSize,
-		c.monitoringScrapeAnnotationPrefix,
-		c.inClusterPrometheusRulesFile,
-		c.inClusterPrometheusDisableDefaultRules,
-		c.inClusterPrometheusDisableDefaultScrapingConfigs,
-		c.inClusterPrometheusScrapingConfigsFile,
-		c.dockerPullConfigJSON,
+		r.dc,
+		r.overwriteRegistry,
+		r.nodePortRange,
+		r.nodeAccessNetwork,
+		resource.Quantity{},
+		r.monitoringScrapeAnnotationPrefix,
+		r.inClusterPrometheusRulesFile,
+		r.inClusterPrometheusDisableDefaultRules,
+		r.inClusterPrometheusDisableDefaultScrapingConfigs,
+		r.inClusterPrometheusScrapingConfigsFile,
 		"",
 		"",
 		"",
 	), nil
 }
 
-func (c *Controller) ensureServiceAccounts(cluster *kubermaticv1.Cluster, data *resources.TemplateData) error {
-	creators := []resources.ServiceAccountCreator{
-		prometheus.ServiceAccount,
+func (r *Reconciler) ensureRoles(ctx context.Context, cluster *kubermaticv1.Cluster) error {
+	getters := []reconciling.NamedRoleCreatorGetter{
+		prometheus.RoleCreator(),
 	}
 
-	for _, create := range creators {
-		if err := resources.EnsureServiceAccount(data, create, c.serviceAccountLister.ServiceAccounts(cluster.Status.NamespaceName), c.kubeClient.CoreV1().ServiceAccounts(cluster.Status.NamespaceName)); err != nil {
-			return fmt.Errorf("failed to ensure that the ServiceAccount exists: %v", err)
-		}
-	}
-
-	return nil
+	return reconciling.ReconcileRoles(ctx, getters, cluster.Status.NamespaceName, r.Client, reconciling.OwnerRefWrapper(resources.GetClusterRef(cluster)))
 }
 
-func (c *Controller) ensureRoles(cluster *kubermaticv1.Cluster, data *resources.TemplateData) error {
-	creators := []resources.RoleCreator{
-		prometheus.Role,
+func (r *Reconciler) ensureRoleBindings(ctx context.Context, cluster *kubermaticv1.Cluster) error {
+	getters := []reconciling.NamedRoleBindingCreatorGetter{
+		prometheus.RoleBindingCreator(cluster.Status.NamespaceName),
 	}
 
-	for _, create := range creators {
-		if err := resources.EnsureRole(data, create, c.roleLister.Roles(cluster.Status.NamespaceName), c.kubeClient.RbacV1().Roles(cluster.Status.NamespaceName)); err != nil {
-			return fmt.Errorf("failed to ensure that the Role exists: %v", err)
-		}
-	}
-
-	return nil
-}
-
-func (c *Controller) ensureRoleBindings(cluster *kubermaticv1.Cluster, data *resources.TemplateData) error {
-	creators := []resources.RoleBindingCreator{
-		prometheus.RoleBinding,
-	}
-
-	for _, create := range creators {
-		if err := resources.EnsureRoleBinding(data, create, c.roleBindingLister.RoleBindings(cluster.Status.NamespaceName), c.kubeClient.RbacV1().RoleBindings(cluster.Status.NamespaceName)); err != nil {
-			return fmt.Errorf("failed to ensure that the RoleBinding exists: %v", err)
-		}
-	}
-
-	return nil
+	return reconciling.ReconcileRoleBindings(ctx, getters, cluster.Status.NamespaceName, r.Client, reconciling.OwnerRefWrapper(resources.GetClusterRef(cluster)))
 }
 
 // GetDeploymentCreators returns all DeploymentCreators that are currently in use
-func GetDeploymentCreators(c *kubermaticv1.Cluster) []resources.DeploymentCreator {
-	creators := []resources.DeploymentCreator{
-		kubestatemetrics.Deployment,
+func GetDeploymentCreators(data *resources.TemplateData) []reconciling.NamedDeploymentCreatorGetter {
+	creators := []reconciling.NamedDeploymentCreatorGetter{
+		kubestatemetrics.DeploymentCreator(data),
 	}
 
 	return creators
 }
 
-func (c *Controller) ensureDeployments(cluster *kubermaticv1.Cluster, data *resources.TemplateData) error {
-	creators := GetDeploymentCreators(cluster)
+func (r *Reconciler) ensureDeployments(ctx context.Context, cluster *kubermaticv1.Cluster, data *resources.TemplateData) error {
+	creators := GetDeploymentCreators(data)
 
-	for _, create := range creators {
-		if err := resources.EnsureDeployment(data, create, c.deploymentLister.Deployments(cluster.Status.NamespaceName), c.kubeClient.AppsV1().Deployments(cluster.Status.NamespaceName)); err != nil {
-			return fmt.Errorf("failed to ensure that the Deployment exists: %v", err)
-		}
-	}
-
-	return nil
-}
-
-// SecretOperation returns a wrapper struct to utilize a sorted slice instead of an unsorted map
-type SecretOperation struct {
-	name   string
-	create resources.SecretCreator
+	return reconciling.ReconcileDeployments(ctx, creators, cluster.Status.NamespaceName, r.Client, reconciling.OwnerRefWrapper(resources.GetClusterRef(cluster)))
 }
 
 // GetSecretCreatorOperations returns all SecretCreators that are currently in use
-func GetSecretCreatorOperations(data *resources.TemplateData) []SecretOperation {
-	return []SecretOperation{
-		{
+func GetSecretCreatorOperations(data *resources.TemplateData) []reconciling.NamedSecretCreatorGetter {
+	return []reconciling.NamedSecretCreatorGetter{
+		certificates.GetClientCertificateCreator(
 			resources.PrometheusApiserverClientCertificateSecretName,
-			certificates.GetClientCertificateCreator(
-				resources.PrometheusApiserverClientCertificateSecretName,
-				resources.PrometheusCertUsername, nil,
-				resources.PrometheusClientCertificateCertSecretKey,
-				resources.PrometheusClientCertificateKeySecretKey,
-				data.GetRootCA,
-			),
-		},
+			resources.PrometheusCertUsername, nil,
+			resources.PrometheusClientCertificateCertSecretKey,
+			resources.PrometheusClientCertificateKeySecretKey,
+			data.GetRootCA,
+		),
 	}
 }
 
-func (c *Controller) ensureSecrets(cluster *kubermaticv1.Cluster, data *resources.TemplateData) error {
-	operations := GetSecretCreatorOperations(data)
+func (r *Reconciler) ensureSecrets(ctx context.Context, cluster *kubermaticv1.Cluster, data *resources.TemplateData) error {
+	namedSecretCreatorGetters := GetSecretCreatorOperations(data)
 
-	for _, op := range operations {
-		if err := resources.EnsureSecret(op.name, data, op.create, c.secretLister.Secrets(cluster.Status.NamespaceName), c.kubeClient.CoreV1().Secrets(cluster.Status.NamespaceName)); err != nil {
-			return fmt.Errorf("failed to ensure that the Secret exists: %v", err)
-		}
+	if err := reconciling.ReconcileSecrets(ctx, namedSecretCreatorGetters, cluster.Status.NamespaceName, r.Client, reconciling.OwnerRefWrapper(resources.GetClusterRef(cluster))); err != nil {
+		return fmt.Errorf("failed to ensure that the Secret exists: %v", err)
 	}
 
 	return nil
 }
 
 // GetConfigMapCreators returns all ConfigMapCreators that are currently in use
-func GetConfigMapCreators(data *resources.TemplateData) []resources.ConfigMapCreator {
-	return []resources.ConfigMapCreator{
+func GetConfigMapCreators(data *resources.TemplateData) []reconciling.NamedConfigMapCreatorGetter {
+	return []reconciling.NamedConfigMapCreatorGetter{
 		prometheus.ConfigMapCreator(data),
 	}
 }
 
-func (c *Controller) ensureConfigMaps(cluster *kubermaticv1.Cluster, data *resources.TemplateData) error {
+func (r *Reconciler) ensureConfigMaps(ctx context.Context, cluster *kubermaticv1.Cluster, data *resources.TemplateData) error {
 	creators := GetConfigMapCreators(data)
 
-	for _, create := range creators {
-		if err := resources.EnsureConfigMap(create, c.configMapLister.ConfigMaps(cluster.Status.NamespaceName), c.kubeClient.CoreV1().ConfigMaps(cluster.Status.NamespaceName)); err != nil {
-			return fmt.Errorf("failed to ensure that the ConfigMap exists: %v", err)
-		}
+	if err := reconciling.ReconcileConfigMaps(ctx, creators, cluster.Status.NamespaceName, r.Client, reconciling.OwnerRefWrapper(resources.GetClusterRef(cluster))); err != nil {
+		return fmt.Errorf("failed to ensure that the ConfigMap exists: %v", err)
 	}
 
 	return nil
 }
 
 // GetStatefulSetCreators returns all StatefulSetCreators that are currently in use
-func GetStatefulSetCreators(data *resources.TemplateData) []resources.StatefulSetCreator {
-	return []resources.StatefulSetCreator{
+func GetStatefulSetCreators(data *resources.TemplateData) []reconciling.NamedStatefulSetCreatorGetter {
+	return []reconciling.NamedStatefulSetCreatorGetter{
 		prometheus.StatefulSetCreator(data),
 	}
 }
 
-func (c *Controller) ensureStatefulSets(cluster *kubermaticv1.Cluster, data *resources.TemplateData) error {
-	data.GetClusterRef()
+func (r *Reconciler) ensureStatefulSets(ctx context.Context, cluster *kubermaticv1.Cluster, data *resources.TemplateData) error {
 	creators := GetStatefulSetCreators(data)
 
-	return resources.EnsureStatefulSets(creators, cluster.Status.NamespaceName, c.dynamicClient, c.dynamicCache, resources.ClusterRefWrapper(cluster))
+	return reconciling.ReconcileStatefulSets(ctx, creators, cluster.Status.NamespaceName, r.Client, reconciling.OwnerRefWrapper(resources.GetClusterRef(cluster)))
 }
 
-// GetServiceCreators returns all service creators that are currently in use
-func GetServiceCreators() []resources.ServiceCreator {
-	return []resources.ServiceCreator{
-		prometheus.Service,
-		kubestatemetrics.Service,
+func (r *Reconciler) ensureVerticalPodAutoscalers(ctx context.Context, cluster *kubermaticv1.Cluster) error {
+	deploymentNames := []string{
+		resources.KubeStateMetricsDeploymentName,
 	}
-}
-
-func (c *Controller) ensureServices(cluster *kubermaticv1.Cluster, data *resources.TemplateData) error {
-	creators := GetServiceCreators()
-
-	for _, create := range creators {
-		if err := resources.EnsureService(data, create, c.serviceLister.Services(cluster.Status.NamespaceName), c.kubeClient.CoreV1().Services(cluster.Status.NamespaceName)); err != nil {
-			return fmt.Errorf("failed to ensure that the service exists: %v", err)
-		}
+	statefulSetNames := []string{
+		resources.PrometheusStatefulSetName,
 	}
 
-	return nil
-}
-
-func (c *Controller) ensureVerticalPodAutoscalers(cluster *kubermaticv1.Cluster) error {
-	creators, err := resources.GetVerticalPodAutoscalersForAll([]string{
-		"kube-state-metrics",
-	},
-		[]string{
-			"prometheus",
-		}, cluster.Status.NamespaceName,
-		c.dynamicCache)
+	creators, err := resources.GetVerticalPodAutoscalersForAll(
+		ctx,
+		r.Client,
+		deploymentNames,
+		statefulSetNames,
+		cluster.Status.NamespaceName,
+		r.features.VPA)
 	if err != nil {
 		return fmt.Errorf("failed to create the functions to handle VPA resources: %v", err)
 	}
-	return resources.EnsureVerticalPodAutoscalers(creators, cluster.Status.NamespaceName, c.dynamicClient, c.dynamicCache)
+	return reconciling.ReconcileVerticalPodAutoscalers(ctx, creators, cluster.Status.NamespaceName, r.Client)
+}
+
+// GetServiceCreators returns all service creators that are currently in use
+func GetServiceCreators(data *resources.TemplateData) []reconciling.NamedServiceCreatorGetter {
+	return []reconciling.NamedServiceCreatorGetter{
+		prometheus.ServiceCreator(data),
+	}
+}
+
+func (r *Reconciler) ensureServices(ctx context.Context, cluster *kubermaticv1.Cluster, data *resources.TemplateData) error {
+	creators := GetServiceCreators(data)
+
+	return reconciling.ReconcileServices(ctx, creators, cluster.Status.NamespaceName, r.Client, reconciling.OwnerRefWrapper(resources.GetClusterRef(cluster)))
+}
+
+// GetServiceCreators returns all service creators that are currently in use
+func GetServiceAccountCreators() []reconciling.NamedServiceAccountCreatorGetter {
+	return []reconciling.NamedServiceAccountCreatorGetter{
+		prometheus.ServiceAccountCreator(),
+	}
+}
+
+func (r *Reconciler) ensureServiceAccounts(ctx context.Context, cluster *kubermaticv1.Cluster, data *resources.TemplateData) error {
+	creators := GetServiceAccountCreators()
+
+	return reconciling.ReconcileServiceAccounts(ctx, creators, cluster.Status.NamespaceName, r.Client, reconciling.OwnerRefWrapper(resources.GetClusterRef(cluster)))
 }

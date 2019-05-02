@@ -33,10 +33,10 @@ type RawResponse struct {
 func (r Routing) prometheusProxyHandler() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			r.oidcAuthenticator.Verifier(),
+			middleware.TokenVerifier(r.tokenVerifiers),
 			middleware.UserSaver(r.userProvider),
 			middleware.Datacenter(r.clusterProviders, r.datacenters),
-			middleware.UserInfo(r.userProjectMapper),
+			middleware.UserInfoExtractor(r.userProjectMapper),
 		)(getPrometheusProxyEndpoint(r.datacenters)),
 		decodePrometheusProxyReq,
 		encodeRawResponse,

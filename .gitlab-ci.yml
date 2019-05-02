@@ -4,6 +4,9 @@ stages:
 - build
 - release
 
+variables:
+  GO_VERSION: "1.12.4"
+
 before_script:
 - mkdir -p /go/src/github.com/kubermatic/
 - ln -s $PWD /go/src/github.com/kubermatic/
@@ -25,7 +28,7 @@ dep:
 
 gofmt:
   stage: check
-  image: golang:1.11.0
+  image: golang:${GO_VERSION}
   script:
   - cd api
   - make gofmt
@@ -36,7 +39,7 @@ gofmt:
 
 verify-codegen:
   stage: check
-  image: golang:1.11.0
+  image: golang:${GO_VERSION}
   script:
   - cd api
   - ./hack/verify-codegen.sh
@@ -58,7 +61,7 @@ license-validation:
 
 lint:
   stage: check
-  image: golangci/golangci-lint:v1.12.3
+  image: golangci/golangci-lint:v1.16.0
   script:
   - cd api
   - make lint
@@ -79,7 +82,7 @@ verify-addons-up-to-date:
 
 verify-swagger-spec:
   stage: check
-  image: golang:1.11.0
+  image: golang:${GO_VERSION}
   script:
   - cd api
   - ./hack/verify-swagger.sh
@@ -90,7 +93,7 @@ verify-swagger-spec:
 
 test:
   stage: test
-  image: golang:1.11.0
+  image: golang:${GO_VERSION}
   script:
   - cd api
   - make test
@@ -101,7 +104,7 @@ test:
 
 build:
   stage: build
-  image: golang:1.11.0
+  image: golang:${GO_VERSION}
   script:
   - cd api
   - make build

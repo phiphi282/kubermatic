@@ -1,9 +1,7 @@
 package user_test
 
 import (
-	"crypto/sha256"
 	"fmt"
-	"github.com/kubermatic/kubermatic/api/pkg/handler/test/hack"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -13,6 +11,7 @@ import (
 	apiv1 "github.com/kubermatic/kubermatic/api/pkg/api/v1"
 	kubermaticapiv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
 	"github.com/kubermatic/kubermatic/api/pkg/handler/test"
+	"github.com/kubermatic/kubermatic/api/pkg/handler/test/hack"
 
 	"k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -132,7 +131,7 @@ func TestGetUsersForProject(t *testing.T) {
 				genDefaultUser(), /*bob*/
 			},
 			ExistingAPIUser:        *genAPIUser("alice2", "alice2@acme.com"),
-			ExpectedResponseString: `{"error":{"code":403,"message":"forbidden: The user \"alice2@acme.com\" doesn't belong to the given project = foo2InternalName"}}`,
+			ExpectedResponseString: `{"error":{"code":403,"message":"forbidden: \"alice2@acme.com\" doesn't belong to the given project = foo2InternalName"}}`,
 		},
 	}
 
@@ -706,6 +705,29 @@ func TestAddUserToProject(t *testing.T) {
 				},
 			},
 		},
+
+		{
+			Name: "scenario 8: john tries to add a service account to a project",
+			Body: func() string {
+				sa := test.GenServiceAccount("1", "test-1", "editors", "plan9-ID")
+				return fmt.Sprintf(`{"email":"%s", "projects":[{"id":"plan9-ID", "group":"editors"}]}`, sa.Spec.Email)
+			}(),
+			HTTPStatus:    http.StatusBadRequest,
+			ProjectToSync: "plan9-ID",
+			ExistingKubermaticObjs: []runtime.Object{
+				/*add projects*/
+				test.GenProject("my-third-project", kubermaticapiv1.ProjectActive, test.DefaultCreationTimestamp()),
+				test.GenProject("plan9", kubermaticapiv1.ProjectActive, test.DefaultCreationTimestamp()),
+				/* add bindings*/
+				test.GenBinding("plan9-ID", "john@acme.com", "owners"),
+				test.GenBinding("my-third-project-ID", "john@acme.com", "editors"),
+				/*add users*/
+				genUser("", "john", "john@acme.com"),
+				test.GenServiceAccount("1", "test-1", "editors", "plan9-ID"),
+			},
+			ExistingAPIUser:  *genAPIUser("john", "john@acme.com"),
+			ExpectedResponse: `{"error":{"code":400,"message":"cannot add the given member serviceaccount-1@sa.kubermatic.io to the project plan9 because the email indicates a service account"}}`,
+		},
 	}
 
 	for _, tc := range testcases {
@@ -827,10 +849,8 @@ func TestNewUser(t *testing.T) {
 			ExpectedResponse: `{"id":"405ac8384fa984f787f9486daf34d84d98f20c4d6a12e2cc4ed89be3bcb06ad6","name":"Bob","creationTimestamp":"0001-01-01T00:00:00Z","email":"bob@acme.com"}`,
 			HTTPStatus:       http.StatusOK,
 			ExpectedKubermaticUser: func() *kubermaticapiv1.User {
-				apiUser := genDefaultAPIUser()
-				expectedKubermaticUser := test.APIUserToKubermaticUser(*apiUser)
-				// the name of the object is derived from the email address and encoded as sha256
-				expectedKubermaticUser.Name = fmt.Sprintf("%x", sha256.Sum256([]byte(apiUser.Email)))
+				expectedKubermaticUser := test.GenDefaultUser()
+				expectedKubermaticUser.UID = ""
 				return expectedKubermaticUser
 			}(),
 			ExistingAPIUser: genDefaultAPIUser(),
@@ -838,8 +858,8 @@ func TestNewUser(t *testing.T) {
 
 		{
 			Name:             "scenario 2: fails when creating a user without an email address",
-			ExpectedResponse: `{"error":{"code":400,"message":"Email, ID and Name cannot be empty when creating a new user resource"}}`,
-			HTTPStatus:       http.StatusBadRequest,
+			ExpectedResponse: `{"error":{"code":401,"message":"not authorized"}}`,
+			HTTPStatus:       http.StatusUnauthorized,
 			ExistingAPIUser: func() *apiv1.User {
 				apiUser := genDefaultAPIUser()
 				apiUser.Email = ""
@@ -873,7 +893,7 @@ func TestNewUser(t *testing.T) {
 
 			// validate
 			if res.Code != tc.HTTPStatus {
-				t.Fatalf("Expected HTTP status code %d, got %d: %s", http.StatusOK, res.Code, res.Body.String())
+				t.Fatalf("Expected HTTP status code %d, got %d: %s", tc.HTTPStatus, res.Code, res.Body.String())
 			}
 			test.CompareWithResult(t, res, tc.ExpectedResponse)
 

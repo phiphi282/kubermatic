@@ -2,6 +2,7 @@ package resources
 
 import (
 	"bufio"
+	"context"
 	"crypto/ecdsa"
 	"crypto/rsa"
 	"crypto/x509"
@@ -9,40 +10,34 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net"
-	"net/url"
 	"os"
 	"time"
 
-	kubermaticv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
-	"github.com/kubermatic/kubermatic/api/pkg/resources/certificates/triple"
+	"github.com/golang/glog"
 	"github.com/kubermatic/kubermatic/api/pkg/semver"
 
-	"github.com/golang/glog"
+	kubermaticv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
+	"github.com/kubermatic/kubermatic/api/pkg/resources/certificates/triple"
 
-	admissionv1alpha1 "k8s.io/api/admissionregistration/v1alpha1"
-	admissionregistrationv1beta1 "k8s.io/api/admissionregistration/v1beta1"
-	appsv1 "k8s.io/api/apps/v1"
-	batchv1beta1 "k8s.io/api/batch/v1beta1"
 	corev1 "k8s.io/api/core/v1"
-	policyv1beta1 "k8s.io/api/policy/v1beta1"
-	rbacv1 "k8s.io/api/rbac/v1"
 	apiextensionsv1beta1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1beta1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	corev1lister "k8s.io/client-go/listers/core/v1"
 	certutil "k8s.io/client-go/util/cert"
 	apiregistrationv1beta1 "k8s.io/kube-aggregator/pkg/apis/apiregistration/v1beta1"
 
-	autoscalingv1beta "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/apis/autoscaling.k8s.io/v1beta1"
+	ctrlruntimeclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 // KUBERMATICCOMMIT is a magic variable containing the git commit hash of the current (as in currently executing) kubermatic api. It gets feeded by Makefile as a ldflag.
 var KUBERMATICCOMMIT string
 
+// KUBERMATICGITTAG is a magic variable containing the output of `git describe` for the current (as in currently executing) kubermatic api. It gets fed by Makefile as an ldflag.
+var KUBERMATICGITTAG = "manual_build"
+
 const (
-	// KubermaticNamespaceName specifies the name of the kubermatic namespace
-	KubermaticNamespaceName = "kubermatic"
 	// ApiserverDeploymentName is the name of the apiserver deployment
 	ApiserverDeploymentName = "apiserver"
 	//ControllerManagerDeploymentName is the name for the controller manager deployment
@@ -64,9 +59,9 @@ const (
 	//DNSResolverServiceName is the name of the dns resolvers service
 	DNSResolverServiceName = "dns-resolver"
 	//DNSResolverVPAName is the name of the dns resolvers VerticalPodAutoscaler
-	DNSResolverVPAName = "dns-resolver"
-	//KubeStateMetricsDeploymentName is the name for the kube-state-metrics deployment
 	KubeStateMetricsDeploymentName = "kube-state-metrics"
+	// UserClusterControllerDeploymentName is the name of the usercluster-controller deployment
+	UserClusterControllerDeploymentName = "usercluster-controller"
 
 	//PrometheusStatefulSetName is the name for the prometheus StatefulSet
 	PrometheusStatefulSetName = "prometheus"
@@ -77,10 +72,6 @@ const (
 	ApiserverExternalServiceName = "apiserver-external"
 	//ApiserverInternalServiceName is the name for the internal apiserver service
 	ApiserverInternalServiceName = "apiserver"
-	//PrometheusServiceName is the name for the prometheus service
-	PrometheusServiceName = "prometheus"
-	// KubeStateMetricsServiceName is the name for the kube-state-metrics service
-	KubeStateMetricsServiceName = "kube-state-metrics"
 	// MetricsServerServiceName is the name for the metrics-server service
 	MetricsServerServiceName = "metrics-server"
 	// MetricsServerExternalNameServiceName is the name for the metrics-server service inside the user cluster
@@ -118,8 +109,6 @@ const (
 	MachineControllerWebhookServingCertCertKeyName = "cert.pem"
 	//MachineControllerWebhookServingCertKeyKeyName is the name for the key that contains the key
 	MachineControllerWebhookServingCertKeyKeyName = "key.pem"
-	//IPAMControllerKubeconfigSecretName is the name for the secret containing the kubeconfig used by the ipam controller
-	IPAMControllerKubeconfigSecretName = "ipamcontroller-kubeconfig"
 	//PrometheusApiserverClientCertificateSecretName is the name for the secret containing the client certificate used by prometheus to access the apiserver
 	PrometheusApiserverClientCertificateSecretName = "prometheus-apiserver-certificate"
 
@@ -187,22 +176,8 @@ const (
 	SchedulerCertUsername = "system:kube-scheduler"
 	//KubeletDnatControllerCertUsername is the name of the user coming from kubeconfig cert
 	KubeletDnatControllerCertUsername = "kubermatic:kubeletdnat-controller"
-	//IPAMControllerCertUsername is the name of the user coming from kubeconfig cert
-	IPAMControllerCertUsername = "kubermatic:ipam-controller"
 	// PrometheusCertUsername is the name of the user coming from kubeconfig cert
 	PrometheusCertUsername = "prometheus"
-
-	// MachineIPAMInitializerConfigurationName is the name of the initializerconfiguration used for setting up static ips for machines
-	MachineIPAMInitializerConfigurationName = "ipam-initializer"
-	// MachineIPAMInitializerName is the name of the initializer used for setting up static ips for machines
-	MachineIPAMInitializerName = "ipam.kubermatic.io"
-	// IPAMControllerDeploymentName is the name of the ipam controller's deployment
-	IPAMControllerDeploymentName = "ipam-controller"
-
-	// IPAMControllerClusterRoleName is the name for the IPAMController cluster role
-	IPAMControllerClusterRoleName = "system:kubermatic-ipam-controller"
-	// IPAMControllerClusterRoleBindingName is the name for the IPAMController clusterrolebinding
-	IPAMControllerClusterRoleBindingName = "system:kubermatic-ipam-controller"
 
 	// KubeletDnatControllerClusterRoleName is the name for the KubeletDnatController cluster role
 	KubeletDnatControllerClusterRoleName = "system:kubermatic-kubeletdnat-controller"
@@ -233,8 +208,6 @@ const (
 	KubeStateMetricsClusterRoleBindingName = "system:kubermatic-kube-state-metrics"
 	//PrometheusClusterRoleBindingName is the name for the Prometheus ClusterRoleBinding
 	PrometheusClusterRoleBindingName = "system:external-prometheus"
-	//MetricsServerAuthDelegatorClusterRoleBindingName is the name for the metrics server ClusterRoleBinding used for token access review
-	MetricsServerAuthDelegatorClusterRoleBindingName = "metrics-server:system:auth-delegator"
 	//MetricsServerResourceReaderClusterRoleBindingName is the name for the metrics server ClusterRoleBinding
 	MetricsServerResourceReaderClusterRoleBindingName = "system:metrics-server"
 
@@ -253,6 +226,8 @@ const (
 
 	// AppLabelKey defines the label key app which should be used within resources
 	AppLabelKey = "app"
+	// ClusterLabelKey defines the label key for the cluster name
+	ClusterLabelKey = "cluster"
 
 	// EtcdClusterSize defines the size of the etcd to use
 	EtcdClusterSize = 3
@@ -283,7 +258,7 @@ const (
 	// InternalUserClusterAdminKubeconfigSecretName is the name of the secret containing an admin kubeconfig that can only be used from
 	// within the seed cluster
 	InternalUserClusterAdminKubeconfigSecretName = "internal-admin-kubeconfig"
-	// InternalUserClusterAdminKubeconfigCertUsername is the name of the user coming from kubeconfig cert
+	// UserClusterControllerCertUsername is the name of the user coming from kubeconfig cert
 	InternalUserClusterAdminKubeconfigCertUsername = "kubermatic-controllers"
 )
 
@@ -302,6 +277,8 @@ const (
 	KubeletClientCertSecretKey = "kubelet-client.crt" // FIXME confusing naming: s/CertSecretKey/CertSecretName/
 	// ServiceAccountKeySecretKey sa.key
 	ServiceAccountKeySecretKey = "sa.key"
+	// ServiceAccountKeyPublicKey is the public key for the service account signer key
+	ServiceAccountKeyPublicKey = "sa.pub"
 	// KubeconfigSecretKey kubeconfig
 	KubeconfigSecretKey = "kubeconfig"
 	// TokensSecretKey tokens.csv
@@ -359,87 +336,11 @@ type ECDSAKeyPair struct {
 	Cert *x509.Certificate
 }
 
-// ConfigMapCreator defines an interface to create/update ConfigMap's
-type ConfigMapCreator = func(*corev1.ConfigMap) (*corev1.ConfigMap, error)
-
-// SecretCreator defines an interface to create/update Secret's
-type SecretCreator = func(data SecretDataProvider, existing *corev1.Secret) (*corev1.Secret, error)
-
-// StatefulSetCreator defines an interface to create/update StatefulSet
-type StatefulSetCreator = func(existing *appsv1.StatefulSet) (*appsv1.StatefulSet, error)
-
-// VerticalPodAutoscalerCreator defines an interface to create/update a VerticalPodAutoscaler
-type VerticalPodAutoscalerCreator = func(existing *autoscalingv1beta.VerticalPodAutoscaler) (*autoscalingv1beta.VerticalPodAutoscaler, error)
-
-// ServiceCreator defines an interface to create/update Services
-type ServiceCreator = func(data ServiceDataProvider, existing *corev1.Service) (*corev1.Service, error)
-
-// ServiceAccountCreator defines an interface to create/update ServiceAccounts
-type ServiceAccountCreator = func(data ServiceAccountDataProvider, existing *corev1.ServiceAccount) (*corev1.ServiceAccount, error)
-
-// RoleCreator defines an interface to create/update RBAC Roles
-type RoleCreator = func(data RoleDataProvider, existing *rbacv1.Role) (*rbacv1.Role, error)
-
-// RoleBindingCreator defines an interface to create/update RBAC RoleBinding's
-type RoleBindingCreator = func(data RoleBindingDataProvider, existing *rbacv1.RoleBinding) (*rbacv1.RoleBinding, error)
-
-// ClusterRoleCreator defines an interface to create/update RBAC ClusterRoles
-type ClusterRoleCreator = func(data ClusterRoleDataProvider, existing *rbacv1.ClusterRole) (*rbacv1.ClusterRole, error)
-
-// ClusterRoleBindingCreator defines an interface to create/update RBAC ClusterRoleBinding's
-type ClusterRoleBindingCreator = func(data ClusterRoleBindingDataProvider, existing *rbacv1.ClusterRoleBinding) (*rbacv1.ClusterRoleBinding, error)
-
-// DeploymentCreator defines an interface to create/update Deployment's
-type DeploymentCreator = func(data DeploymentDataProvider, existing *appsv1.Deployment) (*appsv1.Deployment, error)
-
-// InitializerConfigurationCreator defines an interface to create/update InitializerConfigurations
-type InitializerConfigurationCreator = func(data *TemplateData, existing *admissionv1alpha1.InitializerConfiguration) (*admissionv1alpha1.InitializerConfiguration, error)
-
-// PodDisruptionBudgetCreator defines an interface to create/update PodDisruptionBudgets
-type PodDisruptionBudgetCreator = func(data *TemplateData, existing *policyv1beta1.PodDisruptionBudget) (*policyv1beta1.PodDisruptionBudget, error)
-
-// CronJobCreator defines an interface to create/update CronJobs
-type CronJobCreator = func(data *TemplateData, existing *batchv1beta1.CronJob) (*batchv1beta1.CronJob, error)
-
 // CRDCreateor defines an interface to create/update CustomRessourceDefinitions
 type CRDCreateor = func(version semver.Semver, existing *apiextensionsv1beta1.CustomResourceDefinition) (*apiextensionsv1beta1.CustomResourceDefinition, error)
 
 // APIServiceCreator defines an interface to create/update APIService's
 type APIServiceCreator = func(existing *apiregistrationv1beta1.APIService) (*apiregistrationv1beta1.APIService, error)
-
-// MutatingWebhookConfigurationCreator defines an interface to create/update MutatingWebhookConfigurations
-type MutatingWebhookConfigurationCreator = func(cluster *kubermaticv1.Cluster, data *TemplateData, existing *admissionregistrationv1beta1.MutatingWebhookConfiguration) (*admissionregistrationv1beta1.MutatingWebhookConfiguration, error)
-
-// ObjectCreator defines an interface to create/update a runtime.Object
-type ObjectCreator = func(existing runtime.Object) (runtime.Object, error)
-
-// ObjectModifier is a wrapper function which modifies the object which gets returned by the passed in ObjectCreator
-type ObjectModifier func(create ObjectCreator) ObjectCreator
-
-// GetClusterApiserverAddress returns the apiserver address for the given Cluster
-func GetClusterApiserverAddress(cluster *kubermaticv1.Cluster, lister corev1lister.ServiceLister) (string, error) {
-	service, err := lister.Services(cluster.Status.NamespaceName).Get(ApiserverExternalServiceName)
-	if err != nil {
-		return "", fmt.Errorf("could not get service %s from lister for cluster %s: %v", ApiserverExternalServiceName, cluster.Name, err)
-	}
-
-	if len(service.Spec.Ports) != 1 {
-		return "", errors.New("apiserver service does not have exactly one port")
-	}
-
-	dnsName := GetAbsoluteServiceDNSName(ApiserverExternalServiceName, cluster.Status.NamespaceName)
-	return fmt.Sprintf("%s:%d", dnsName, service.Spec.Ports[0].NodePort), nil
-}
-
-// GetClusterApiserverURL returns the apiserver url for the given Cluster
-func GetClusterApiserverURL(cluster *kubermaticv1.Cluster, lister corev1lister.ServiceLister) (*url.URL, error) {
-	addr, err := GetClusterApiserverAddress(cluster, lister)
-	if err != nil {
-		return nil, err
-	}
-
-	return url.Parse(fmt.Sprintf("https://%s", addr))
-}
 
 // GetClusterExternalIP returns a net.IP for the given Cluster
 func GetClusterExternalIP(cluster *kubermaticv1.Cluster) (*net.IP, error) {
@@ -509,8 +410,13 @@ func InClusterApiserverIP(cluster *kubermaticv1.Cluster) (*net.IP, error) {
 	return &ip, nil
 }
 
+type userClusterDNSPolicyAndConfigData interface {
+	Cluster() *kubermaticv1.Cluster
+	ClusterIPByServiceName(name string) (string, error)
+}
+
 // UserClusterDNSPolicyAndConfig returns a DNSPolicy and DNSConfig to configure Pods to use user cluster DNS
-func UserClusterDNSPolicyAndConfig(d DeploymentDataProvider) (corev1.DNSPolicy, *corev1.PodDNSConfig, error) {
+func UserClusterDNSPolicyAndConfig(d userClusterDNSPolicyAndConfigData) (corev1.DNSPolicy, *corev1.PodDNSConfig, error) {
 	// DNSNone indicates that the pod should use empty DNS settings. DNS
 	// parameters such as nameservers and search paths should be defined via
 	// DNSConfig.
@@ -596,9 +502,12 @@ func IsServerCertificateValidForAllOf(cert *x509.Certificate, commonName string,
 
 	certPool := x509.NewCertPool()
 	certPool.AddCert(ca)
-	if _, err := cert.Verify(x509.VerifyOptions{Roots: certPool,
-		KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}}); err != nil {
-		glog.V(4).Infof("Certificate verification for CN %s failed due to: %v", commonName, err)
+	verifyOptions := x509.VerifyOptions{
+		Roots:     certPool,
+		KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+	}
+	if _, err := cert.Verify(verifyOptions); err != nil {
+		glog.Errorf("Certificate verification for CN %s failed due to: %v", commonName, err)
 		return false
 	}
 
@@ -625,17 +534,20 @@ func IsClientCertificateValidForAllOf(cert *x509.Certificate, commonName string,
 
 	certPool := x509.NewCertPool()
 	certPool.AddCert(ca)
-	if _, err := cert.Verify(x509.VerifyOptions{Roots: certPool,
-		KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}}); err != nil {
-		glog.V(4).Infof("Certificate verification for CN %s failed due to: %v", commonName, err)
+	verifyOptions := x509.VerifyOptions{
+		Roots:     certPool,
+		KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
+	}
+	if _, err := cert.Verify(verifyOptions); err != nil {
+		glog.Errorf("Certificate verification for CN %s failed due to: %v", commonName, err)
 		return false
 	}
 
 	return true
 }
 
-func getECDSAClusterCAFromLister(name string, cluster *kubermaticv1.Cluster, lister corev1lister.SecretLister) (*ECDSAKeyPair, error) {
-	cert, key, err := getClusterCAFromLister(name, cluster, lister)
+func getECDSAClusterCAFromLister(ctx context.Context, name string, cluster *kubermaticv1.Cluster, client ctrlruntimeclient.Client) (*ECDSAKeyPair, error) {
+	cert, key, err := getClusterCAFromLister(ctx, name, cluster, client)
 	if err != nil {
 		return nil, err
 	}
@@ -646,8 +558,8 @@ func getECDSAClusterCAFromLister(name string, cluster *kubermaticv1.Cluster, lis
 	return &ECDSAKeyPair{Cert: cert, Key: ecdsaKey}, nil
 }
 
-func getRSAClusterCAFromLister(name string, cluster *kubermaticv1.Cluster, lister corev1lister.SecretLister) (*triple.KeyPair, error) {
-	cert, key, err := getClusterCAFromLister(name, cluster, lister)
+func getRSAClusterCAFromLister(ctx context.Context, name string, cluster *kubermaticv1.Cluster, client ctrlruntimeclient.Client) (*triple.KeyPair, error) {
+	cert, key, err := getClusterCAFromLister(ctx, name, cluster, client)
 	if err != nil {
 		return nil, err
 	}
@@ -659,24 +571,25 @@ func getRSAClusterCAFromLister(name string, cluster *kubermaticv1.Cluster, liste
 }
 
 // getClusterCAFromLister returns the CA of the cluster from the lister
-func getClusterCAFromLister(name string, cluster *kubermaticv1.Cluster, lister corev1lister.SecretLister) (*x509.Certificate, interface{}, error) {
-	caCertSecret, err := lister.Secrets(cluster.Status.NamespaceName).Get(name)
-	if err != nil {
+func getClusterCAFromLister(ctx context.Context, name string, cluster *kubermaticv1.Cluster, client ctrlruntimeclient.Client) (*x509.Certificate, interface{}, error) {
+	caSecret := &corev1.Secret{}
+	caSecretKey := types.NamespacedName{Namespace: cluster.Status.NamespaceName, Name: name}
+	if err := client.Get(ctx, caSecretKey, caSecret); err != nil {
 		return nil, nil, fmt.Errorf("unable to check if a CA cert already exists: %v", err)
 	}
 
-	certs, err := certutil.ParseCertsPEM(caCertSecret.Data[CACertSecretKey])
+	certs, err := certutil.ParseCertsPEM(caSecret.Data[CACertSecretKey])
 	if err != nil {
-		return nil, nil, fmt.Errorf("got an invalid cert from the CA secret %s: %v", CASecretName, err)
+		return nil, nil, fmt.Errorf("got an invalid cert from the CA secret %s: %v", caSecretKey, err)
 	}
 
 	if len(certs) != 1 {
 		return nil, nil, fmt.Errorf("did not find exactly one but %v certificates in the CA secret", len(certs))
 	}
 
-	key, err := certutil.ParsePrivateKeyPEM(caCertSecret.Data[CAKeySecretKey])
+	key, err := certutil.ParsePrivateKeyPEM(caSecret.Data[CAKeySecretKey])
 	if err != nil {
-		return nil, nil, fmt.Errorf("got an invalid private key from the CA secret %s: %v", CASecretName, err)
+		return nil, nil, fmt.Errorf("got an invalid private key from the CA secret %s: %v", caSecretKey, err)
 	}
 
 	return certs[0], key, nil
@@ -710,18 +623,18 @@ func GetDexCAFromFile(caBundleFilePath string) ([]*x509.Certificate, error) {
 }
 
 // GetClusterRootCA returns the root CA of the cluster from the lister
-func GetClusterRootCA(cluster *kubermaticv1.Cluster, lister corev1lister.SecretLister) (*triple.KeyPair, error) {
-	return getRSAClusterCAFromLister(CASecretName, cluster, lister)
+func GetClusterRootCA(ctx context.Context, cluster *kubermaticv1.Cluster, client ctrlruntimeclient.Client) (*triple.KeyPair, error) {
+	return getRSAClusterCAFromLister(ctx, CASecretName, cluster, client)
 }
 
 // GetClusterFrontProxyCA returns the frontproxy CA of the cluster from the lister
-func GetClusterFrontProxyCA(cluster *kubermaticv1.Cluster, lister corev1lister.SecretLister) (*triple.KeyPair, error) {
-	return getRSAClusterCAFromLister(FrontProxyCASecretName, cluster, lister)
+func GetClusterFrontProxyCA(ctx context.Context, cluster *kubermaticv1.Cluster, client ctrlruntimeclient.Client) (*triple.KeyPair, error) {
+	return getRSAClusterCAFromLister(ctx, FrontProxyCASecretName, cluster, client)
 }
 
 // GetOpenVPNCA returns the OpenVPN CA of the cluster from the lister
-func GetOpenVPNCA(cluster *kubermaticv1.Cluster, lister corev1lister.SecretLister) (*ECDSAKeyPair, error) {
-	return getECDSAClusterCAFromLister(OpenVPNCASecretName, cluster, lister)
+func GetOpenVPNCA(ctx context.Context, cluster *kubermaticv1.Cluster, client ctrlruntimeclient.Client) (*ECDSAKeyPair, error) {
+	return getECDSAClusterCAFromLister(ctx, OpenVPNCASecretName, cluster, client)
 }
 
 // ClusterIPForService returns the cluster ip for the given service
@@ -748,24 +661,53 @@ func GetAbsoluteServiceDNSName(service, namespace string) string {
 	return fmt.Sprintf("%s.%s.svc.cluster.local.", service, namespace)
 }
 
-// StatefulSetObjectWrapper adds a wrapper so the StatefulSetCreator matches ObjectCreator
-// This is needed as golang does not support function interface matching
-func StatefulSetObjectWrapper(create StatefulSetCreator) ObjectCreator {
-	return func(existing runtime.Object) (runtime.Object, error) {
-		if existing != nil {
-			return create(existing.(*appsv1.StatefulSet))
-		}
-		return create(&appsv1.StatefulSet{})
+// SecretRevision returns the resource version of the Secret specified by name.
+func SecretRevision(ctx context.Context, key types.NamespacedName, client ctrlruntimeclient.Client) (string, error) {
+	secret := &corev1.Secret{}
+	if err := client.Get(ctx, key, secret); err != nil {
+		return "", fmt.Errorf("could not get Secret %s: %v", key, err)
 	}
+	return secret.ResourceVersion, nil
 }
 
-// VerticalPodAutocalerObjectWrapper adds a wrapper so the VerticalPodAutoscalerCreator matches ObjectCreator
-// This is needed as golang does not support function interface matching
-func VerticalPodAutocalerObjectWrapper(create VerticalPodAutoscalerCreator) ObjectCreator {
-	return func(existing runtime.Object) (runtime.Object, error) {
-		if existing != nil {
-			return create(existing.(*autoscalingv1beta.VerticalPodAutoscaler))
-		}
-		return create(nil)
+// ConfigMapRevision returns the resource version of the ConfigMap specified by name.
+func ConfigMapRevision(ctx context.Context, key types.NamespacedName, client ctrlruntimeclient.Client) (string, error) {
+	cm := &corev1.ConfigMap{}
+	if err := client.Get(ctx, key, cm); err != nil {
+		return "", fmt.Errorf("could not get ConfigMap %s: %v", key, err)
 	}
+	return cm.ResourceVersion, nil
+}
+
+// GetPodTemplateLabels returns a set of labels for a Pod including the revisions of depending secrets and configmaps.
+// This will force pods being restarted as soon as one of the secrets/configmaps get updated.
+func GetPodTemplateLabels(
+	ctx context.Context,
+	client ctrlruntimeclient.Client,
+	appName, clusterName, namespace string,
+	volumes []corev1.Volume,
+	additionalLabels map[string]string,
+) (map[string]string, error) {
+	podLabels := AppClusterLabel(appName, clusterName, additionalLabels)
+
+	for _, v := range volumes {
+		if v.VolumeSource.Secret != nil {
+			key := types.NamespacedName{Namespace: namespace, Name: v.VolumeSource.Secret.SecretName}
+			revision, err := SecretRevision(ctx, key, client)
+			if err != nil {
+				return nil, err
+			}
+			podLabels[fmt.Sprintf("%s-secret-revision", v.VolumeSource.Secret.SecretName)] = revision
+		}
+		if v.VolumeSource.ConfigMap != nil {
+			key := types.NamespacedName{Namespace: namespace, Name: v.VolumeSource.ConfigMap.Name}
+			revision, err := ConfigMapRevision(ctx, key, client)
+			if err != nil {
+				return nil, err
+			}
+			podLabels[fmt.Sprintf("%s-configmap-revision", v.VolumeSource.ConfigMap.Name)] = revision
+		}
+	}
+
+	return podLabels, nil
 }

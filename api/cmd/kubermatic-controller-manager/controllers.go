@@ -2,24 +2,23 @@ package main
 
 import (
 	"bytes"
-	"context"
 	"fmt"
 	"io/ioutil"
 	"strings"
 	"time"
 
-	"github.com/golang/glog"
-	"github.com/kubermatic/kubermatic/api/pkg/cluster/client"
 	"github.com/kubermatic/kubermatic/api/pkg/controller/addon"
 	"github.com/kubermatic/kubermatic/api/pkg/controller/addoninstaller"
 	backupcontroller "github.com/kubermatic/kubermatic/api/pkg/controller/backup"
+	cloudcontroller "github.com/kubermatic/kubermatic/api/pkg/controller/cloud"
 	"github.com/kubermatic/kubermatic/api/pkg/controller/cluster"
 	"github.com/kubermatic/kubermatic/api/pkg/controller/monitoring"
+	openshiftcontroller "github.com/kubermatic/kubermatic/api/pkg/controller/openshift"
 	updatecontroller "github.com/kubermatic/kubermatic/api/pkg/controller/update"
 	"github.com/kubermatic/kubermatic/api/pkg/provider"
 	"github.com/kubermatic/kubermatic/api/pkg/provider/cloud"
+	"github.com/kubermatic/kubermatic/api/pkg/util/workerlabel"
 	"github.com/kubermatic/kubermatic/api/pkg/version"
-	"github.com/oklog/run"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/yaml"
@@ -29,82 +28,76 @@ import (
 // each entry holds the name of the controller and the corresponding
 // start function that will essentially run the controller
 var allControllers = map[string]controllerCreator{
-	"Cluster":        createClusterController,
-	"Update":         createUpdateController,
-	"Addon":          createAddonController,
-	"AddonInstaller": createAddonInstallerController,
-	"Backup":         createBackupController,
-	"Monitoring":     createMonitoringController,
+	cluster.ControllerName:             createClusterController,
+	"Update":                           createUpdateController,
+	"Addon":                            createAddonController,
+	"AddonInstaller":                   createAddonInstallerController,
+	"Backup":                           createBackupController,
+	"Monitoring":                       createMonitoringController,
+	cloudcontroller.ControllerName:     createCloudController,
+	openshiftcontroller.ControllerName: createOpenshiftController,
 }
 
-type controllerCreator func(*controllerContext) (runner, error)
+type controllerCreator func(*controllerContext) error
 
-type runner interface {
-	Run(workerCount int, stopCh <-chan struct{})
-}
-
-func createAllControllers(ctrlCtx *controllerContext) (map[string]runner, error) {
-	controllers := map[string]runner{}
+func createAllControllers(ctrlCtx *controllerContext) error {
 	for name, create := range allControllers {
-		controller, err := create(ctrlCtx)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create '%s' controller: %v", name, err)
+		if err := create(ctrlCtx); err != nil {
+			return fmt.Errorf("failed to create %q controller: %v", name, err)
 		}
-		controllers[name] = controller
 	}
-	return controllers, nil
+	return nil
 }
 
-func getControllerStarter(workerCnt int, done <-chan struct{}, cancel context.CancelFunc, name string, controller runner) (func() error, func(err error)) {
-	execute := func() error {
-		glog.V(2).Infof("Starting %s controller...", name)
-		controller.Run(workerCnt, done)
-
-		err := fmt.Errorf("%s controller finished/died", name)
-		glog.V(2).Info(err)
-		return err
-	}
-
-	interrupt := func(err error) {
-		glog.V(2).Infof("Killing %s controller as group member finished/died: %v", name, err)
-		cancel()
-	}
-	return execute, interrupt
-}
-
-func runAllControllers(workerCnt int, done <-chan struct{}, cancel context.CancelFunc, controllers map[string]runner) error {
-	var g run.Group
-
-	for name, controller := range controllers {
-		execute, interrupt := getControllerStarter(workerCnt, done, cancel, name, controller)
-		g.Add(execute, interrupt)
-	}
-
-	return g.Run()
-}
-
-func createClusterController(ctrlCtx *controllerContext) (runner, error) {
+func createCloudController(ctrlCtx *controllerContext) error {
 	dcs, err := provider.LoadDatacentersMeta(ctrlCtx.runOptions.dcFile)
 	if err != nil {
-		return nil, err
+		return err
 	}
-
-	dockerPullConfigJSON, err := ioutil.ReadFile(ctrlCtx.runOptions.dockerPullConfigJSONFile)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load ImagePullSecret from %s: %v", ctrlCtx.runOptions.dockerPullConfigJSONFile, err)
+	cloudProvider := cloud.Providers(dcs)
+	predicates := workerlabel.Predicates(ctrlCtx.runOptions.workerName)
+	if err := cloudcontroller.Add(ctrlCtx.mgr, ctrlCtx.runOptions.workerCount, cloudProvider, predicates); err != nil {
+		return fmt.Errorf("failed to add cloud controller to mgr: %v", err)
 	}
+	return nil
+}
 
-	cps := cloud.Providers(dcs)
+func createOpenshiftController(ctrlCtx *controllerContext) error {
+	if err := openshiftcontroller.Add(
+		ctrlCtx.mgr,
+		ctrlCtx.runOptions.workerCount,
+		ctrlCtx.runOptions.workerName,
+		ctrlCtx.runOptions.dc,
+		ctrlCtx.dcs,
+		ctrlCtx.runOptions.overwriteRegistry,
+		ctrlCtx.runOptions.nodeAccessNetwork,
+		ctrlCtx.runOptions.etcdDiskSize,
+		ctrlCtx.dockerPullConfigJSON,
+		ctrlCtx.runOptions.externalURL,
+		openshiftcontroller.OIDCConfig{
+			CAFile:       ctrlCtx.runOptions.oidcCAFile,
+			ClientID:     ctrlCtx.runOptions.oidcIssuerClientID,
+			ClientSecret: ctrlCtx.runOptions.oidcIssuerClientSecret,
+			IssuerURL:    ctrlCtx.runOptions.oidcIssuerURL,
+		},
+		openshiftcontroller.Features{
+			EtcdDataCorruptionChecks: ctrlCtx.runOptions.featureGates.Enabled(EtcdDataCorruptionChecks),
+			VPA:                      ctrlCtx.runOptions.featureGates.Enabled(VerticalPodAutoscaler),
+		}); err != nil {
+		return fmt.Errorf("failed to add openshift controller to mgr: %v", err)
+	}
+	return nil
+}
 
-	return cluster.NewController(
-		ctrlCtx.kubeClient,
-		ctrlCtx.dynamicClient,
-		ctrlCtx.kubermaticClient,
+func createClusterController(ctrlCtx *controllerContext) error {
+	return cluster.Add(
+		ctrlCtx.mgr,
+		ctrlCtx.runOptions.workerCount,
+		ctrlCtx.runOptions.workerName,
 		ctrlCtx.runOptions.externalURL,
 		ctrlCtx.runOptions.dc,
-		dcs,
-		cps,
-		client.New(ctrlCtx.kubeInformerFactory.Core().V1().Secrets().Lister()),
+		ctrlCtx.dcs,
+		ctrlCtx.clientProvider,
 		ctrlCtx.runOptions.overwriteRegistry,
 		ctrlCtx.runOptions.nodePortRange,
 		ctrlCtx.runOptions.nodeAccessNetwork,
@@ -114,82 +107,63 @@ func createClusterController(ctrlCtx *controllerContext) (runner, error) {
 		ctrlCtx.runOptions.inClusterPrometheusDisableDefaultRules,
 		ctrlCtx.runOptions.inClusterPrometheusDisableDefaultScrapingConfigs,
 		ctrlCtx.runOptions.inClusterPrometheusScrapingConfigsFile,
-		dockerPullConfigJSON,
-
-		ctrlCtx.dynamicCache,
-		ctrlCtx.kubermaticInformerFactory.Kubermatic().V1().Clusters(),
-		ctrlCtx.kubeInformerFactory.Core().V1().Namespaces(),
-		ctrlCtx.kubeInformerFactory.Core().V1().Secrets(),
-		ctrlCtx.kubeInformerFactory.Core().V1().Services(),
-		ctrlCtx.kubeInformerFactory.Core().V1().PersistentVolumeClaims(),
-		ctrlCtx.kubeInformerFactory.Core().V1().ConfigMaps(),
-		ctrlCtx.kubeInformerFactory.Core().V1().ServiceAccounts(),
-		ctrlCtx.kubeInformerFactory.Apps().V1().Deployments(),
-		ctrlCtx.kubeInformerFactory.Apps().V1().StatefulSets(),
-		ctrlCtx.kubeInformerFactory.Batch().V1beta1().CronJobs(),
-		ctrlCtx.kubeInformerFactory.Extensions().V1beta1().Ingresses(),
-		ctrlCtx.kubeInformerFactory.Rbac().V1().Roles(),
-		ctrlCtx.kubeInformerFactory.Rbac().V1().RoleBindings(),
-		ctrlCtx.kubeInformerFactory.Rbac().V1().ClusterRoleBindings(),
-		ctrlCtx.kubeInformerFactory.Policy().V1beta1().PodDisruptionBudgets(),
+		ctrlCtx.dockerPullConfigJSON,
 		ctrlCtx.runOptions.oidcCAFile,
 		ctrlCtx.runOptions.oidcIssuerURL,
 		ctrlCtx.runOptions.oidcIssuerClientID,
-		ctrlCtx.runOptions.featureGates.Enabled(VerticalPodAutoscaler),
+		cluster.Features{
+			VPA:                      ctrlCtx.runOptions.featureGates.Enabled(VerticalPodAutoscaler),
+			EtcdDataCorruptionChecks: ctrlCtx.runOptions.featureGates.Enabled(EtcdDataCorruptionChecks),
+		},
 	)
 }
 
-func createBackupController(ctrlCtx *controllerContext) (runner, error) {
+func createBackupController(ctrlCtx *controllerContext) error {
 	storeContainer, err := getContainerFromFile(ctrlCtx.runOptions.backupContainerFile)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	cleanupContainer, err := getContainerFromFile(ctrlCtx.runOptions.cleanupContainerFile)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	backupInterval, err := time.ParseDuration(ctrlCtx.runOptions.backupInterval)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse %s as duration: %v", ctrlCtx.runOptions.backupInterval, err)
+		return fmt.Errorf("failed to parse %s as duration: %v", ctrlCtx.runOptions.backupInterval, err)
 	}
-	return backupcontroller.New(
+	return backupcontroller.Add(
+		ctrlCtx.mgr,
+		ctrlCtx.runOptions.workerCount,
+		ctrlCtx.runOptions.workerName,
 		*storeContainer,
 		*cleanupContainer,
 		backupInterval,
 		ctrlCtx.runOptions.backupContainerImage,
-		backupcontroller.NewMetrics(),
-		ctrlCtx.kubermaticClient,
-		ctrlCtx.kubeClient,
-		ctrlCtx.kubermaticInformerFactory.Kubermatic().V1().Clusters(),
-		ctrlCtx.kubeInformerFactory.Batch().V1beta1().CronJobs(),
-		ctrlCtx.kubeInformerFactory.Batch().V1().Jobs(),
-		ctrlCtx.kubeInformerFactory.Core().V1().Secrets(),
-		ctrlCtx.kubeInformerFactory.Core().V1().Services(),
 	)
 }
 
-func createMonitoringController(ctrlCtx *controllerContext) (runner, error) {
+func createMonitoringController(ctrlCtx *controllerContext) error {
 	dcs, err := provider.LoadDatacentersMeta(ctrlCtx.runOptions.dcFile)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	dockerPullConfigJSON, err := ioutil.ReadFile(ctrlCtx.runOptions.dockerPullConfigJSONFile)
 	if err != nil {
-		return nil, fmt.Errorf("failed to load ImagePullSecret from %s: %v", ctrlCtx.runOptions.dockerPullConfigJSONFile, err)
+		return fmt.Errorf("failed to load ImagePullSecret from %s: %v", ctrlCtx.runOptions.dockerPullConfigJSONFile, err)
 	}
 
-	return monitoring.New(
-		ctrlCtx.kubeClient,
-		ctrlCtx.dynamicClient,
-		client.New(ctrlCtx.kubeInformerFactory.Core().V1().Secrets().Lister()),
+	return monitoring.Add(
+		ctrlCtx.mgr,
+		ctrlCtx.runOptions.workerCount,
+		ctrlCtx.runOptions.workerName,
+		ctrlCtx.clientProvider,
 
 		ctrlCtx.runOptions.dc,
 		dcs,
 		ctrlCtx.runOptions.overwriteRegistry,
 		ctrlCtx.runOptions.nodePortRange,
 		ctrlCtx.runOptions.nodeAccessNetwork,
-		ctrlCtx.runOptions.etcdDiskSize,
 		ctrlCtx.runOptions.monitoringScrapeAnnotationPrefix,
 		ctrlCtx.runOptions.inClusterPrometheusRulesFile,
 		ctrlCtx.runOptions.inClusterPrometheusDisableDefaultRules,
@@ -197,17 +171,9 @@ func createMonitoringController(ctrlCtx *controllerContext) (runner, error) {
 		ctrlCtx.runOptions.inClusterPrometheusScrapingConfigsFile,
 		dockerPullConfigJSON,
 
-		ctrlCtx.dynamicCache,
-		ctrlCtx.kubermaticInformerFactory.Kubermatic().V1().Clusters(),
-		ctrlCtx.kubeInformerFactory.Core().V1().ServiceAccounts(),
-		ctrlCtx.kubeInformerFactory.Core().V1().ConfigMaps(),
-		ctrlCtx.kubeInformerFactory.Rbac().V1().Roles(),
-		ctrlCtx.kubeInformerFactory.Rbac().V1().RoleBindings(),
-		ctrlCtx.kubeInformerFactory.Core().V1().Services(),
-		ctrlCtx.kubeInformerFactory.Apps().V1().StatefulSets(),
-		ctrlCtx.kubeInformerFactory.Rbac().V1().ClusterRoleBindings(),
-		ctrlCtx.kubeInformerFactory.Apps().V1().Deployments(),
-		ctrlCtx.kubeInformerFactory.Core().V1().Secrets(),
+		monitoring.Features{
+			VPA: ctrlCtx.runOptions.featureGates.Enabled(VerticalPodAutoscaler),
+		},
 	)
 }
 
@@ -235,50 +201,48 @@ func getContainerFromFile(path string) (*corev1.Container, error) {
 	return container, nil
 }
 
-func createUpdateController(ctrlCtx *controllerContext) (runner, error) {
+func createUpdateController(ctrlCtx *controllerContext) error {
 	updateManager, err := version.NewFromFiles(ctrlCtx.runOptions.versionsFile, ctrlCtx.runOptions.updatesFile)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create update manager: %v", err)
+		return fmt.Errorf("failed to create update manager: %v", err)
 	}
 
-	return updatecontroller.New(
-		updatecontroller.NewMetrics(),
-		updateManager,
-		ctrlCtx.kubermaticClient,
-		ctrlCtx.kubermaticInformerFactory.Kubermatic().V1().Clusters(),
-	)
+	return updatecontroller.Add(ctrlCtx.mgr, ctrlCtx.runOptions.workerCount, ctrlCtx.runOptions.workerName, updateManager)
 }
 
-func createAddonController(ctrlCtx *controllerContext) (runner, error) {
-	return addon.New(
-		addon.NewMetrics(),
+func createAddonController(ctrlCtx *controllerContext) error {
+	return addon.Add(
+		ctrlCtx.mgr,
+		ctrlCtx.runOptions.workerCount,
+		ctrlCtx.runOptions.workerName,
 		map[string]interface{}{ // addonVariables
 			"openvpn": map[string]interface{}{
 				"NodeAccessNetwork": ctrlCtx.runOptions.nodeAccessNetwork,
 			},
 		},
-		ctrlCtx.runOptions.addonsPath,
+		ctrlCtx.runOptions.kubernetesAddonsPath,
+		ctrlCtx.runOptions.openshiftAddonsPath,
 		ctrlCtx.runOptions.overwriteRegistry,
-		client.New(ctrlCtx.kubeInformerFactory.Core().V1().Secrets().Lister()),
-		ctrlCtx.kubermaticClient,
-		ctrlCtx.kubermaticInformerFactory.Kubermatic().V1().Addons(),
-		ctrlCtx.kubermaticInformerFactory.Kubermatic().V1().Clusters(),
+		ctrlCtx.clientProvider,
 	)
 }
 
-func createAddonInstallerController(ctrlCtx *controllerContext) (runner, error) {
+func createAddonInstallerController(ctrlCtx *controllerContext) error {
 
-	defaultAddonsList := strings.Split(ctrlCtx.runOptions.addonsList, ",")
-	for i, a := range defaultAddonsList {
-		defaultAddonsList[i] = strings.TrimSpace(a)
+	kubernetesAddons := strings.Split(ctrlCtx.runOptions.kubernetesAddonsList, ",")
+	for i, a := range kubernetesAddons {
+		kubernetesAddons[i] = strings.TrimSpace(a)
 	}
 
-	return addoninstaller.New(
+	openshiftAddons := strings.Split(ctrlCtx.runOptions.openshiftAddonsList, ",")
+	for i, a := range openshiftAddons {
+		openshiftAddons[i] = strings.TrimSpace(a)
+	}
+
+	return addoninstaller.Add(
+		ctrlCtx.mgr,
+		ctrlCtx.runOptions.workerCount,
 		ctrlCtx.runOptions.workerName,
-		addoninstaller.NewMetrics(),
-		defaultAddonsList,
-		ctrlCtx.kubermaticClient,
-		ctrlCtx.kubermaticInformerFactory.Kubermatic().V1().Addons(),
-		ctrlCtx.kubermaticInformerFactory.Kubermatic().V1().Clusters(),
-	)
+		kubernetesAddons,
+		openshiftAddons)
 }

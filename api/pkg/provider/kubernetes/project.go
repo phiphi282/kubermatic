@@ -11,13 +11,9 @@ import (
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/rand"
 	restclient "k8s.io/client-go/rest"
 )
-
-// kubermaticImpersonationClient gives kubermatic client set that uses user impersonation
-type kubermaticImpersonationClient func(impCfg restclient.ImpersonationConfig) (kubermaticclientv1.KubermaticV1Interface, error)
 
 // NewProjectProvider returns a project provider
 func NewProjectProvider(createMasterImpersonatedClient kubermaticImpersonationClient, projectLister kubermaticv1lister.ProjectLister) (*ProjectProvider, error) {
@@ -33,6 +29,18 @@ func NewProjectProvider(createMasterImpersonatedClient kubermaticImpersonationCl
 	}, nil
 }
 
+// NewPrivilegedProjectProvider returns a privileged project provider
+func NewPrivilegedProjectProvider(createMasterImpersonatedClient kubermaticImpersonationClient) (*PrivilegedProjectProvider, error) {
+	kubermaticClient, err := createMasterImpersonatedClient(restclient.ImpersonationConfig{})
+	if err != nil {
+		return nil, err
+	}
+
+	return &PrivilegedProjectProvider{
+		clientPrivileged: kubermaticClient.Projects(),
+	}, nil
+}
+
 // ProjectProvider represents a data structure that knows how to manage projects
 type ProjectProvider struct {
 	// createMasterImpersonatedClient is used as a ground for impersonation
@@ -45,6 +53,12 @@ type ProjectProvider struct {
 	projectLister kubermaticv1lister.ProjectLister
 }
 
+// PrivilegedProjectProvider represents a data structure that knows how to manage projects in a privileged way
+type PrivilegedProjectProvider struct {
+	// treat clientPrivileged as a privileged user and use wisely
+	clientPrivileged kubermaticclientv1.ProjectInterface
+}
+
 // New creates a brand new project in the system with the given name
 //
 // Note:
@@ -54,14 +68,6 @@ type ProjectProvider struct {
 func (p *ProjectProvider) New(user *kubermaticapiv1.User, projectName string) (*kubermaticapiv1.Project, error) {
 	if user == nil {
 		return nil, errors.New("a user is missing but required")
-	}
-
-	alreadyExistingProjects, err := p.List(&provider.ProjectListOptions{ProjectName: projectName, OwnerUID: user.UID})
-	if err != nil {
-		return nil, err
-	}
-	if len(alreadyExistingProjects) > 0 {
-		return nil, kerrors.NewAlreadyExists(schema.GroupResource{Group: kubermaticapiv1.SchemeGroupVersion.Group, Resource: kubermaticapiv1.ProjectResourceName}, projectName)
 	}
 
 	project := &kubermaticapiv1.Project{
@@ -92,7 +98,7 @@ func (p *ProjectProvider) Update(userInfo *provider.UserInfo, newProject *kuberm
 	if userInfo == nil {
 		return nil, errors.New("a user is missing but required")
 	}
-	masterImpersonatedClient, err := createImpersonationClientWrapperFromUserInfo(userInfo, p.createMasterImpersonatedClient)
+	masterImpersonatedClient, err := createKubermaticImpersonationClientWrapperFromUserInfo(userInfo, p.createMasterImpersonatedClient)
 	if err != nil {
 		return nil, err
 	}
@@ -108,7 +114,7 @@ func (p *ProjectProvider) Delete(userInfo *provider.UserInfo, projectInternalNam
 	if userInfo == nil {
 		return errors.New("a user is missing but required")
 	}
-	masterImpersonatedClient, err := createImpersonationClientWrapperFromUserInfo(userInfo, p.createMasterImpersonatedClient)
+	masterImpersonatedClient, err := createKubermaticImpersonationClientWrapperFromUserInfo(userInfo, p.createMasterImpersonatedClient)
 	if err != nil {
 		return err
 	}
@@ -130,11 +136,24 @@ func (p *ProjectProvider) Get(userInfo *provider.UserInfo, projectInternalName s
 	if userInfo == nil {
 		return nil, errors.New("a user is missing but required")
 	}
-	masterImpersonatedClient, err := createImpersonationClientWrapperFromUserInfo(userInfo, p.createMasterImpersonatedClient)
+	masterImpersonatedClient, err := createKubermaticImpersonationClientWrapperFromUserInfo(userInfo, p.createMasterImpersonatedClient)
 	if err != nil {
 		return nil, err
 	}
 	project, err := masterImpersonatedClient.Projects().Get(projectInternalName, metav1.GetOptions{})
+	if err != nil {
+		return nil, err
+	}
+	if !options.IncludeUninitialized && project.Status.Phase != kubermaticapiv1.ProjectActive {
+		return nil, kerrors.NewServiceUnavailable("Project is not initialized yet")
+	}
+	return project, nil
+}
+
+// GetUnsecured returns the project with the given name
+// This function is unsafe in a sense that it uses privileged account to get project with the given name
+func (p *PrivilegedProjectProvider) GetUnsecured(projectInternalName string, options *provider.ProjectGetOptions) (*kubermaticapiv1.Project, error) {
+	project, err := p.clientPrivileged.Get(projectInternalName, metav1.GetOptions{})
 	if err != nil {
 		return nil, err
 	}
@@ -166,36 +185,14 @@ func (p *ProjectProvider) List(options *provider.ProjectListOptions) ([]*kuberma
 			owners := project.GetOwnerReferences()
 			for _, owner := range owners {
 				if owner.UID == options.OwnerUID {
-					ret = append(ret, project)
+					ret = append(ret, project.DeepCopy())
 					continue
 				}
 			}
 			continue
 		}
 
-		ret = append(ret, project)
+		ret = append(ret, project.DeepCopy())
 	}
 	return ret, nil
-}
-
-// NewKubermaticImpersonationClient creates a new default impersonation client
-// that knows how to create KubermaticV1Interface client for a impersonated user
-//
-// Note:
-// It is usually not desirable to create many RESTClient thus in the future we might
-// consider storing RESTClients in a pool for the given group name
-func NewKubermaticImpersonationClient(cfg *restclient.Config) *DefaultKubermaticImpersonationClient {
-	return &DefaultKubermaticImpersonationClient{cfg}
-}
-
-// DefaultKubermaticImpersonationClient knows how to create impersonated client set
-type DefaultKubermaticImpersonationClient struct {
-	cfg *restclient.Config
-}
-
-// CreateImpersonatedClientSet actually creates impersonated kubermatic client set for the given user.
-func (d *DefaultKubermaticImpersonationClient) CreateImpersonatedClientSet(impCfg restclient.ImpersonationConfig) (kubermaticclientv1.KubermaticV1Interface, error) {
-	config := *d.cfg
-	config.Impersonate = impCfg
-	return kubermaticclientv1.NewForConfig(&config)
 }

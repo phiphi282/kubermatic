@@ -1,16 +1,19 @@
 package apiserver
 
 import (
+	"crypto/x509"
+
 	"github.com/kubermatic/kubermatic/api/pkg/resources"
 	"github.com/kubermatic/kubermatic/api/pkg/resources/certificates"
-
-	corev1 "k8s.io/api/core/v1"
+	"github.com/kubermatic/kubermatic/api/pkg/resources/reconciling"
 )
 
-// DexCACertificate returns a secret with the certificate for TLS verification against dex
-func DexCACertificate(data resources.SecretDataProvider, existing *corev1.Secret) (*corev1.Secret, error) {
-	return certificates.GetDexCACreator(
-		resources.DexCASecretName,
-		resources.DexCAFileName,
-		data.GetDexCA)(data, existing)
+// DexCACertificateCreator returns a function to create/update the secret with the certificate for TLS verification against dex
+func DexCACertificateCreator(getDexCA func() ([]*x509.Certificate, error)) reconciling.NamedSecretCreatorGetter {
+	return func() (string, reconciling.SecretCreator) {
+		return resources.DexCASecretName, certificates.GetDexCACreator(
+			resources.DexCAFileName,
+			getDexCA,
+		)
+	}
 }

@@ -6,25 +6,30 @@ apk add --no-cache -U git bash openssh
 cd $(dirname $0)/../../..
 git fetch
 export LATEST_VERSION=$(git describe --tags --abbrev=0)
-sed -i "s/__KUBERMATIC_TAG__/$LATEST_VERSION/g" config/kubermatic/values.yaml
+sed -i "s/__KUBERMATIC_TAG__/$LATEST_VERSION/g" config/kubermatic/values.yaml config/kubermatic/Chart.yaml
 git config --global user.email "dev@loodse.com"
 git config --global user.name "Prow CI Robot"
 git config --global core.sshCommand 'ssh -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no'
-eval $(ssh-agent)
-ssh-add /root/.ssh/id_rsa
 
 if ! git describe --exact-match --tags HEAD &>/dev/null; then
   echo "No tag matches current HEAD, exitting..."
   exit 0
 fi
 
+git remote add origin git@github.com:kubermatic/kubermatic.git
+git fetch origin
 export INSTALLER_BRANCH="$(git branch --contains HEAD --all \
   |tr -d ' '|grep -E 'remotes/origin/release/v2.[0-9]+$'|cut -d '/' -f3-)"
 
+if [[ -z ${INSTALLER_BRANCH} ]]; then
+  echo "Error, the INSTALLER_BRANCH varible was empty"
+  exit 1
+fi
+
 export CHARTS='kubermatic cert-manager certs nginx-ingress-controller nodeport-proxy oauth minio iap'
-export MONITORING_CHARTS='alertmanager grafana kube-state-metrics node-exporter prometheus'
+export MONITORING_CHARTS='alertmanager blackbox-exporter grafana kube-state-metrics node-exporter prometheus'
 export LOGGING_CHARTS='elasticsearch kibana fluentbit'
-export BACKUP_CHARTS='ark ark-config'
+export BACKUP_CHARTS='velero'
 export CHARTS_DIR=$(pwd)/config
 export TARGET_DIR='sync_target'
 export TARGET_VALUES_FILE=${TARGET_DIR}/values.example.yaml
@@ -40,7 +45,7 @@ rm -rf ${TARGET_DIR}
 mkdir ${TARGET_DIR}
 git clone git@github.com:kubermatic/kubermatic-installer.git ${TARGET_DIR}
 cd ${TARGET_DIR}
-git checkout ${INSTALLER_BRANCH}
+git checkout ${INSTALLER_BRANCH} || git checkout -b ${INSTALLER_BRANCH}
 cd ..
 
 # re-assemble example values.yaml

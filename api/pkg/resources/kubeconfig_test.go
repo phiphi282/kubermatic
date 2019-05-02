@@ -4,7 +4,6 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"net"
-	"net/url"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -12,6 +11,7 @@ import (
 	kubermaticv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
 	"github.com/kubermatic/kubermatic/api/pkg/resources/certificates/triple"
 
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -85,7 +85,6 @@ func (fake *fakeDataProvider) GetClusterRef() metav1.OwnerReference       { retu
 func (fake *fakeDataProvider) GetFrontProxyCA() (*triple.KeyPair, error)  { return nil, nil }
 func (fake *fakeDataProvider) GetRootCA() (*triple.KeyPair, error)        { return fake.caPair, nil }
 func (fake *fakeDataProvider) GetOpenVPNCA() (*ECDSAKeyPair, error)       { return &ECDSAKeyPair{}, nil }
-func (fake *fakeDataProvider) InClusterApiserverURL() (*url.URL, error)   { return &url.URL{}, nil }
 func (fake *fakeDataProvider) InClusterApiserverAddress() (string, error) { return "", nil }
 func (fake *fakeDataProvider) GetDexCA() ([]*x509.Certificate, error)     { return nil, nil }
 
@@ -98,14 +97,14 @@ func checkKubeConfigRegeneration(t *testing.T, orgs []string) {
 	data := &fakeDataProvider{caPair: ca}
 	assert.NotNil(t, data)
 
-	create := GetInternalKubeconfigCreator("test-creator", "test-creator-cn", orgs)
-	secret, err := create(data, nil)
+	_, create := GetInternalKubeconfigCreator("some-name", "test-creator-cn", orgs, data)()
+	secret, err := create(&corev1.Secret{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	assert.NotNil(t, secret)
 
-	secret2, err := create(data, secret.DeepCopy())
+	secret2, err := create(secret.DeepCopy())
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+
 	"github.com/kubermatic/kubermatic/api/pkg/semver"
 
 	corev1 "k8s.io/api/core/v1"
@@ -76,7 +77,7 @@ type ClusterSpec struct {
 	// Version defines the wanted version of the control plane
 	Version semver.Semver `json:"version"`
 	// MasterVersion is Deprecated
-	MasterVersion string `json:"masterVersion"`
+	MasterVersion string `json:"masterVersion,omitempty"`
 
 	// HumanReadableName is the cluster name provided by the user
 	HumanReadableName string `json:"humanReadableName"`
@@ -137,12 +138,37 @@ type NetworkRanges struct {
 type ClusterAddress struct {
 	// URL under which the Apiserver is available
 	URL string `json:"url"`
+	// Port is the port the API server listens on
+	Port int32 `json:"port"`
 	// ExternalName is the DNS name for this cluster
 	ExternalName string `json:"externalName"`
+	// InternalName is the seed cluster internal absolute DNS name to the API server
+	InternalName string `json:"internalURL"`
 	// AdminToken is the token for the kubeconfig, the user can download
 	AdminToken string `json:"adminToken"`
 	// IP is the external IP under which the apiserver is available
 	IP string `json:"ip"`
+}
+
+type ClusterConditionType string
+
+type ClusterCondition struct {
+	// Type of cluster condition.
+	Type ClusterConditionType `json:"type"`
+	// Status of the condition, one of True, False, Unknown.
+	Status corev1.ConditionStatus `json:"status"`
+	// Last time we got an update on a given condition.
+	// +optional
+	LastHeartbeatTime metav1.Time `json:"lastHeartbeatTime,omitempty"`
+	// Last time the condition transit from one status to another.
+	// +optional
+	LastTransitionTime metav1.Time `json:"lastTransitionTime,omitempty"`
+	// (brief) reason for the condition's last transition.
+	// +optional
+	Reason string `json:"reason,omitempty"`
+	// Human readable message indicating details about last transition.
+	// +optional
+	Message string `json:"message,omitempty"`
 }
 
 // ClusterStatus stores status information about a cluster.
@@ -154,20 +180,20 @@ type ClusterStatus struct {
 	Health ClusterHealth `json:"health,omitempty"`
 
 	// Deprecated
-	RootCA KeyCert `json:"rootCA"`
+	RootCA *KeyCert `json:"rootCA,omitempty"`
 	// Deprecated
-	ApiserverCert KeyCert `json:"apiserverCert"`
+	ApiserverCert *KeyCert `json:"apiserverCert,omitempty"`
 	// Deprecated
-	KubeletCert KeyCert `json:"kubeletCert"`
+	KubeletCert *KeyCert `json:"kubeletCert,omitempty"`
 	// Deprecated
-	ApiserverSSHKey RSAKeys `json:"apiserverSshKey"`
+	ApiserverSSHKey *RSAKeys `json:"apiserverSshKey,omitempty"`
 	// Deprecated
-	ServiceAccountKey Bytes `json:"serviceAccountKey"`
+	ServiceAccountKey Bytes `json:"serviceAccountKey,omitempty"`
 	// NamespaceName defines the namespace the control plane of this cluster is deployed in
 	NamespaceName string `json:"namespaceName"`
 
 	// UserName contains the name of the owner of this cluster
-	UserName string `json:"userName"`
+	UserName string `json:"userName,omitempty"`
 	// UserEmail contains the email of the owner of this cluster
 	UserEmail string `json:"userEmail"`
 
@@ -175,6 +201,10 @@ type ClusterStatus struct {
 	ErrorReason *ClusterStatusError `json:"errorReason,omitempty"`
 	// ErrorMessage contains a defauled error message in case the controller encountered an error. Will be reset if the error was resolved
 	ErrorMessage *string `json:"errorMessage,omitempty"`
+
+	// Conditions contains conditions the cluster is in, its primary use case is status signaling between controllers or between
+	// controllers and the API
+	Conditions []ClusterCondition `json:"conditions,omitempty"`
 }
 
 type ClusterStatusError string
@@ -203,7 +233,7 @@ type CloudSpec struct {
 // ClusterHealth stores health information of a cluster and the timestamp of the last change.
 type ClusterHealth struct {
 	ClusterHealthStatus `json:",inline"`
-	LastTransitionTime  metav1.Time `json:"lastTransitionTime"`
+	LastTransitionTime  metav1.Time `json:"lastTransitionTime,omitempty"`
 }
 
 // KeyCert is a pair of key and cert.
@@ -309,12 +339,14 @@ type OpenstackCloudSpec struct {
 
 // ClusterHealthStatus stores health information of the components of a cluster.
 type ClusterHealthStatus struct {
-	Apiserver         bool `json:"apiserver"`
-	Scheduler         bool `json:"scheduler"`
-	Controller        bool `json:"controller"`
-	MachineController bool `json:"machineController"`
-	Etcd              bool `json:"etcd"`
-	OpenVPN           bool `json:"openvpn"`
+	Apiserver                    bool `json:"apiserver"`
+	Scheduler                    bool `json:"scheduler"`
+	Controller                   bool `json:"controller"`
+	MachineController            bool `json:"machineController"`
+	Etcd                         bool `json:"etcd"`
+	OpenVPN                      bool `json:"openvpn"`
+	CloudProviderInfrastructure  bool `json:"cloudProviderInfrastructure"`
+	UserClusterControllerManager bool `json:"userClusterControllerManager"`
 }
 
 // AllHealthy returns if all components are healthy
@@ -323,7 +355,9 @@ func (h *ClusterHealthStatus) AllHealthy() bool {
 		h.MachineController &&
 		h.Controller &&
 		h.Apiserver &&
-		h.Scheduler
+		h.Scheduler &&
+		h.CloudProviderInfrastructure &&
+		h.UserClusterControllerManager
 }
 
 // MarshalJSON adds base64 json encoding to the Bytes type.

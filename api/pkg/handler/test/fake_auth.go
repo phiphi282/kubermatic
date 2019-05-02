@@ -5,15 +5,10 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/go-kit/kit/endpoint"
-	transporthttp "github.com/go-kit/kit/transport/http"
 	"golang.org/x/oauth2"
 
 	apiv1 "github.com/kubermatic/kubermatic/api/pkg/api/v1"
 	"github.com/kubermatic/kubermatic/api/pkg/handler/auth"
-	"github.com/kubermatic/kubermatic/api/pkg/handler/middleware"
-	"github.com/kubermatic/kubermatic/api/pkg/provider"
-	k8cerrors "github.com/kubermatic/kubermatic/api/pkg/util/errors"
 )
 
 const (
@@ -35,11 +30,7 @@ const (
 )
 
 var _ auth.OIDCIssuerVerifier = &IssuerVerifier{}
-
-// testAuthenticator is a test stub that mocks apiv1.User
-type testAuthenticator struct {
-	user apiv1.User
-}
+var _ auth.TokenExtractorVerifier = &IssuerVerifier{}
 
 // OicdProvider is a test stub that mocks *oidc.Provider
 type OicdProvider struct {
@@ -47,35 +38,10 @@ type OicdProvider struct {
 	tokenURL string
 }
 
-// NewAuthenticator returns an testing authentication middleware
-func NewAuthenticator(user apiv1.User) auth.OIDCAuthenticator {
-	return &testAuthenticator{user: user}
-}
-
-// Verifier is a convenient middleware that extracts the ID Token from the request,
-// verifies it's been signed by the provider and creates apiv1.User from it
-func (o *testAuthenticator) Verifier() endpoint.Middleware {
-	return func(next endpoint.Endpoint) endpoint.Endpoint {
-		return func(ctx context.Context, request interface{}) (response interface{}, err error) {
-			_, ok := ctx.Value(middleware.AuthenticatedUserContextKey).(apiv1.User)
-			if !ok {
-				return nil, k8cerrors.NewNotAuthorized()
-			}
-			return next(ctx, request)
-		}
-	}
-}
-
-// Extractor knows how to extract the ID token from the request
-func (o *testAuthenticator) Extractor() transporthttp.RequestFunc {
-	return func(ctx context.Context, _ *http.Request) context.Context {
-		return context.WithValue(ctx, middleware.AuthenticatedUserContextKey, o.user)
-	}
-}
-
-// NewIssuerVerifier returns fake OIDC issuer and verifier
-func NewIssuerVerifier() *IssuerVerifier {
+// NewFakeOIDCClient returns fake OIDC issuer and verifier
+func NewFakeOIDCClient(user apiv1.User) *IssuerVerifier {
 	return &IssuerVerifier{
+		user:         user,
 		issuer:       IssuerURL,
 		clientID:     IssuerClientID,
 		clientSecret: IssuerClientSecret,
@@ -94,11 +60,17 @@ func (p *OicdProvider) Endpoint() oauth2.Endpoint {
 
 // IssuerVerifier is a test stub that mocks OIDC responses
 type IssuerVerifier struct {
+	user         apiv1.User
 	issuer       string
 	clientID     string
 	clientSecret string
 	redirectURI  string
 	provider     *OicdProvider
+}
+
+// Extractor knows how to extract the ID token from the request
+func (o *IssuerVerifier) Extract(_ *http.Request) (string, error) {
+	return IDToken, nil
 }
 
 // AuthCodeURL returns a URL to OpenID provider's consent page
@@ -135,21 +107,22 @@ func (o *IssuerVerifier) Exchange(ctx context.Context, code string) (auth.OIDCTo
 }
 
 // Verify parses a raw ID Token, verifies it's been signed by the provider, preforms
-// any additional checks depending on the Config, and returns the payload as OIDCClaims.
-func (o *IssuerVerifier) Verify(ctx context.Context, token string) (auth.OIDCClaims, error) {
+// any additional checks depending on the Config, and returns the payload as TokenClaims.
+func (o *IssuerVerifier) Verify(ctx context.Context, token string) (auth.TokenClaims, error) {
 	if o == nil {
-		return auth.OIDCClaims{}, nil
+		return auth.TokenClaims{}, nil
 
 	}
 	if ctx == nil {
-		return auth.OIDCClaims{}, nil
+		return auth.TokenClaims{}, nil
 	}
 	if token != IDToken {
-		return auth.OIDCClaims{}, errors.New("incorrect code")
+		return auth.TokenClaims{}, errors.New("incorrect code")
 	}
-	userInfo := ctx.Value(middleware.UserInfoContextKey).(*provider.UserInfo)
-	return auth.OIDCClaims{
-		Email:  userInfo.Email,
-		Groups: []string{userInfo.Group},
+	return auth.TokenClaims{
+		Email:   o.user.Email,
+		Subject: o.user.Email,
+		Name:    o.user.Name,
+		Groups:  []string{},
 	}, nil
 }

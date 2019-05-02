@@ -7,10 +7,10 @@ import (
 	kubermaticv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
 
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/kubernetes"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
+	ctrlruntimeclient "sigs.k8s.io/controller-runtime/pkg/client"
 
-	clusterv1alpha1clientset "sigs.k8s.io/cluster-api/pkg/client/clientset_generated/clientset"
+	v1 "k8s.io/api/core/v1"
 )
 
 var (
@@ -107,21 +107,15 @@ type ClusterProvider interface {
 	// GetAdminKubeconfigForCustomerCluster returns the admin kubeconfig for the given cluster
 	GetAdminKubeconfigForCustomerCluster(cluster *kubermaticv1.Cluster) (*clientcmdapi.Config, error)
 
-	// Deprecated use GetMachineClientForCustomerCluster instead
-	// GetAdminMachineClientForCustomerCluster returns a client to interact with machine resources in the given cluster
+	// GetAdminClientForCustomerCluster returns a client to interact with all resources in the given cluster
 	//
 	// Note that the client you will get has admin privileges
-	GetAdminMachineClientForCustomerCluster(cluster *kubermaticv1.Cluster) (clusterv1alpha1clientset.Interface, error)
+	GetAdminClientForCustomerCluster(*kubermaticv1.Cluster) (ctrlruntimeclient.Client, error)
 
-	// GetAdminKubernetesClientForCustomerCluster returns a client to interact with the given cluster
-	//
-	// Note that the client you will get has admin privileges
-	GetAdminKubernetesClientForCustomerCluster(cluster *kubermaticv1.Cluster) (kubernetes.Interface, error)
-
-	// GetMachineClientForCustomerCluster returns a client to interact with machine resources in the given cluster
+	// GetClientForCustomerCluster returns a client to interact with all resources in the given cluster
 	//
 	// Note that the client doesn't use admin account instead it authn/authz as userInfo(email, group)
-	GetMachineClientForCustomerCluster(userInfo *UserInfo, c *kubermaticv1.Cluster) (clusterv1alpha1clientset.Interface, error)
+	GetClientForCustomerCluster(*UserInfo, *kubermaticv1.Cluster) (ctrlruntimeclient.Client, error)
 }
 
 // SSHKeyListOptions allows to set filters that will be applied to filter the result.
@@ -162,6 +156,13 @@ type UserProvider interface {
 	UserByID(id string) (*kubermaticv1.User, error)
 }
 
+// PrivilegedProjectProvider declares the set of method for interacting with kubermatic's project and uses privileged account for it
+type PrivilegedProjectProvider interface {
+	// GetUnsecured returns the project with the given name
+	// This function is unsafe in a sense that it uses privileged account to get project with the given name
+	GetUnsecured(projectInternalName string, options *ProjectGetOptions) (*kubermaticv1.Project, error)
+}
+
 // ProjectProvider declares the set of method for interacting with kubermatic's project
 type ProjectProvider interface {
 	// New creates a brand new project in the system with the given name
@@ -197,6 +198,9 @@ type UserInfo struct {
 type ProjectMemberListOptions struct {
 	// MemberEmail set the email address of a member for the given project
 	MemberEmail string
+
+	// SkipPrivilegeVerification if set will not check if the user that wants to list members of the given project has sufficient privileges.
+	SkipPrivilegeVerification bool
 }
 
 // ProjectMemberProvider binds users with projects
@@ -317,4 +321,53 @@ func DatacenterCloudProviderName(spec *DatacenterSpec) (string, error) {
 		return "", fmt.Errorf("only one cloud provider can be set in DatacenterSpec: %+v", spec)
 	}
 	return clouds[0], nil
+}
+
+// ServiceAccountProvider declares the set of methods for interacting with kubermatic service account
+type ServiceAccountProvider interface {
+	Create(userInfo *UserInfo, project *kubermaticv1.Project, name, group string) (*kubermaticv1.User, error)
+	List(userInfo *UserInfo, project *kubermaticv1.Project, options *ServiceAccountListOptions) ([]*kubermaticv1.User, error)
+	Get(userInfo *UserInfo, name string, options *ServiceAccountGetOptions) (*kubermaticv1.User, error)
+	Update(userInfo *UserInfo, serviceAccount *kubermaticv1.User) (*kubermaticv1.User, error)
+	Delete(userInfo *UserInfo, name string) error
+}
+
+// ServiceAccountGetOptions allows to set filters that will be applied to filter the get result.
+type ServiceAccountGetOptions struct {
+	// RemovePrefix when set to false will NOT remove "serviceaccount-" prefix from the ID
+	//
+	// Note:
+	// By default the prefix IS removed, for example given "serviceaccount-7d4b5695vb" it returns "7d4b5695vb"
+	RemovePrefix bool
+}
+
+// ServiceAccountListOptions allows to set filters that will be applied to filter the result.
+type ServiceAccountListOptions struct {
+	// ServiceAccountName list only service account with the given name
+	ServiceAccountName string
+}
+
+// ServiceAccountTokenProvider declares the set of methods for interacting with kubermatic service account token
+type ServiceAccountTokenProvider interface {
+	Create(userInfo *UserInfo, sa *kubermaticv1.User, projectID, tokenName, tokenID, tokenData string) (*v1.Secret, error)
+	List(userInfo *UserInfo, project *kubermaticv1.Project, sa *kubermaticv1.User, options *ServiceAccountTokenListOptions) ([]*v1.Secret, error)
+	Get(userInfo *UserInfo, name string) (*v1.Secret, error)
+	Update(userInfo *UserInfo, secret *v1.Secret) (*v1.Secret, error)
+	Delete(userInfo *UserInfo, name string) error
+}
+
+// ServiceAccountTokenListOptions allows to set filters that will be applied to filter the result.
+type ServiceAccountTokenListOptions struct {
+	// TokenName list only tokens with the specified name
+	TokenName string
+}
+
+// PrivilegedServiceAccountTokenProvider declares the set of method for interacting with kubermatic's sa's tokens and uses privileged account for it
+type PrivilegedServiceAccountTokenProvider interface {
+	// ListUnsecured returns all tokens in kubermatic namespace
+	//
+	// Note that this function:
+	// is unsafe in a sense that it uses privileged account to get the resource
+	// gets resources from the cache
+	ListUnsecured(*ServiceAccountTokenListOptions) ([]*v1.Secret, error)
 }
