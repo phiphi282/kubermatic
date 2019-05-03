@@ -40,7 +40,7 @@ func DnatControllerContainer(data dnatControllerData, name, apiserverAddress str
 
 	return &corev1.Container{
 		Name:            name,
-		Image:           data.ImageRegistry(resources.RegistryQuay) + "/kubermatic/api:" + resources.KUBERMATICCOMMIT,
+		Image:           data.ImageRegistry(resources.RegistryDocker) + "/syseleven/kubermatic:" + resources.KUBERMATICCOMMIT,
 		ImagePullPolicy: corev1.PullIfNotPresent,
 		Command:         []string{"/usr/local/bin/kubeletdnat-controller"},
 		Args:            args,

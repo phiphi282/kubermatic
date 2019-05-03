@@ -107,7 +107,7 @@ build:
   image: golang:${GO_VERSION}
   script:
   - cd api
-  - make build
+  - KUBERMATICCOMMIT=$CI_COMMIT_TAG make build
   artifacts:
     paths:
     - api/_build

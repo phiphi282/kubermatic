@@ -102,7 +102,7 @@ func DeploymentCreator(data userclusterControllerData, openshift bool) reconcili
 			dep.Spec.Template.Spec.Containers = []corev1.Container{
 				{
 					Name:            name,
-					Image:           data.ImageRegistry(resources.RegistryQuay) + "/kubermatic/api:" + resources.KUBERMATICCOMMIT,
+					Image:           data.ImageRegistry(resources.RegistryDocker) + "/syseleven/kubermatic:" + resources.KUBERMATICCOMMIT,
 					ImagePullPolicy: corev1.PullIfNotPresent,
 					Command:         []string{"/usr/local/bin/user-cluster-controller-manager"},
 					Args: append([]string{

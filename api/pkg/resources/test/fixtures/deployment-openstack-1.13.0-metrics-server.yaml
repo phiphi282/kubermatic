@@ -141,7 +141,7 @@ spec:
         - -logtostderr
         command:
         - /usr/local/bin/kubeletdnat-controller
-        image: 'quay.io/kubermatic/api:'
+        image: 'docker.io/syseleven/kubermatic:'
         imagePullPolicy: IfNotPresent
         name: dnat-controller
         resources:
