@@ -219,6 +219,9 @@ func createAddonController(ctrlCtx *controllerContext) error {
 			"openvpn": map[string]interface{}{
 				"NodeAccessNetwork": ctrlCtx.runOptions.nodeAccessNetwork,
 			},
+			"openvpn-2.10": map[string]interface{}{
+				"NodeAccessNetwork": ctrlCtx.runOptions.nodeAccessNetwork,
+			},
 		},
 		ctrlCtx.runOptions.kubernetesAddonsPath,
 		ctrlCtx.runOptions.openshiftAddonsPath,
