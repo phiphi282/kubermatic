@@ -54,9 +54,9 @@ func DeploymentCreator(data *resources.TemplateData) reconciling.NamedDeployment
 			dep.Spec.Template.ObjectMeta = metav1.ObjectMeta{
 				Labels: podLabels,
 				Annotations: map[string]string{
+					// do not specify a port so that Prometheus automatically
+					// scrapes both the metrics and the telemetry endpoints
 					"prometheus.io/scrape": "true",
-					"prometheus.io/path":   "/metrics",
-					"prometheus.io/port":   "8080",
 				},
 			}
 
