@@ -12,11 +12,6 @@ spec:
   template:
     metadata:
       annotations:
-<<<<<<< HEAD
-        prometheus.io/path: /metrics
-        prometheus.io/port: "8080"
-=======
->>>>>>> release/v2.10
         prometheus.io/scrape: "true"
       creationTimestamp: null
       labels:
