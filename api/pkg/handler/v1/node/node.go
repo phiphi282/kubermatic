@@ -147,12 +147,12 @@ func outputMachineDeployment(md *clusterv1alpha1.MachineDeployment) (*apiv1.Node
 	}
 
 	taints := make([]apiv1.TaintSpec, len(md.Spec.Template.Spec.Taints))
-	for _, taint := range md.Spec.Template.Spec.Taints {
-		taints = append(taints, apiv1.TaintSpec{
+	for i, taint := range md.Spec.Template.Spec.Taints {
+		taints[i] = apiv1.TaintSpec{
 			Effect: string(taint.Effect),
 			Key:    taint.Key,
 			Value:  taint.Value,
-		})
+		}
 	}
 
 	return &apiv1.NodeDeployment{
