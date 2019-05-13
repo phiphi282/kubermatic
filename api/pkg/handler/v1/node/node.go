@@ -146,6 +146,15 @@ func outputMachineDeployment(md *clusterv1alpha1.MachineDeployment) (*apiv1.Node
 		return nil, fmt.Errorf("failed to get node cloud spec from machine deployment: %v", err)
 	}
 
+	taints := make([]apiv1.TaintSpec, len(md.Spec.Template.Spec.Taints))
+	for _, taint := range md.Spec.Template.Spec.Taints {
+		taints = append(taints, apiv1.TaintSpec{
+			Effect: string(taint.Effect),
+			Key:    taint.Key,
+			Value:  taint.Value,
+		})
+	}
+
 	return &apiv1.NodeDeployment{
 		ObjectMeta: apiv1.ObjectMeta{
 			ID:                md.Name,
@@ -157,6 +166,7 @@ func outputMachineDeployment(md *clusterv1alpha1.MachineDeployment) (*apiv1.Node
 			Replicas: *md.Spec.Replicas,
 			Template: apiv1.NodeSpec{
 				Labels: md.Spec.Template.Spec.Labels,
+				Taints: taints,
 				Versions: apiv1.NodeVersionInfo{
 					Kubelet: md.Spec.Template.Spec.Versions.Kubelet,
 				},

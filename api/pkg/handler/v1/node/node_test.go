@@ -28,6 +28,11 @@ import (
 	ctrlruntimeclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+func init() {
+	// Mock timezone to keep creation timestamp always the same.
+	time.Local = time.UTC
+}
+
 func TestDeleteNodeForCluster(t *testing.T) {
 	t.Parallel()
 	testcases := []struct {
@@ -65,7 +70,7 @@ func TestDeleteNodeForCluster(t *testing.T) {
 			// even though the machine object was deleted the associated node object was not. When the client GETs the previously deleted "node" it will get a valid response.
 			// That is only true for testing, but in a real cluster, the node object will get deleted by the garbage-collector as it has a ownerRef set.
 			ExpectedHTTPStatusOnGet: http.StatusOK,
-			ExpectedResponseOnGet:   `{"id":"venus","name":"venus","creationTimestamp":"0001-01-01T00:00:00Z","spec":{"cloud":{},"operatingSystem":{},"versions":{"kubelet":""}},"status":{"machineName":"","capacity":{"cpu":"0","memory":"0"},"allocatable":{"cpu":"0","memory":"0"},"nodeInfo":{"kernelVersion":"","containerRuntime":"","containerRuntimeVersion":"","kubeletVersion":"","operatingSystem":"","architecture":""}}}`,
+			ExpectedResponseOnGet:   `{"id":"venus","name":"venus","creationTimestamp":"0001-01-01T00:00:00Z","spec":{"cloud":{},"operatingSystem":{},"versions":{"kubelet":""},"taints":null},"status":{"machineName":"","capacity":{"cpu":"0","memory":"0"},"allocatable":{"cpu":"0","memory":"0"},"nodeInfo":{"kernelVersion":"","containerRuntime":"","containerRuntimeVersion":"","kubeletVersion":"","operatingSystem":"","architecture":""}}}`,
 			ExpectedNodeCount:       1,
 		},
 	}
@@ -323,7 +328,7 @@ func TestGetNodeForCluster(t *testing.T) {
 		// scenario 1
 		{
 			Name:                   "scenario 1: get a node that belongs to the given cluster",
-			ExpectedResponse:       `{"id":"venus","name":"venus","creationTimestamp":"0001-01-01T00:00:00Z","spec":{"cloud":{"digitalocean":{"size":"2GB","backups":false,"ipv6":false,"monitoring":false,"tags":null}},"operatingSystem":{},"versions":{"kubelet":"v9.9.9"}},"status":{"machineName":"venus","capacity":{"cpu":"0","memory":"0"},"allocatable":{"cpu":"0","memory":"0"},"nodeInfo":{"kernelVersion":"","containerRuntime":"","containerRuntimeVersion":"","kubeletVersion":"","operatingSystem":"","architecture":""}}}`,
+			ExpectedResponse:       `{"id":"venus","name":"venus","creationTimestamp":"0001-01-01T00:00:00Z","spec":{"cloud":{"digitalocean":{"size":"2GB","backups":false,"ipv6":false,"monitoring":false,"tags":null}},"operatingSystem":{},"versions":{"kubelet":"v9.9.9"},"taints":null},"status":{"machineName":"venus","capacity":{"cpu":"0","memory":"0"},"allocatable":{"cpu":"0","memory":"0"},"nodeInfo":{"kernelVersion":"","containerRuntime":"","containerRuntimeVersion":"","kubeletVersion":"","operatingSystem":"","architecture":""}}}`,
 			HTTPStatus:             http.StatusOK,
 			NodeIDToSync:           "venus",
 			ClusterIDToSync:        test.GenDefaultCluster().Name,
@@ -462,7 +467,7 @@ func TestCreateNodeDeployment(t *testing.T) {
 		{
 			Name:                   "scenario 1: create a node deployment that match the given spec",
 			Body:                   `{"spec":{"replicas":1,"template":{"cloud":{"digitalocean":{"size":"s-1vcpu-1gb","backups":false,"ipv6":false,"monitoring":false,"tags":[]}},"operatingSystem":{"ubuntu":{"distUpgradeOnBoot":false}}}}}`,
-			ExpectedResponse:       `{"name":"%s","creationTimestamp":"0001-01-01T00:00:00Z","spec":{"replicas":1,"template":{"cloud":{"digitalocean":{"size":"s-1vcpu-1gb","backups":false,"ipv6":false,"monitoring":false,"tags":["metakube","metakube-cluster-defClusterID"]}},"operatingSystem":{"ubuntu":{"distUpgradeOnBoot":false}},"versions":{"kubelet":"9.9.9"}},"paused":false},"status":{}}`,
+			ExpectedResponse:       `{"name":"%s","creationTimestamp":"0001-01-01T00:00:00Z","spec":{"replicas":1,"template":{"cloud":{"digitalocean":{"size":"s-1vcpu-1gb","backups":false,"ipv6":false,"monitoring":false,"tags":["metakube","metakube-cluster-defClusterID"]}},"operatingSystem":{"ubuntu":{"distUpgradeOnBoot":false}},"versions":{"kubelet":"9.9.9"},"taints":[]},"paused":false},"status":{}}`,
 			HTTPStatus:             http.StatusCreated,
 			ProjectID:              test.GenDefaultProject().Name,
 			ClusterID:              test.GenDefaultCluster().Name,
@@ -499,6 +504,30 @@ func TestCreateNodeDeployment(t *testing.T) {
 			Name:                   "scenario 4: kubelet version is too new",
 			Body:                   `{"spec":{"replicas":1,"template":{"cloud":{"digitalocean":{"size":"s-1vcpu-1gb","backups":false,"ipv6":false,"monitoring":false,"tags":[]}},"operatingSystem":{"ubuntu":{"distUpgradeOnBoot":false}},"versions":{"kubelet":"9.10.0"}}}}`,
 			ExpectedResponse:       `{"error":{"code":400,"message":"node deployment validation failed: kubelet version 9.10.0 is not compatible with control plane version 9.9.9"}}`,
+			HTTPStatus:             http.StatusBadRequest,
+			ProjectID:              test.GenDefaultProject().Name,
+			ClusterID:              test.GenDefaultCluster().Name,
+			ExistingKubermaticObjs: test.GenDefaultKubermaticObjects(genTestCluster(true)),
+			ExistingAPIUser:        test.GenDefaultAPIUser(),
+		},
+
+		// scenario 5
+		{
+			Name:                   "scenario 5: set taints",
+			Body:                   `{"spec":{"replicas":1,"template":{"taints": [{"key":"foo","value":"bar","effect":"NoExecute"}],"cloud":{"digitalocean":{"size":"s-1vcpu-1gb","backups":false,"ipv6":false,"monitoring":false,"tags":[]}},"operatingSystem":{"ubuntu":{"distUpgradeOnBoot":false}},"versions":{"kubelet":"9.9.9"}}}}`,
+			ExpectedResponse:       `{"name":"%s","creationTimestamp":"0001-01-01T00:00:00Z","spec":{"replicas":1,"template":{"cloud":{"digitalocean":{"size":"s-1vcpu-1gb","backups":false,"ipv6":false,"monitoring":false,"tags":["kubernetes","kubernetes-cluster-defClusterID"]}},"operatingSystem":{"ubuntu":{"distUpgradeOnBoot":false}},"versions":{"kubelet":"9.9.9"},"taints":[{"key":"","value":"","effect":""},{"key":"foo","value":"bar","effect":"NoExecute"}]},"paused":false},"status":{}}`,
+			HTTPStatus:             http.StatusCreated,
+			ProjectID:              test.GenDefaultProject().Name,
+			ClusterID:              test.GenDefaultCluster().Name,
+			ExistingKubermaticObjs: test.GenDefaultKubermaticObjects(genTestCluster(true)),
+			ExistingAPIUser:        test.GenDefaultAPIUser(),
+		},
+
+		// scenario 6
+		{
+			Name:                   "scenario 6: invalid taint",
+			Body:                   `{"spec":{"replicas":1,"template":{"taints": [{"key":"foo","value":"bar","effect":"BAD_EFFECT"}],"cloud":{"digitalocean":{"size":"s-1vcpu-1gb","backups":false,"ipv6":false,"monitoring":false,"tags":[]}},"operatingSystem":{"ubuntu":{"distUpgradeOnBoot":false}},"versions":{"kubelet":"9.9.9"}}}}`,
+			ExpectedResponse:       `{"error":{"code":400,"message":"node deployment validation failed: taint effect 'BAD_EFFECT' not allowed. Allowed: NoExecute, NoSchedule, PreferNoSchedule"}}`,
 			HTTPStatus:             http.StatusBadRequest,
 			ProjectID:              test.GenDefaultProject().Name,
 			ClusterID:              test.GenDefaultCluster().Name,
@@ -592,6 +621,7 @@ func TestListNodeDeployments(t *testing.T) {
 							Versions: apiv1.NodeVersionInfo{
 								Kubelet: "v9.9.9",
 							},
+							Taints: []apiv1.TaintSpec{},
 						},
 						Replicas: replicas,
 						Paused:   &paused,
@@ -619,6 +649,7 @@ func TestListNodeDeployments(t *testing.T) {
 							Versions: apiv1.NodeVersionInfo{
 								Kubelet: "v9.9.9",
 							},
+							Taints: []apiv1.TaintSpec{},
 						},
 						Replicas: replicas,
 						Paused:   &paused,
@@ -711,6 +742,7 @@ func TestGetNodeDeployment(t *testing.T) {
 						Versions: apiv1.NodeVersionInfo{
 							Kubelet: "v9.9.9",
 						},
+						Taints: []apiv1.TaintSpec{},
 					},
 					Replicas: replicas,
 					Paused:   &paused,
@@ -1019,9 +1051,6 @@ func TestPatchNodeDeployment(t *testing.T) {
 	var replicasUpdated int32 = 3
 	var kubeletVerUpdated = "v9.8.0"
 
-	// Mock timezone to keep creation timestamp always the same.
-	time.Local = time.UTC
-
 	testcases := []struct {
 		Name                       string
 		Body                       string
@@ -1038,7 +1067,7 @@ func TestPatchNodeDeployment(t *testing.T) {
 		{
 			Name:                       "Scenario 1: Update replicas count",
 			Body:                       fmt.Sprintf(`{"spec":{"replicas":%v}}`, replicasUpdated),
-			ExpectedResponse:           fmt.Sprintf(`{"id":"venus","name":"venus","creationTimestamp":"0001-01-01T00:00:00Z","spec":{"replicas":%v,"template":{"cloud":{"digitalocean":{"size":"2GB","backups":false,"ipv6":false,"monitoring":false,"tags":["metakube","metakube-cluster-defClusterID"]}},"operatingSystem":{"ubuntu":{"distUpgradeOnBoot":true}},"versions":{"kubelet":"v9.9.9"}},"paused":false},"status":{}}`, replicasUpdated),
+			ExpectedResponse:           fmt.Sprintf(`{"id":"venus","name":"venus","creationTimestamp":"0001-01-01T00:00:00Z","spec":{"replicas":%v,"template":{"cloud":{"digitalocean":{"size":"2GB","backups":false,"ipv6":false,"monitoring":false,"tags":["metakube","metakube-cluster-defClusterID"]}},"operatingSystem":{"ubuntu":{"distUpgradeOnBoot":true}},"versions":{"kubelet":"v9.9.9"},"taints":[]},"paused":false},"status":{}}`, replicasUpdated),
 			cluster:                    "keen-snyder",
 			HTTPStatus:                 http.StatusOK,
 			project:                    test.GenDefaultProject().Name,
@@ -1051,7 +1080,7 @@ func TestPatchNodeDeployment(t *testing.T) {
 		{
 			Name:                       "Scenario 2: Update kubelet version",
 			Body:                       fmt.Sprintf(`{"spec":{"template":{"versions":{"kubelet":"%v"}}}}`, kubeletVerUpdated),
-			ExpectedResponse:           fmt.Sprintf(`{"id":"venus","name":"venus","creationTimestamp":"0001-01-01T00:00:00Z","spec":{"replicas":%v,"template":{"cloud":{"digitalocean":{"size":"2GB","backups":false,"ipv6":false,"monitoring":false,"tags":["metakube","metakube-cluster-defClusterID"]}},"operatingSystem":{"ubuntu":{"distUpgradeOnBoot":true}},"versions":{"kubelet":"%v"}},"paused":false},"status":{}}`, replicas, kubeletVerUpdated),
+			ExpectedResponse:           fmt.Sprintf(`{"id":"venus","name":"venus","creationTimestamp":"0001-01-01T00:00:00Z","spec":{"replicas":%v,"template":{"cloud":{"digitalocean":{"size":"2GB","backups":false,"ipv6":false,"monitoring":false,"tags":["metakube","metakube-cluster-defClusterID"]}},"operatingSystem":{"ubuntu":{"distUpgradeOnBoot":true}},"versions":{"kubelet":"%v"},"taints":[]},"paused":false},"status":{}}`, replicas, kubeletVerUpdated),
 			cluster:                    "keen-snyder",
 			HTTPStatus:                 http.StatusOK,
 			project:                    test.GenDefaultProject().Name,
@@ -1064,7 +1093,7 @@ func TestPatchNodeDeployment(t *testing.T) {
 		{
 			Name:                       "Scenario 3: Change to paused",
 			Body:                       `{"spec":{"paused":true}}`,
-			ExpectedResponse:           `{"id":"venus","name":"venus","creationTimestamp":"0001-01-01T00:00:00Z","spec":{"replicas":1,"template":{"cloud":{"digitalocean":{"size":"2GB","backups":false,"ipv6":false,"monitoring":false,"tags":["metakube","metakube-cluster-defClusterID"]}},"operatingSystem":{"ubuntu":{"distUpgradeOnBoot":true}},"versions":{"kubelet":"v9.9.9"}},"paused":true},"status":{}}`,
+			ExpectedResponse:           `{"id":"venus","name":"venus","creationTimestamp":"0001-01-01T00:00:00Z","spec":{"replicas":1,"template":{"cloud":{"digitalocean":{"size":"2GB","backups":false,"ipv6":false,"monitoring":false,"tags":["metakube","metakube-cluster-defClusterID"]}},"operatingSystem":{"ubuntu":{"distUpgradeOnBoot":true}},"versions":{"kubelet":"v9.9.9"},"taints":[]},"paused":true},"status":{}}`,
 			cluster:                    "keen-snyder",
 			HTTPStatus:                 http.StatusOK,
 			project:                    test.GenDefaultProject().Name,
@@ -1166,7 +1195,7 @@ func TestDeleteNodeDeployment(t *testing.T) {
 			// When the client GETs the previously deleted "node" it will get a valid response.
 			// That is only true for testing, but in a real cluster, the node object will get deleted by the garbage-collector as it has a ownerRef set.
 			ExpectedHTTPStatusOnGet:     http.StatusOK,
-			ExpectedResponseOnGet:       `{"id":"venus","name":"venus","creationTimestamp":"0001-01-01T00:00:00Z","spec":{"cloud":{},"operatingSystem":{},"versions":{"kubelet":""}},"status":{"machineName":"","capacity":{"cpu":"0","memory":"0"},"allocatable":{"cpu":"0","memory":"0"},"nodeInfo":{"kernelVersion":"","containerRuntime":"","containerRuntimeVersion":"","kubeletVersion":"","operatingSystem":"","architecture":""}}}`,
+			ExpectedResponseOnGet:       `{"id":"venus","name":"venus","creationTimestamp":"0001-01-01T00:00:00Z","spec":{"cloud":{},"operatingSystem":{},"versions":{"kubelet":""},"taints":null},"status":{"machineName":"","capacity":{"cpu":"0","memory":"0"},"allocatable":{"cpu":"0","memory":"0"},"nodeInfo":{"kernelVersion":"","containerRuntime":"","containerRuntimeVersion":"","kubeletVersion":"","operatingSystem":"","architecture":""}}}`,
 			EpxectedNodeDeploymentCount: 1,
 		},
 	}
