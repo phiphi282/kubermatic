@@ -49,8 +49,8 @@ spec:
         - /etc/openvpn/clients
         - --status
         - /run/openvpn-status
-        - --link-mtu
-        - "1432"
+        - --mssfix
+        - "1300"
         - --cipher
         - AES-256-GCM
         - --auth

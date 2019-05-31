@@ -69,8 +69,8 @@ spec:
         - /etc/openvpn/pki/client/client.key
         - --remote-cert-tls
         - server
-        - --link-mtu
-        - "1432"
+        - --mssfix
+        - "1300"
         - --cipher
         - AES-256-GCM
         - --auth

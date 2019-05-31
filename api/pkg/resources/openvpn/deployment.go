@@ -165,7 +165,7 @@ iptables -A INPUT -i tun0 -j DROP
 				"--duplicate-cn",
 				"--client-config-dir", "/etc/openvpn/clients",
 				"--status", "/run/openvpn-status",
-				"--link-mtu", "1432",
+				"--mssfix", "1300",
 				"--cipher", "AES-256-GCM",
 				"--auth", "SHA1",
 				"--keysize", "256",
