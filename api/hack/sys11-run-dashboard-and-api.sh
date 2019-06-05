@@ -5,6 +5,8 @@ set -o nounset
 set -o pipefail
 set -x
 
+: "${DASHBOARD_SRC_DIR:=$(go env GOPATH)/src/gitlab.syseleven.de/kubernetes/kubermatic-dashboard}"
+
 cd $(dirname $0)
 
 function cleanup {
@@ -21,4 +23,4 @@ echo "starting api"
 echo "finished starting api"
 
 echo "Starting dashboard"
-$(go env GOPATH)/src/gitlab.syseleven.de/kubernetes/kubermatic-dashboard/hack/sys11-run-local-dashboard.sh
+"${DASHBOARD_SRC_DIR}/hack/sys11-run-local-dashboard.sh"

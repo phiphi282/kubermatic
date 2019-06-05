@@ -5,15 +5,15 @@ set -o nounset
 set -o pipefail
 set -x
 
-SRC_DIR=$(go env GOPATH)/src/github.com/kubermatic/kubermatic/api
-KUBERMATIC_WORKERNAME=${KUBERMATIC_WORKERNAME:-$(uname -n)}
-INSTALLER_DIR="$(go env GOPATH)/src/gitlab.syseleven.de/kubernetes/kubermatic-installer"
-KUBERMATIC_ENV=dev
-KUBERMATIC_CLUSTER=dbl1
-RESOURCES_DIR=${INSTALLER_DIR}/environments/${KUBERMATIC_ENV}/clusters/${KUBERMATIC_CLUSTER}/kubermatic/versions
-CONFIG_DIR=${INSTALLER_DIR}/environments/${KUBERMATIC_ENV}/kubermatic
+: "${SRC_DIR:=$(go env GOPATH)/src/github.com/kubermatic/kubermatic/api}"
+: "${KUBERMATIC_WORKERNAME:=${KUBERMATIC_WORKERNAME:-$(uname -n)}}"
+: "${INSTALLER_DIR:="$(go env GOPATH)/src/gitlab.syseleven.de/kubernetes/kubermatic-installer"}"
+: "${KUBERMATIC_ENV:=dev}"
+: "${KUBERMATIC_CLUSTER:=dbl1}"
+: "${RESOURCES_DIR:=${INSTALLER_DIR}/environments/${KUBERMATIC_ENV}/clusters/${KUBERMATIC_CLUSTER}/kubermatic/versions}"
+: "${CONFIG_DIR:=${INSTALLER_DIR}/environments/${KUBERMATIC_ENV}/kubermatic}"
 KUBERMATIC_ENV=${KUBERMATIC_ENV} KUBERMATIC_CLUSTER=${KUBERMATIC_CLUSTER} make -C ${INSTALLER_DIR}/kubermatic values.yaml
-DEBUG="false"
+: "${DEBUG:="false"}"
 
 while true; do
     if [[ "${DEBUG}" == "true" ]]; then

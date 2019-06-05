@@ -2,6 +2,11 @@
 
 This is a fork of Loodse's kubermatic upstream repository (https://github.com/kubermatic/kubermatic).
 
+Use `api/hack/sys11-run-api.sh` and `api/hack/sys11-run-dashboard-and-api.sh` scripts for for launching the
+API or API and dashboard locally.
+
+See https://intra.syseleven.de/confluence/display/K8s/Repository%3A+kubermatic for a general overview.
+
 ## Branching Strategy
 
 Upstream employs a modified release flow branching model – doing feature development directly in master or creating
