@@ -3380,6 +3380,10 @@
           "type": "string",
           "x-go-name": "InstanceProfileName"
         },
+        "openstackBillingTenant": {
+          "type": "string",
+          "x-go-name": "OpenstackBillingTenant"
+        },
         "roleName": {
           "type": "string",
           "x-go-name": "RoleName"
