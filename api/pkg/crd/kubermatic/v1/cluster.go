@@ -311,6 +311,8 @@ type AWSCloudSpec struct {
 	SecurityGroupID     string `json:"securityGroupID"`
 
 	AvailabilityZone string `json:"availabilityZone"`
+
+	OpenstackBillingTenant string `json:"openstackBillingTenant"`
 }
 
 // OpenstackCloudSpec specifies access data to an openstack cloud.
