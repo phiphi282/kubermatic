@@ -253,8 +253,14 @@ func getTemplateData(versions []*version.MasterVersion, requestedVersion string)
 			Namespace: mockNamespaceName,
 		},
 	}
+	schedulerPolicyConfigMap := corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      resources.SchedulerPolicyConfigMapName,
+			Namespace: mockNamespaceName,
+		},
+	}
 	configMapList := &corev1.ConfigMapList{
-		Items: []corev1.ConfigMap{cloudConfigConfigMap, prometheusConfigMap, dnsResolverConfigMap, openvpnClientConfigsConfigMap},
+		Items: []corev1.ConfigMap{cloudConfigConfigMap, prometheusConfigMap, dnsResolverConfigMap, openvpnClientConfigsConfigMap, schedulerPolicyConfigMap},
 	}
 	apiServerExternalService := corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{

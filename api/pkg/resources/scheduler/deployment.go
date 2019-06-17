@@ -124,6 +124,11 @@ func DeploymentCreator(data *resources.TemplateData) reconciling.NamedDeployment
 							MountPath: "/etc/kubernetes/pki/ca",
 							ReadOnly:  true,
 						},
+						{
+							Name:      resources.SchedulerPolicyConfigMapName,
+							MountPath: "/etc/kubernetes/scheduler",
+							ReadOnly:  true,
+						},
 					},
 					Resources: resourceRequirements,
 					ReadinessProbe: &corev1.Probe{
@@ -190,12 +195,25 @@ func getVolumes() []corev1.Volume {
 				},
 			},
 		},
+		{
+			Name: resources.SchedulerPolicyConfigMapName,
+			VolumeSource: corev1.VolumeSource{
+				ConfigMap: &corev1.ConfigMapVolumeSource{
+					LocalObjectReference: corev1.LocalObjectReference{
+						Name: resources.SchedulerPolicyConfigMapName,
+					},
+					DefaultMode: resources.Int32(resources.DefaultOwnerReadOnlyMode),
+				},
+			},
+		},
 	}
 }
 
 func getFlags(cluster *kubermaticv1.Cluster) ([]string, error) {
 	flags := []string{
 		"--kubeconfig", "/etc/kubernetes/kubeconfig/kubeconfig",
+		"--use-legacy-policy-config=true",
+		"--policy-config-file=/etc/kubernetes/scheduler/" + resources.SchedulerPolicyFileName,
 	}
 
 	// With 1.13 we're using the secure port for scraping metrics as the insecure port got marked deprecated
@@ -210,7 +228,7 @@ func getFlags(cluster *kubermaticv1.Cluster) ([]string, error) {
 		if cluster.Spec.Version.Semver().Patch() > 0 {
 			// Force the authentication lookup to succeed, otherwise if it fails all requests will be treated as anonymous and thus fail
 			// Both the flag and the issue only exist in 1.13.1 and above
-			flags = append(flags, "--authentication-tolerate-lookup-failure", "false")
+			flags = append(flags, "--authentication-tolerate-lookup-failure=false")
 		}
 	}
 

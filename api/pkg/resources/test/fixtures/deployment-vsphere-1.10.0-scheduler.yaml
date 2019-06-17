@@ -26,6 +26,7 @@ spec:
         cluster: de-test-01
         openvpn-client-certificates-secret-revision: "123456"
         scheduler-kubeconfig-secret-revision: "123456"
+        scheduler-policy-configmap-revision: "123456"
     spec:
       affinity:
         podAntiAffinity:
@@ -105,6 +106,8 @@ spec:
       - args:
         - --kubeconfig
         - /etc/kubernetes/kubeconfig/kubeconfig
+        - --use-legacy-policy-config=true
+        - --policy-config-file=/etc/kubernetes/scheduler/policy.cfg
         command:
         - /hyperkube
         - scheduler
@@ -145,6 +148,9 @@ spec:
           readOnly: true
         - mountPath: /etc/kubernetes/pki/ca
           name: ca
+          readOnly: true
+        - mountPath: /etc/kubernetes/scheduler
+          name: scheduler-policy
           readOnly: true
       dnsConfig:
         nameservers:
@@ -194,4 +200,8 @@ spec:
         secret:
           defaultMode: 256
           secretName: scheduler-kubeconfig
+      - configMap:
+          defaultMode: 256
+          name: scheduler-policy
+        name: scheduler-policy
 status: {}
