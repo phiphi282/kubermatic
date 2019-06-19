@@ -32,7 +32,7 @@ var (
 const (
 	Name = "machine-controller"
 
-	tag = "v1.1.7"
+	tag = "v1.1.7-sys11-1"
 )
 
 type machinecontrollerData interface {
@@ -97,7 +97,7 @@ func DeploymentCreator(data machinecontrollerData) reconciling.NamedDeploymentCr
 			dep.Spec.Template.Spec.Containers = []corev1.Container{
 				{
 					Name:            Name,
-					Image:           data.ImageRegistry(resources.RegistryDocker) + "/kubermatic/machine-controller:" + tag,
+					Image:           data.ImageRegistry(resources.RegistryDocker) + "/syseleven/machine-controller:" + tag,
 					ImagePullPolicy: corev1.PullIfNotPresent,
 					Command:         []string{"/usr/local/bin/machine-controller"},
 					Args: []string{
