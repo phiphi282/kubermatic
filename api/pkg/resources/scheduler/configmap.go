@@ -50,7 +50,7 @@ const (
         {
             "name": "MaxCSIVolumeCountPred"
         },
-{{- if .Cluster.Spec.Cloud.Openstack }}
+{{- if and .Cluster.Spec.Cloud.Openstack (ge .Cluster.Spec.Version.Semver.Minor 14) }}
         {
             "name": "MaxCinderVolumeCount"
         },

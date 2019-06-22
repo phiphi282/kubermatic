@@ -26,9 +26,6 @@ data:
                 "name": "MaxCSIVolumeCountPred"
             },
             {
-                "name": "MaxCinderVolumeCount"
-            },
-            {
                 "name": "PodToleratesNodeTaints"
             }
         ],
