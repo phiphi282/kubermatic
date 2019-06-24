@@ -125,7 +125,7 @@ func DeploymentCreator(data *resources.TemplateData) reconciling.NamedDeployment
 							ReadOnly:  true,
 						},
 						{
-							Name:      resources.SchedulerPolicyConfigMapName,
+							Name:      resources.SchedulerConfigMapName,
 							MountPath: "/etc/kubernetes/scheduler",
 							ReadOnly:  true,
 						},
@@ -196,11 +196,11 @@ func getVolumes() []corev1.Volume {
 			},
 		},
 		{
-			Name: resources.SchedulerPolicyConfigMapName,
+			Name: resources.SchedulerConfigMapName,
 			VolumeSource: corev1.VolumeSource{
 				ConfigMap: &corev1.ConfigMapVolumeSource{
 					LocalObjectReference: corev1.LocalObjectReference{
-						Name: resources.SchedulerPolicyConfigMapName,
+						Name: resources.SchedulerConfigMapName,
 					},
 					DefaultMode: resources.Int32(resources.DefaultOwnerReadOnlyMode),
 				},
@@ -211,9 +211,7 @@ func getVolumes() []corev1.Volume {
 
 func getFlags(cluster *kubermaticv1.Cluster) ([]string, error) {
 	flags := []string{
-		"--kubeconfig", "/etc/kubernetes/kubeconfig/kubeconfig",
-		"--use-legacy-policy-config=true",
-		"--policy-config-file=/etc/kubernetes/scheduler/" + resources.SchedulerPolicyFileName,
+		"--config", "/etc/kubernetes/scheduler/" + resources.SchedulerConfigFileName,
 	}
 
 	// With 1.13 we're using the secure port for scraping metrics as the insecure port got marked deprecated

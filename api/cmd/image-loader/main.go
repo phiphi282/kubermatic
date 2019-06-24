@@ -255,7 +255,7 @@ func getTemplateData(versions []*version.MasterVersion, requestedVersion string)
 	}
 	schedulerPolicyConfigMap := corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      resources.SchedulerPolicyConfigMapName,
+			Name:      resources.SchedulerConfigMapName,
 			Namespace: mockNamespaceName,
 		},
 	}

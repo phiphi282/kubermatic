@@ -424,7 +424,7 @@ func TestLoadFiles(t *testing.T) {
 					&corev1.ConfigMap{
 						ObjectMeta: metav1.ObjectMeta{
 							ResourceVersion: "123456",
-							Name:            resources.SchedulerPolicyConfigMapName,
+							Name:            resources.SchedulerConfigMapName,
 							Namespace:       cluster.Status.NamespaceName,
 						},
 					},

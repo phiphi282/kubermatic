@@ -9,12 +9,31 @@ import (
 	"text/template"
 )
 
+type schedulerTplModel struct {
+	TemplateData         resources.TemplateData
+	PolicyConfigFileName string
+}
+
 const (
+	schedulerConfigTpl = `{{ if lt .TemplateData.Cluster.Spec.Version.Semver.Minor 12 -}}
+apiVersion: componentconfig/v1alpha1
+{{- else -}}
+apiVersion: kubescheduler.config.k8s.io/v1alpha1
+{{- end }}
+kind: KubeSchedulerConfiguration
+algorithmSource:
+  policy:
+    file:
+      path: /etc/kubernetes/scheduler/{{ .PolicyConfigFileName }}
+clientConnection:
+  kubeconfig: /etc/kubernetes/kubeconfig/kubeconfig
+`
+
 	schedulerPolicyTpl = `{
     "apiVersion": "v1",
     "kind": "Policy",
     "predicates": [
-{{- if .Cluster.Spec.Cloud.Azure }}
+{{- if .TemplateData.Cluster.Spec.Cloud.Azure }}
         {
             "name": "MaxAzureDiskVolumeCount"
         },
@@ -31,7 +50,7 @@ const (
         {
             "name": "CheckNodeUnschedulable"
         },
-{{- if .Cluster.Spec.Cloud.AWS }}
+{{- if .TemplateData.Cluster.Spec.Cloud.AWS }}
         {
             "name": "MaxEBSVolumeCount"
         },
@@ -50,7 +69,7 @@ const (
         {
             "name": "MaxCSIVolumeCountPred"
         },
-{{- if and .Cluster.Spec.Cloud.Openstack (ge .Cluster.Spec.Version.Semver.Minor 14) }}
+{{- if and .TemplateData.Cluster.Spec.Cloud.Openstack (ge .TemplateData.Cluster.Spec.Version.Semver.Minor 14) }}
         {
             "name": "MaxCinderVolumeCount"
         },
@@ -96,20 +115,26 @@ const (
 }`
 )
 
-// PolicyConfigMapCreator returns a function to create the ConfigMap containing the scheduler configuration
-func PolicyConfigMapCreator(data *resources.TemplateData) reconciling.NamedConfigMapCreatorGetter {
+// ConfigMapCreator returns a function to create the ConfigMap containing the scheduler's configuration files
+func ConfigMapCreator(data *resources.TemplateData) reconciling.NamedConfigMapCreatorGetter {
 	return func() (string, reconciling.ConfigMapCreator) {
-		return resources.SchedulerPolicyConfigMapName, func(cm *corev1.ConfigMap) (*corev1.ConfigMap, error) {
+		return resources.SchedulerConfigMapName, func(cm *corev1.ConfigMap) (*corev1.ConfigMap, error) {
 			if cm.Data == nil {
 				cm.Data = map[string]string{}
 			}
 
-			policyConfig, err := PolicyConfig(data)
+			schedulerConfig, err := ExpandTemplate(schedulerConfigTpl, data)
+			if err != nil {
+				return nil, fmt.Errorf("failed to create scheduler config: %v", err)
+			}
+
+			policyConfig, err := ExpandTemplate(schedulerPolicyTpl, data)
 			if err != nil {
 				return nil, fmt.Errorf("failed to create scheduler policy: %v", err)
 			}
 
 			cm.Labels = resources.BaseAppLabel(name, nil)
+			cm.Data[resources.SchedulerConfigFileName] = schedulerConfig
 			cm.Data[resources.SchedulerPolicyFileName] = policyConfig
 
 			return cm, nil
@@ -117,15 +142,19 @@ func PolicyConfigMapCreator(data *resources.TemplateData) reconciling.NamedConfi
 	}
 }
 
-// PolicyConfig returns the scheduler configuration for the supplied data
-func PolicyConfig(data *resources.TemplateData) (policyConfig string, err error) {
-	tpl, err := template.New("scheduler-policy").Parse(schedulerPolicyTpl)
+func ExpandTemplate(templateText string, data *resources.TemplateData) (expansion string, err error) {
+	tpl, err := template.New("scheduler").Parse(templateText)
 	if err != nil {
 		return "", fmt.Errorf("failed to parse the scheduler policy template: %v", err)
 	}
 
+	model := &schedulerTplModel{
+		TemplateData:         *data,
+		PolicyConfigFileName: resources.SchedulerPolicyFileName,
+	}
+
 	buf := &bytes.Buffer{}
-	if err := tpl.Execute(buf, data); err != nil {
+	if err := tpl.Execute(buf, model); err != nil {
 		return "", fmt.Errorf("failed to execute scheduler policy template: %v", err)
 	}
 
