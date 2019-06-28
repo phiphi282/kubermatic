@@ -3996,6 +3996,9 @@
           },
           "x-go-name": "MachineNetworks"
         },
+        "oidc": {
+          "$ref": "#/definitions/OIDCSettings"
+        },
         "version": {
           "$ref": "#/definitions/Semver"
         }
@@ -5040,6 +5043,32 @@
         }
       },
       "x-go-package": "github.com/kubermatic/kubermatic/api/pkg/api/v1"
+    },
+    "OIDCSettings": {
+      "type": "object",
+      "properties": {
+        "clientId": {
+          "type": "string",
+          "x-go-name": "ClientID"
+        },
+        "groupsClaim": {
+          "type": "string",
+          "x-go-name": "GroupsClaim"
+        },
+        "issuerUrl": {
+          "type": "string",
+          "x-go-name": "IssuerURL"
+        },
+        "requiredClaim": {
+          "type": "string",
+          "x-go-name": "RequiredClaim"
+        },
+        "usernameClaim": {
+          "type": "string",
+          "x-go-name": "UsernameClaim"
+        }
+      },
+      "x-go-package": "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
     },
     "ObjectMeta": {
       "description": "ObjectMeta defines the set of fields that objects returned from the API have",
