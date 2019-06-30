@@ -46,8 +46,9 @@ type OpenstackSpec struct {
 	ManageSecurityGroups *bool `yaml:"manage_security_groups"`
 	// Gets mapped to the "trust-device-path" setting in the cloud config.
 	// See https://kubernetes.io/docs/concepts/cluster-administration/cloud-providers/#block-storage
-	TrustDevicePath      *bool                         `yaml:"trust_device_path"`
-	NodeSizeRequirements OpenstackNodeSizeRequirements `yaml:"node_size_requirements"`
+	TrustDevicePath       *bool                         `yaml:"trust_device_path"`
+	NodeSizeRequirements  OpenstackNodeSizeRequirements `yaml:"node_size_requirements"`
+	NodeVolumeAttachLimit *int                          `yaml:"node_volume_attach_limit"`
 }
 
 type OpenstackNodeSizeRequirements struct {

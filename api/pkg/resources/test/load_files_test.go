@@ -914,6 +914,9 @@ func TestExecute(t *testing.T) {
 							Region:           "os-region",
 							IgnoreVolumeAZ:   false,
 							DNSServers:       []string{},
+							NodeVolumeAttachLimit: func(i int) *int {
+								return &i
+							}(42),
 						},
 					},
 					IsSeed: false,

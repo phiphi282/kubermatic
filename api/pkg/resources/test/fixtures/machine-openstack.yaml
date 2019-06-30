@@ -16,6 +16,7 @@ spec:
         identityEndpoint: os-auth-url
         image: os-image
         network: os-network
+        nodeVolumeAttachLimit: "42"
         password: ""
         region: os-region
         securityGroups:
