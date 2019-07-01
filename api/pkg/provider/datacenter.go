@@ -48,7 +48,7 @@ type OpenstackSpec struct {
 	// See https://kubernetes.io/docs/concepts/cluster-administration/cloud-providers/#block-storage
 	TrustDevicePath       *bool                         `yaml:"trust_device_path"`
 	NodeSizeRequirements  OpenstackNodeSizeRequirements `yaml:"node_size_requirements"`
-	NodeVolumeAttachLimit *int                          `yaml:"node_volume_attach_limit"`
+	NodeVolumeAttachLimit *uint                         `yaml:"node_volume_attach_limit"`
 }
 
 type OpenstackNodeSizeRequirements struct {
