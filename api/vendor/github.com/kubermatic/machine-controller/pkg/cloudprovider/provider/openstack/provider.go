@@ -204,7 +204,9 @@ func (p *provider) getConfig(s v1alpha1.ProviderSpec) (*Config, *providerconfig.
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	if len(nval) > 0 {
+	if len(nval) == 0 {
+		c.NodeVolumeAttachLimit = 256
+	} else {
 		nvalUint, err := strconv.ParseUint(nval, 10, 0)
 		if err != nil {
 			return nil, nil, nil, fmt.Errorf("failed to parse integer nodeVolumeAttachLimit, error = %v", err)
