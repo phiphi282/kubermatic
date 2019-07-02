@@ -130,7 +130,6 @@ func (r Routing) listOpenstackQuotaLimitsNoCredentials() http.Handler {
 	)
 }
 
-// getClusterKubeconfig returns the oidc kubeconfig for the cluster.
 // swagger:route GET /api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/oidckubeconfig project getOidcClusterKubeconfig
 //
 //     Gets the kubeconfig for the specified cluster with oidc authentication.
