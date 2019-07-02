@@ -6,6 +6,7 @@ import (
 	"github.com/go-kit/kit/endpoint"
 	httptransport "github.com/go-kit/kit/transport/http"
 	"github.com/kubermatic/kubermatic/api/pkg/handler/middleware"
+	"github.com/kubermatic/kubermatic/api/pkg/handler/v1/cluster"
 	"github.com/kubermatic/kubermatic/api/pkg/handler/v1/provider"
 
 	"github.com/gorilla/mux"
@@ -31,6 +32,10 @@ func (r Routing) RegisterV1SysEleven(mux *mux.Router) {
 	mux.Methods(http.MethodGet).
 		Path("/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/providers/openstack/quotalimits").
 		Handler(r.listOpenstackQuotaLimitsNoCredentials())
+
+	mux.Methods(http.MethodGet).
+		Path("/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/oidckubeconfig").
+		Handler(r.getOidcClusterKubeconfig())
 }
 
 // swagger:route GET /api/v1/providers/openstack/images openstack listOpenstackImages
@@ -121,6 +126,39 @@ func (r Routing) listOpenstackQuotaLimitsNoCredentials() http.Handler {
 		)(provider.OpenstackQuotaLimitNoCredentialsEndpoint(r.projectProvider, r.cloudProviders)),
 		provider.DecodeOpenstackNoCredentialsReq,
 		encodeJSON,
+		r.defaultServerOptions()...,
+	)
+}
+
+// getClusterKubeconfig returns the oidc kubeconfig for the cluster.
+// swagger:route GET /api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/oidckubeconfig project getOidcClusterKubeconfig
+//
+//     Gets the kubeconfig for the specified cluster with oidc authentication.
+//
+//     Produces:
+//     - application/yaml
+//
+//     Responses:
+//       default: errorResponse
+//       200: Kubeconfig
+//       401: empty
+//       403: empty
+func (r Routing) getOidcClusterKubeconfig() http.Handler {
+	privilegedUserGroups := map[string]bool{
+		"owners":  true,
+		"editors": true,
+		"viewers": false,
+	}
+	return httptransport.NewServer(
+		endpoint.Chain(
+			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.UserSaver(r.userProvider),
+			middleware.Datacenter(r.clusterProviders, r.datacenters),
+			middleware.UserInfoExtractor(r.userProjectMapper),
+			middleware.PrivilegedUserGroupVerifier(r.userProjectMapper, privilegedUserGroups),
+		)(cluster.GetOidcKubeconfigEndpoint(r.projectProvider)),
+		cluster.DecodeGetAdminKubeconfig,
+		cluster.EncodeKubeconfig,
 		r.defaultServerOptions()...,
 	)
 }
