@@ -127,6 +127,40 @@ type Datacenter struct {
 	Seed     bool             `json:"seed,omitempty"`
 }
 
+// GCPDiskTypeList represents an array of GCP disk types.
+// swagger:model GCPDiskTypeList
+type GCPDiskTypeList []GCPDiskType
+
+// GCPDiskType represents a object of GCP disk type.
+// swagger:model GCPDiskType
+type GCPDiskType struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+}
+
+// GCPMachineSizeList represents an array of GCP machine sizes.
+// swagger:model GCPMachineSizeList
+type GCPMachineSizeList []GCPMachineSize
+
+// GCPMachineSize represents a object of GCP machine size.
+// swagger:model GCPMachineSize
+type GCPMachineSize struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Memory      int64  `json:"memory"`
+	VCPUs       int64  `json:"vcpus"`
+}
+
+// GCPZone represents a object of GCP zone.
+// swagger:model GCPZone
+type GCPZone struct {
+	Name string `json:"name"`
+}
+
+// GCPZoneList represents an array of GCP zones.
+// swagger:model GCPZoneList
+type GCPZoneList []GCPZone
+
 // DigitaloceanSizeList represents a object of digitalocean sizes.
 // swagger:model DigitaloceanSizeList
 type DigitaloceanSizeList struct {
