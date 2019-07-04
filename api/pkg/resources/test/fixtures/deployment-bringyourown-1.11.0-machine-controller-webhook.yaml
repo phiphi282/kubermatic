@@ -33,7 +33,7 @@ spec:
         - 0.0.0.0:9876
         command:
         - /usr/local/bin/webhook
-        image: docker.io/syseleven/machine-controller:v1.1.7-sys11-4
+        image: docker.io/syseleven/machine-controller:v1.1.7-sys11-5
         imagePullPolicy: IfNotPresent
         livenessProbe:
           failureThreshold: 8
