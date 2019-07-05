@@ -100,6 +100,7 @@ func (r *Reconciler) getClusterTemplateData(ctx context.Context, cluster *kuberm
 		r.nodePortRange,
 		r.nodeAccessNetwork,
 		r.etcdDiskSize,
+		r.monitoringEnvironmentLabel,
 		r.monitoringScrapeAnnotationPrefix,
 		r.inClusterPrometheusRulesFile,
 		r.inClusterPrometheusDisableDefaultRules,

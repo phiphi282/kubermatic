@@ -64,6 +64,7 @@ type Reconciler struct {
 	inClusterPrometheusDisableDefaultScrapingConfigs bool
 	inClusterPrometheusScrapingConfigsFile           string
 	dockerPullConfigJSON                             []byte
+	monitoringEnvironmentLabel                       string
 	// Annotation prefix to discover user cluster resources
 	// example: kubermatic.io -> kubermatic.io/path,kubermatic.io/port
 	monitoringScrapeAnnotationPrefix string
@@ -84,6 +85,7 @@ func Add(
 	overwriteRegistry string,
 	nodePortRange string,
 	nodeAccessNetwork string,
+	monitoringEnvironmentLabel string,
 	monitoringScrapeAnnotationPrefix string,
 	inClusterPrometheusRulesFile string,
 	inClusterPrometheusDisableDefaultRules bool,
@@ -103,6 +105,7 @@ func Add(
 		overwriteRegistry:                                overwriteRegistry,
 		nodePortRange:                                    nodePortRange,
 		nodeAccessNetwork:                                nodeAccessNetwork,
+		monitoringEnvironmentLabel:                       monitoringEnvironmentLabel,
 		monitoringScrapeAnnotationPrefix:                 monitoringScrapeAnnotationPrefix,
 		inClusterPrometheusRulesFile:                     inClusterPrometheusRulesFile,
 		inClusterPrometheusDisableDefaultRules:           inClusterPrometheusDisableDefaultRules,
