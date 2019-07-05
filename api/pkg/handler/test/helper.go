@@ -97,6 +97,7 @@ type newRoutingFunc func(
 	datacenters map[string]provider.DatacenterMeta,
 	newClusterProviders map[string]provider.ClusterProvider,
 	cloudProviders map[string]provider.CloudProvider,
+	addonProviders map[string]provider.AddonProvider,
 	newSSHKeyProvider provider.SSHKeyProvider,
 	userProvider provider.UserProvider,
 	serviceAccountProvider provider.ServiceAccountProvider,
@@ -194,6 +195,12 @@ func CreateTestEndpointAndGetClients(user apiv1.User, dc map[string]provider.Dat
 	)
 	clusterProviders := map[string]provider.ClusterProvider{"us-central1": clusterProvider}
 
+	addonProvider := kubernetes.NewAddonProvider(
+		fakeKubermaticImpersonationClient,
+		kubermaticInformerFactory.Kubermatic().V1().Addons().Lister(),
+	)
+	addonProviders := map[string]provider.AddonProvider{"us-central1": addonProvider}
+
 	kubernetesInformerFactory.Start(wait.NeverStop)
 	kubernetesInformerFactory.WaitForCacheSync(wait.NeverStop)
 	kubermaticInformerFactory.Start(wait.NeverStop)
@@ -206,6 +213,7 @@ func CreateTestEndpointAndGetClients(user apiv1.User, dc map[string]provider.Dat
 		datacenters,
 		clusterProviders,
 		cloudProviders,
+		addonProviders,
 		sshKeyProvider,
 		userProvider,
 		serviceAccountProvider,

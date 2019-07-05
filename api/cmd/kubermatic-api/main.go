@@ -89,8 +89,9 @@ func main() {
 }
 
 func createInitProviders(options serverRunOptions) (providers, error) {
-	// create cluster providers - one foreach context
+	// create cluster and addon providers - one foreach context
 	clusterProviders := map[string]provider.ClusterProvider{}
+	addonProviders := map[string]provider.AddonProvider{}
 	{
 		clientcmdConfig, err := clientcmd.LoadFromFile(options.kubeconfig)
 		if err != nil {
@@ -131,6 +132,11 @@ func createInitProviders(options serverRunOptions) (providers, error) {
 				kubermaticSeedInformerFactory.Kubermatic().V1().Clusters().Lister(),
 				options.workerName,
 				rbac.ExtractGroupPrefix,
+			)
+
+			addonProviders[ctx] = kubernetesprovider.NewAddonProvider(
+				defaultImpersonationClientForSeed.CreateImpersonatedKubermaticClientSet,
+				kubermaticSeedInformerFactory.Kubermatic().V1().Addons().Lister(),
 			)
 
 			kubeInformerFactory.Start(wait.NeverStop)
@@ -196,7 +202,8 @@ func createInitProviders(options serverRunOptions) (providers, error) {
 			memberMapper:                          projectMemberProvider,
 			cloud:                                 cloudProviders,
 			clusters:                              clusterProviders,
-			datacenters:                           datacenters},
+			datacenters:                           datacenters,
+			addons:                                addonProviders},
 		nil
 }
 
@@ -257,6 +264,7 @@ func createAPIHandler(options serverRunOptions, prov providers, oidcIssuerVerifi
 		prov.datacenters,
 		prov.clusters,
 		prov.cloud,
+		prov.addons,
 		prov.sshKey,
 		prov.user,
 		prov.serviceAccountProvider,

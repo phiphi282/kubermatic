@@ -107,4 +107,5 @@ type providers struct {
 	cloud                                 provider.CloudRegistry
 	clusters                              map[string]provider.ClusterProvider
 	datacenters                           map[string]provider.DatacenterMeta
+	addons                                map[string]provider.AddonProvider
 }
