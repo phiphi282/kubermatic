@@ -31,6 +31,7 @@ func (r *Reconciler) getClusterTemplateData(ctx context.Context, client ctrlrunt
 		r.nodePortRange,
 		r.nodeAccessNetwork,
 		resource.Quantity{},
+		r.monitoringEnvironmentLabel,
 		r.monitoringScrapeAnnotationPrefix,
 		r.inClusterPrometheusRulesFile,
 		r.inClusterPrometheusDisableDefaultRules,

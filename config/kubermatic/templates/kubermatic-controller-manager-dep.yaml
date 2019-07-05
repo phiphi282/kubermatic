@@ -89,6 +89,9 @@ spec:
         {{- if .Values.kubermatic.clusterNamespacePrometheus.scrapingConfigs }}
         - -in-cluster-prometheus-scraping-configs-file=/opt/incluster-prometheus-scraping-configs/_custom-scraping-configs.yaml
         {{- end }}
+        {{- if .Values.kubermatic.monitoringEnvironmentLabel }}
+        - -monitoring-environment-label={{ .Values.kubermatic.monitoringEnvironmentLabel }}
+        {{- end }}
         {{- if .Values.kubermatic.monitoringScrapeAnnotationPrefix }}
         - -monitoring-scrape-annotation-prefix={{ .Values.kubermatic.monitoringScrapeAnnotationPrefix }}
         {{- end }}

@@ -6,6 +6,8 @@ data:
       external_labels:
         cluster: "de-test-01"
         seed_cluster: "testdc"
+        metakube_cluster: "testdc"
+        metakube_environment: "testenv"
     rule_files:
     - "/etc/prometheus/config/rules*.yaml"
     scrape_configs:

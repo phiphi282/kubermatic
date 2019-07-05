@@ -77,6 +77,7 @@ type Reconciler struct {
 	inClusterPrometheusDisableDefaultRules           bool
 	inClusterPrometheusDisableDefaultScrapingConfigs bool
 	inClusterPrometheusScrapingConfigsFile           string
+	monitoringEnvironmentLabel                       string
 	monitoringScrapeAnnotationPrefix                 string
 	dockerPullConfigJSON                             []byte
 
@@ -100,6 +101,7 @@ func Add(
 	nodePortRange string,
 	nodeAccessNetwork string,
 	etcdDiskSize resource.Quantity,
+	monitoringEnvironmentLabel string,
 	monitoringScrapeAnnotationPrefix string,
 	inClusterPrometheusRulesFile string,
 	inClusterPrometheusDisableDefaultRules bool,
@@ -131,6 +133,7 @@ func Add(
 		inClusterPrometheusDisableDefaultRules: inClusterPrometheusDisableDefaultRules,
 		inClusterPrometheusDisableDefaultScrapingConfigs: inClusterPrometheusDisableDefaultScrapingConfigs,
 		inClusterPrometheusScrapingConfigsFile:           inClusterPrometheusScrapingConfigsFile,
+		monitoringEnvironmentLabel:                       monitoringEnvironmentLabel,
 		monitoringScrapeAnnotationPrefix:                 monitoringScrapeAnnotationPrefix,
 		dockerPullConfigJSON:                             dockerPullConfigJSON,
 

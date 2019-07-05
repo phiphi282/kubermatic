@@ -31,6 +31,7 @@ type TemplateData struct {
 	nodePortRange                                    string
 	nodeAccessNetwork                                string
 	etcdDiskSize                                     resource.Quantity
+	monitoringEnvironmentLabel                       string
 	monitoringScrapeAnnotationPrefix                 string
 	inClusterPrometheusRulesFile                     string
 	inClusterPrometheusDisableDefaultRules           bool
@@ -52,6 +53,7 @@ func NewTemplateData(
 	nodePortRange string,
 	nodeAccessNetwork string,
 	etcdDiskSize resource.Quantity,
+	monitoringEnvironmentLabel string,
 	monitoringScrapeAnnotationPrefix string,
 	inClusterPrometheusRulesFile string,
 	inClusterPrometheusDisableDefaultRules bool,
@@ -70,6 +72,7 @@ func NewTemplateData(
 		nodePortRange:                          nodePortRange,
 		nodeAccessNetwork:                      nodeAccessNetwork,
 		etcdDiskSize:                           etcdDiskSize,
+		monitoringEnvironmentLabel:             monitoringEnvironmentLabel,
 		monitoringScrapeAnnotationPrefix:       monitoringScrapeAnnotationPrefix,
 		inClusterPrometheusRulesFile:           inClusterPrometheusRulesFile,
 		inClusterPrometheusDisableDefaultRules: inClusterPrometheusDisableDefaultRules,
@@ -119,6 +122,11 @@ func (d *TemplateData) DC() *provider.DatacenterMeta {
 // EtcdDiskSize returns the etcd disk size
 func (d *TemplateData) EtcdDiskSize() resource.Quantity {
 	return d.etcdDiskSize
+}
+
+// MonitoringEnvironmentLabel returns the environment label
+func (d *TemplateData) MonitoringEnvironmentLabel() string {
+	return d.monitoringEnvironmentLabel
 }
 
 // MonitoringScrapeAnnotationPrefix returns the scrape annotation prefix
