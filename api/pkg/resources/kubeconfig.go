@@ -35,12 +35,22 @@ func AdminKubeconfigCreator(data adminKubeconfigCreatorData, modifier ...func(*c
 				return nil, fmt.Errorf("failed to get cluster ca: %v", err)
 			}
 
+			contextKey := fmt.Sprintf("admin@%s/%s", data.Cluster().Spec.HumanReadableName, data.Cluster().Name)
+			authInfoKey := fmt.Sprintf("admin-%s", data.Cluster().Name)
+
 			config := getBaseKubeconfig(ca.Cert, data.Cluster().Address.URL, data.Cluster().Name)
 			config.AuthInfos = map[string]*clientcmdapi.AuthInfo{
-				KubeconfigDefaultContextKey: {
+				authInfoKey: {
 					Token: data.Cluster().Address.AdminToken,
 				},
 			}
+			config.Contexts = map[string]*clientcmdapi.Context{
+				contextKey: {
+					Cluster:  data.Cluster().Name,
+					AuthInfo: authInfoKey,
+				},
+			}
+			config.CurrentContext = contextKey
 
 			for _, m := range modifier {
 				m(config)
