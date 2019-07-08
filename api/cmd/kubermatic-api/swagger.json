@@ -3470,7 +3470,24 @@
         "tags": [
           "openstack"
         ],
-        "operationId": "listOpenstackImages",
+        "operationId": "listGCPDiskTypes",
+        "parameters": [
+          {
+            "type": "string",
+            "name": "ServiceAccount",
+            "in": "header"
+          },
+          {
+            "type": "string",
+            "name": "Credential",
+            "in": "header"
+          },
+          {
+            "type": "string",
+            "name": "Zone",
+            "in": "header"
+          }
+        ],
         "responses": {
           "200": {
             "description": "Image",
@@ -3496,7 +3513,24 @@
         "tags": [
           "openstack"
         ],
-        "operationId": "listOpenstackNetworks",
+        "operationId": "listGCPSizes",
+        "parameters": [
+          {
+            "type": "string",
+            "name": "ServiceAccount",
+            "in": "header"
+          },
+          {
+            "type": "string",
+            "name": "Credential",
+            "in": "header"
+          },
+          {
+            "type": "string",
+            "name": "Zone",
+            "in": "header"
+          }
+        ],
         "responses": {
           "200": {
             "description": "OpenstackNetwork",
@@ -3527,12 +3561,12 @@
           {
             "type": "string",
             "name": "ServiceAccount",
-            "in": "query"
+            "in": "header"
           },
           {
             "type": "string",
             "name": "Credential",
-            "in": "query"
+            "in": "header"
           },
           {
             "type": "string",
