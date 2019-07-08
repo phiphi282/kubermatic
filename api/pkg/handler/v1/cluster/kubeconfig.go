@@ -56,7 +56,6 @@ func GetAdminKubeconfigEndpoint(projectProvider provider.ProjectProvider) endpoi
 				return nil, kcerrors.NewBadRequest("failed to replace default names in admin kubeconfig: %v", err)
 			}
 		}
-
 		return &encodeKubeConifgResponse{clientCfg: adminClientCfg, filePrefix: "admin"}, nil
 	}
 }
@@ -271,9 +270,9 @@ func DecodeGetAdminKubeconfig(c context.Context, r *http.Request) (interface{}, 
 	if err != nil {
 		return nil, err
 	}
-	req.ProjectReq = clusterReq.(common.ProjectReq)
+	req.GetClusterReq = clusterReq.(common.GetClusterReq)
 
-	req.UseUniqueNames = r.URL.Query().Get("use-unique-names") != ""
+	req.UseUniqueNames = r.URL.Query().Get("use-unique-names") == "yes"
 
 	return req, nil
 }

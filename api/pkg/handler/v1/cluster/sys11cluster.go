@@ -61,17 +61,18 @@ type GetClusterAdminKubeconfigRequest struct {
 // This function will replace the 'default' context and user in a kubeconfig with sanitized names. Error will for now
 // always be nil, but added the return in case we want to add checks e.g. for cluster or project in the future
 func NoDefaultsKubeconfig(clientConfig *clientcmdapi.Config, cluster *v1.Cluster, project *v1.Project) (*clientcmdapi.Config, error) {
-	sanitizedUser := fmt.Sprintf("admin-%s", cluster.Name)
-	sanitizedContext := fmt.Sprintf("admin@%s/%s", project.Spec.Name, cluster.Spec.HumanReadableName)
 
-	clientConfig.AuthInfos[sanitizedUser] = clientConfig.AuthInfos[resources.KubeconfigDefaultContextKey]
-	clientConfig.AuthInfos[resources.KubeconfigDefaultContextKey] = nil
+	username := fmt.Sprintf("admin-%s", cluster.Name)
+	context := fmt.Sprintf("admin@%s/%s", project.Spec.Name, cluster.Spec.HumanReadableName)
 
-	clientConfig.Contexts[sanitizedContext] = clientConfig.Contexts[resources.KubeconfigDefaultContextKey]
-	clientConfig.Contexts[sanitizedContext].AuthInfo = sanitizedUser
-	clientConfig.Contexts[resources.KubeconfigDefaultContextKey] = nil
+	clientConfig.AuthInfos[username] = clientConfig.AuthInfos[resources.KubeconfigDefaultContextKey]
+	delete(clientConfig.AuthInfos, resources.KubeconfigDefaultContextKey)
 
-	clientConfig.CurrentContext = sanitizedContext
+	clientConfig.Contexts[context] = clientConfig.Contexts[resources.KubeconfigDefaultContextKey]
+	clientConfig.Contexts[context].AuthInfo = username
+	delete(clientConfig.Contexts, resources.KubeconfigDefaultContextKey)
+
+	clientConfig.CurrentContext = context
 
 	return clientConfig, nil
 }
