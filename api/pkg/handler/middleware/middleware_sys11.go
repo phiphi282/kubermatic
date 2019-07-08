@@ -12,10 +12,6 @@ import (
 	k8cerrors "github.com/kubermatic/kubermatic/api/pkg/util/errors"
 )
 
-const (
-	SanitizeKubeConfigKey contextKey = "sanitize-kubeconfig"
-)
-
 func PrivilegedUserGroupVerifier(userProjectMapper provider.ProjectMemberMapper, privilegedUserGroups map[string]bool) endpoint.Middleware {
 	return func(next endpoint.Endpoint) endpoint.Endpoint {
 		return func(ctx context.Context, request interface{}) (response interface{}, err error) {
@@ -43,17 +39,6 @@ func PrivilegedUserGroupVerifier(userProjectMapper provider.ProjectMemberMapper,
 			}
 
 			return nil, k8cerrors.New(http.StatusForbidden, "you don't have permission to access this resource")
-		}
-	}
-}
-
-// Will add the SanitizeKubeConfig Key to the current context, to ensure, that the admin kubeconfig is sanitized before
-// handing out. The key is used in cluster.GetAdminKubeconfigEndpoint()
-func SanitizeKubeconfig() endpoint.Middleware {
-	return func(next endpoint.Endpoint) endpoint.Endpoint {
-		return func(ctx context.Context, request interface{}) (response interface{}, err error) {
-			// TODO check  for parameter (e.g. ?sanitized&token='...' vs. ?token='...')
-			return next(context.WithValue(ctx, SanitizeKubeConfigKey, true), request)
 		}
 	}
 }

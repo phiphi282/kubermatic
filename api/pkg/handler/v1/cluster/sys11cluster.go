@@ -52,9 +52,15 @@ func GetOidcKubeconfigEndpoint(projectProvider provider.ProjectProvider) endpoin
 	}
 }
 
+type GetClusterAdminKubeconfigRequest struct {
+	common.GetClusterReq
+	// in: path
+	UseUniqueNames bool `json:"use_unique_names"`
+}
+
 // This function will replace the 'default' context and user in a kubeconfig with sanitized names. Error will for now
 // always be nil, but added the return in case we want to add checks e.g. for cluster or project in the future
-func SanitizeKubeconfigContext(clientConfig *clientcmdapi.Config, cluster *v1.Cluster, project *v1.Project) (*clientcmdapi.Config, error) {
+func NoDefaultsKubeconfig(clientConfig *clientcmdapi.Config, cluster *v1.Cluster, project *v1.Project) (*clientcmdapi.Config, error) {
 	sanitizedUser := fmt.Sprintf("admin-%s", cluster.Name)
 	sanitizedContext := fmt.Sprintf("admin@%s/%s", project.Spec.Name, cluster.Spec.HumanReadableName)
 

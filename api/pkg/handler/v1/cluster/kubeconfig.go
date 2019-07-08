@@ -32,7 +32,7 @@ var secureCookie *securecookie.SecureCookie
 
 func GetAdminKubeconfigEndpoint(projectProvider provider.ProjectProvider) endpoint.Endpoint {
 	return func(ctx context.Context, request interface{}) (interface{}, error) {
-		req := request.(common.GetClusterReq)
+		req := request.(GetClusterAdminKubeconfigRequest)
 		clusterProvider := ctx.Value(middleware.ClusterProviderContextKey).(provider.ClusterProvider)
 		userInfo := ctx.Value(middleware.UserInfoContextKey).(*provider.UserInfo)
 		project, err := projectProvider.Get(userInfo, req.ProjectID, &provider.ProjectGetOptions{})
@@ -50,10 +50,10 @@ func GetAdminKubeconfigEndpoint(projectProvider provider.ProjectProvider) endpoi
 			return nil, common.KubernetesErrorToHTTPError(err)
 		}
 
-		if sanitizeKubeConfig := ctx.Value(middleware.SanitizeKubeConfigKey); sanitizeKubeConfig != nil {
-			adminClientCfg, err = SanitizeKubeconfigContext(adminClientCfg, cluster, project)
+		if req.UseUniqueNames {
+			adminClientCfg, err = NoDefaultsKubeconfig(adminClientCfg, cluster, project)
 			if err != nil {
-				return nil, kcerrors.NewBadRequest("failed to sanitize admin kubeconfig: %v", err)
+				return nil, kcerrors.NewBadRequest("failed to replace default names in admin kubeconfig: %v", err)
 			}
 		}
 
@@ -265,10 +265,15 @@ func EncodeOIDCKubeconfig(c context.Context, w http.ResponseWriter, response int
 }
 
 func DecodeGetAdminKubeconfig(c context.Context, r *http.Request) (interface{}, error) {
-	req, err := common.DecodeGetClusterReq(c, r)
+	var req GetClusterAdminKubeconfigRequest
+
+	clusterReq, err := common.DecodeGetClusterReq(c, r)
 	if err != nil {
 		return nil, err
 	}
+	req.ProjectReq = clusterReq.(common.ProjectReq)
+
+	req.UseUniqueNames = r.URL.Query().Get("use-unique-names") != ""
 
 	return req, nil
 }
