@@ -62,17 +62,17 @@ type GetClusterAdminKubeconfigRequest struct {
 // always be nil, but added the return in case we want to add checks e.g. for cluster or project in the future
 func NoDefaultsKubeconfig(clientConfig *clientcmdapi.Config, cluster *v1.Cluster, project *v1.Project) (*clientcmdapi.Config, error) {
 
-	username := fmt.Sprintf("admin-%s", cluster.Name)
-	context := fmt.Sprintf("admin@%s/%s", project.Spec.Name, cluster.Spec.HumanReadableName)
+	newUsername := fmt.Sprintf("admin-%s", cluster.Name)
+	newContext := fmt.Sprintf("admin@%s/%s", project.Spec.Name, cluster.Spec.HumanReadableName)
 
-	clientConfig.AuthInfos[username] = clientConfig.AuthInfos[resources.KubeconfigDefaultContextKey]
+	clientConfig.AuthInfos[newUsername] = clientConfig.AuthInfos[resources.KubeconfigDefaultContextKey]
 	delete(clientConfig.AuthInfos, resources.KubeconfigDefaultContextKey)
 
-	clientConfig.Contexts[context] = clientConfig.Contexts[resources.KubeconfigDefaultContextKey]
-	clientConfig.Contexts[context].AuthInfo = username
+	clientConfig.Contexts[newContext] = clientConfig.Contexts[resources.KubeconfigDefaultContextKey]
+	clientConfig.Contexts[newContext].AuthInfo = newUsername
 	delete(clientConfig.Contexts, resources.KubeconfigDefaultContextKey)
 
-	clientConfig.CurrentContext = context
+	clientConfig.CurrentContext = newContext
 
 	return clientConfig, nil
 }
