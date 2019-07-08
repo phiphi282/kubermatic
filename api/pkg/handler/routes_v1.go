@@ -942,6 +942,7 @@ func (r Routing) getClusterKubeconfig() http.Handler {
 			middleware.Datacenter(r.clusterProviders, r.datacenters),
 			middleware.UserInfoExtractor(r.userProjectMapper),
 			middleware.PrivilegedUserGroupVerifier(r.userProjectMapper, privilegedUserGroups),
+			middleware.SanitizeKubeconfig(),
 		)(cluster.GetAdminKubeconfigEndpoint(r.projectProvider)),
 		cluster.DecodeGetAdminKubeconfig,
 		cluster.EncodeKubeconfig,

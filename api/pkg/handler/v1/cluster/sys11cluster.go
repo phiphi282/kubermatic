@@ -2,8 +2,11 @@ package cluster
 
 import (
 	"context"
+	"fmt"
+	"github.com/kubermatic/kubermatic/api/pkg/resources"
 
 	"github.com/go-kit/kit/endpoint"
+	"github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
 	"github.com/kubermatic/kubermatic/api/pkg/handler/middleware"
 	"github.com/kubermatic/kubermatic/api/pkg/handler/v1/common"
 	"github.com/kubermatic/kubermatic/api/pkg/provider"
@@ -47,4 +50,22 @@ func GetOidcKubeconfigEndpoint(projectProvider provider.ProjectProvider) endpoin
 
 		return &encodeKubeConifgResponse{clientCfg: adminClientCfg, filePrefix: "oidc"}, nil
 	}
+}
+
+// This function will replace the 'default' context and user in a kubeconfig with sanitized names. Error will for now
+// always be nil, but added the return in case we want to add checks e.g. for cluster or project in the future
+func SanitizeKubeconfigContext(clientConfig *clientcmdapi.Config, cluster *v1.Cluster, project *v1.Project) (*clientcmdapi.Config, error) {
+	sanitizedUser := fmt.Sprintf("admin-%s", cluster.Name)
+	sanitizedContext := fmt.Sprintf("admin@%s/%s", project.Spec.Name, cluster.Spec.HumanReadableName)
+
+	clientConfig.AuthInfos[sanitizedUser] = clientConfig.AuthInfos[resources.KubeconfigDefaultContextKey]
+	clientConfig.AuthInfos[resources.KubeconfigDefaultContextKey] = nil
+
+	clientConfig.Contexts[sanitizedContext] = clientConfig.Contexts[resources.KubeconfigDefaultContextKey]
+	clientConfig.Contexts[sanitizedContext].AuthInfo = sanitizedUser
+	clientConfig.Contexts[resources.KubeconfigDefaultContextKey] = nil
+
+	clientConfig.CurrentContext = sanitizedContext
+
+	return clientConfig, nil
 }
