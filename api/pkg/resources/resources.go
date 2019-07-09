@@ -40,6 +40,8 @@ var KUBERMATICGITTAG = "manual_build"
 const (
 	// ApiserverDeploymentName is the name of the apiserver deployment
 	ApiserverDeploymentName = "apiserver"
+	// ClusterProxyDeploymentName is the name of the clusterproxy deployment
+	ClusterProxyDeploymentName = "clusterproxy"
 	//ControllerManagerDeploymentName is the name for the controller manager deployment
 	ControllerManagerDeploymentName = "controller-manager"
 	//SchedulerDeploymentName is the name for the scheduler deployment
@@ -156,6 +158,8 @@ const (
 	ClusterInfoConfigMapName = "cluster-info"
 	//PrometheusConfigConfigMapName is the name for the configmap containing the prometheus config
 	PrometheusConfigConfigMapName = "prometheus"
+	//ClusterProxyConfigConfigMapName is the name for the configmap containing the clusterproxy config
+	ClusterProxyConfigConfigMapName = "clusterproxy"
 
 	//PrometheusServiceAccountName is the name for the Prometheus serviceaccount
 	PrometheusServiceAccountName = "prometheus"

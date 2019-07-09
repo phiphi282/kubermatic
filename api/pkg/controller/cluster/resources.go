@@ -3,12 +3,12 @@ package cluster
 import (
 	"context"
 	"fmt"
-
 	kubermaticv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
 	"github.com/kubermatic/kubermatic/api/pkg/resources"
 	"github.com/kubermatic/kubermatic/api/pkg/resources/apiserver"
 	"github.com/kubermatic/kubermatic/api/pkg/resources/certificates"
 	"github.com/kubermatic/kubermatic/api/pkg/resources/cloudconfig"
+	clusterproxy "github.com/kubermatic/kubermatic/api/pkg/resources/clusterproxy"
 	"github.com/kubermatic/kubermatic/api/pkg/resources/controllermanager"
 	"github.com/kubermatic/kubermatic/api/pkg/resources/dns"
 	"github.com/kubermatic/kubermatic/api/pkg/resources/etcd"
@@ -106,6 +106,7 @@ func (r *Reconciler) getClusterTemplateData(ctx context.Context, cluster *kuberm
 		r.inClusterPrometheusDisableDefaultRules,
 		r.inClusterPrometheusDisableDefaultScrapingConfigs,
 		r.inClusterPrometheusScrapingConfigsFile,
+		r.externalURL,
 		r.oidcCAFile,
 		r.oidcIssuerURL,
 		r.oidcIssuerClientID,
@@ -151,6 +152,7 @@ func GetServiceCreators(data *resources.TemplateData) []reconciling.NamedService
 		dns.ServiceCreator(),
 		machinecontroller.ServiceCreator(),
 		metricsserver.ServiceCreator(),
+		clusterproxy.ServiceCreator(data),
 	}
 }
 
@@ -171,6 +173,7 @@ func GetDeploymentCreators(data *resources.TemplateData, enableAPIserverOIDCAuth
 		machinecontroller.WebhookDeploymentCreator(data),
 		metricsserver.DeploymentCreator(data),
 		usercluster.DeploymentCreator(data, false),
+		clusterproxy.DeploymentCreator(data),
 	}
 }
 
@@ -231,6 +234,7 @@ func GetConfigMapCreators(data *resources.TemplateData) []reconciling.NamedConfi
 		cloudconfig.ConfigMapCreator(data),
 		openvpn.ServerClientConfigsConfigMapCreator(data),
 		dns.ConfigMapCreator(data),
+		clusterproxy.ConfigMapCreator(data),
 	}
 }
 

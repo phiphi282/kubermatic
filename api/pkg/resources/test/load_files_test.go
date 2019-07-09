@@ -417,6 +417,13 @@ func TestLoadFiles(t *testing.T) {
 					&corev1.ConfigMap{
 						ObjectMeta: metav1.ObjectMeta{
 							ResourceVersion: "123456",
+							Name:            resources.ClusterProxyConfigConfigMapName,
+							Namespace:       cluster.Status.NamespaceName,
+						},
+					},
+					&corev1.ConfigMap{
+						ObjectMeta: metav1.ObjectMeta{
+							ResourceVersion: "123456",
 							Name:            resources.DNSResolverConfigMapName,
 							Namespace:       cluster.Status.NamespaceName,
 						},
@@ -526,6 +533,7 @@ func TestLoadFiles(t *testing.T) {
 					false,
 					false,
 					tmpFilePath,
+					"foo.bar",
 					"test",
 					"https://dev.kubermatic.io/dex",
 					"kubermaticIssuer",

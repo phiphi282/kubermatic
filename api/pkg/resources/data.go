@@ -40,6 +40,7 @@ type TemplateData struct {
 	oidcCAFile                                       string
 	oidcIssuerURL                                    string
 	oidcIssuerClientID                               string
+	ExternalURL                                      string
 }
 
 // NewTemplateData returns an instance of TemplateData
@@ -59,6 +60,7 @@ func NewTemplateData(
 	inClusterPrometheusDisableDefaultRules bool,
 	inClusterPrometheusDisableDefaultScrapingConfigs bool,
 	inClusterPrometheusScrapingConfigsFile string,
+	externalURL string,
 	oidcCAFile string,
 	oidcURL string,
 	oidcIssuerClientID string) *TemplateData {
@@ -81,6 +83,7 @@ func NewTemplateData(
 		oidcCAFile:                                       oidcCAFile,
 		oidcIssuerURL:                                    oidcURL,
 		oidcIssuerClientID:                               oidcIssuerClientID,
+		ExternalURL:                                      externalURL,
 	}
 }
 
