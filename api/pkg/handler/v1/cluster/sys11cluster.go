@@ -3,22 +3,24 @@ package cluster
 import (
 	"context"
 	"fmt"
-	"github.com/kubermatic/kubermatic/api/pkg/resources"
 
-	"github.com/go-kit/kit/endpoint"
 	"github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
 	"github.com/kubermatic/kubermatic/api/pkg/handler/middleware"
 	"github.com/kubermatic/kubermatic/api/pkg/handler/v1/common"
 	"github.com/kubermatic/kubermatic/api/pkg/provider"
+	"github.com/kubermatic/kubermatic/api/pkg/resources"
+	kcerrors "github.com/kubermatic/kubermatic/api/pkg/util/errors"
+
+	"github.com/go-kit/kit/endpoint"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 )
 
 func GetOidcKubeconfigEndpoint(projectProvider provider.ProjectProvider) endpoint.Endpoint {
 	return func(ctx context.Context, request interface{}) (interface{}, error) {
-		req := request.(common.GetClusterReq)
+		req := request.(GetClusterKubeconfigRequest)
 		clusterProvider := ctx.Value(middleware.ClusterProviderContextKey).(provider.ClusterProvider)
 		userInfo := ctx.Value(middleware.UserInfoContextKey).(*provider.UserInfo)
-		_, err := projectProvider.Get(userInfo, req.ProjectID, &provider.ProjectGetOptions{})
+		project, err := projectProvider.Get(userInfo, req.ProjectID, &provider.ProjectGetOptions{})
 		if err != nil {
 			return nil, common.KubernetesErrorToHTTPError(err)
 		}
@@ -27,7 +29,7 @@ func GetOidcKubeconfigEndpoint(projectProvider provider.ProjectProvider) endpoin
 		if err != nil {
 			return nil, common.KubernetesErrorToHTTPError(err)
 		}
-		adminClientCfg, err := clusterProvider.GetAdminKubeconfigForCustomerCluster(cluster)
+		oidcClientCfg, err := clusterProvider.GetAdminKubeconfigForCustomerCluster(cluster)
 		if err != nil {
 			return nil, common.KubernetesErrorToHTTPError(err)
 		}
@@ -45,14 +47,21 @@ func GetOidcKubeconfigEndpoint(projectProvider provider.ProjectProvider) endpoin
 		}
 		clientCmdAuth.AuthProvider = clientCmdAuthProvider
 
-		adminClientCfg.AuthInfos = map[string]*clientcmdapi.AuthInfo{}
-		adminClientCfg.AuthInfos["default"] = clientCmdAuth
+		oidcClientCfg.AuthInfos = map[string]*clientcmdapi.AuthInfo{}
+		oidcClientCfg.AuthInfos[resources.KubeconfigDefaultContextKey] = clientCmdAuth
 
-		return &encodeKubeConifgResponse{clientCfg: adminClientCfg, filePrefix: "oidc"}, nil
+		if req.UseUniqueNames {
+			oidcClientCfg, err = NoDefaultsKubeconfig(oidcClientCfg, "oidc", cluster, project)
+			if err != nil {
+				return nil, kcerrors.NewBadRequest("failed to replace default names in oidc kubeconfig: %v", err)
+			}
+		}
+
+		return &encodeKubeConifgResponse{clientCfg: oidcClientCfg, filePrefix: "oidc"}, nil
 	}
 }
 
-type GetClusterAdminKubeconfigRequest struct {
+type GetClusterKubeconfigRequest struct {
 	common.GetClusterReq
 	// in: path
 	UseUniqueNames bool `json:"use_unique_names"`
@@ -60,10 +69,10 @@ type GetClusterAdminKubeconfigRequest struct {
 
 // This function will replace the 'default' context and user in a kubeconfig with sanitized names. Error will for now
 // always be nil, but added the return in case we want to add checks e.g. for cluster or project in the future
-func NoDefaultsKubeconfig(clientConfig *clientcmdapi.Config, cluster *v1.Cluster, project *v1.Project) (*clientcmdapi.Config, error) {
+func NoDefaultsKubeconfig(clientConfig *clientcmdapi.Config, username string, cluster *v1.Cluster, project *v1.Project) (*clientcmdapi.Config, error) {
 
-	newUsername := fmt.Sprintf("admin-%s", cluster.Name)
-	newContext := fmt.Sprintf("admin@%s/%s", project.Spec.Name, cluster.Spec.HumanReadableName)
+	newUsername := fmt.Sprintf("%s-%s", username, cluster.Name)
+	newContext := fmt.Sprintf("%s@%s/%s", username, project.Spec.Name, cluster.Spec.HumanReadableName)
 
 	clientConfig.AuthInfos[newUsername] = clientConfig.AuthInfos[resources.KubeconfigDefaultContextKey]
 	delete(clientConfig.AuthInfos, resources.KubeconfigDefaultContextKey)
