@@ -39,6 +39,7 @@ type Routing struct {
 	tokenVerifiers              auth.TokenVerifier
 	tokenExtractors             auth.TokenExtractor
 	clusterProviders            map[string]provider.ClusterProvider
+	addonProviders              map[string]provider.AddonProvider
 	updateManager               common.UpdateManager
 	prometheusClient            prometheusapi.Client
 	projectMemberProvider       provider.ProjectMemberProvider
@@ -52,6 +53,7 @@ func NewRouting(
 	datacenters map[string]provider.DatacenterMeta,
 	newClusterProviders map[string]provider.ClusterProvider,
 	cloudProviders map[string]provider.CloudProvider,
+	addonProviders map[string]provider.AddonProvider,
 	newSSHKeyProvider provider.SSHKeyProvider,
 	userProvider provider.UserProvider,
 	serviceAccountProvider provider.ServiceAccountProvider,
@@ -71,6 +73,7 @@ func NewRouting(
 	return Routing{
 		datacenters:                 datacenters,
 		clusterProviders:            newClusterProviders,
+		addonProviders:              addonProviders,
 		sshKeyProvider:              newSSHKeyProvider,
 		userProvider:                userProvider,
 		serviceAccountProvider:      serviceAccountProvider,

@@ -3,6 +3,7 @@ package provider
 import (
 	"errors"
 	"fmt"
+	"k8s.io/apimachinery/pkg/runtime"
 
 	kubermaticv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
 
@@ -370,4 +371,23 @@ type PrivilegedServiceAccountTokenProvider interface {
 	// is unsafe in a sense that it uses privileged account to get the resource
 	// gets resources from the cache
 	ListUnsecured(*ServiceAccountTokenListOptions) ([]*v1.Secret, error)
+}
+
+// AddonProvider declares the set of methods for interacting with addons
+type AddonProvider interface {
+	// New creates a new addon in the given cluster
+	New(userInfo *UserInfo, cluster *kubermaticv1.Cluster, addonName string, variables *runtime.RawExtension) (*kubermaticv1.Addon, error)
+
+	// List gets all addons that belong to the given cluster
+	// If you want to filter the result please take a look at ClusterListOptions
+	List(userInfo *UserInfo, cluster *kubermaticv1.Cluster) ([]*kubermaticv1.Addon, error)
+
+	// Get returns the given addon
+	Get(userInfo *UserInfo, cluster *kubermaticv1.Cluster, addonName string) (*kubermaticv1.Addon, error)
+
+	// Update updates an addon
+	Update(userInfo *UserInfo, cluster *kubermaticv1.Cluster, newAddon *kubermaticv1.Addon) (*kubermaticv1.Addon, error)
+
+	// Delete deletes the given addon
+	Delete(userInfo *UserInfo, cluster *kubermaticv1.Cluster, addonName string) error
 }
