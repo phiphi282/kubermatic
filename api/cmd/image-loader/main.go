@@ -241,6 +241,12 @@ func getTemplateData(versions []*version.MasterVersion, requestedVersion string)
 			Namespace: mockNamespaceName,
 		},
 	}
+	clusterProxyConfigMap := corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      resources.ClusterProxyConfigConfigMapName,
+			Namespace: mockNamespaceName,
+		},
+	}
 	dnsResolverConfigMap := corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      resources.DNSResolverConfigMapName,
@@ -254,7 +260,7 @@ func getTemplateData(versions []*version.MasterVersion, requestedVersion string)
 		},
 	}
 	configMapList := &corev1.ConfigMapList{
-		Items: []corev1.ConfigMap{cloudConfigConfigMap, prometheusConfigMap, dnsResolverConfigMap, openvpnClientConfigsConfigMap},
+		Items: []corev1.ConfigMap{cloudConfigConfigMap, prometheusConfigMap, dnsResolverConfigMap, openvpnClientConfigsConfigMap, clusterProxyConfigMap},
 	}
 	apiServerExternalService := corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
@@ -359,6 +365,7 @@ func getTemplateData(versions []*version.MasterVersion, requestedVersion string)
 		"",
 		false,
 		false,
+		"",
 		"",
 		"",
 		"",
