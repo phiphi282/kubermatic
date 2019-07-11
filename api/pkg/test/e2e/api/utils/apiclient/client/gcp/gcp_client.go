@@ -25,23 +25,23 @@ type Client struct {
 }
 
 /*
-ListGCPCredentials Lists credential names for GCP
+ListGCPDiskTypes Lists disk types from GCP
 */
-func (a *Client) ListGCPCredentials(params *ListGCPCredentialsParams, authInfo runtime.ClientAuthInfoWriter) (*ListGCPCredentialsOK, error) {
+func (a *Client) ListGCPDiskTypes(params *ListGCPDiskTypesParams, authInfo runtime.ClientAuthInfoWriter) (*ListGCPDiskTypesOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
-		params = NewListGCPCredentialsParams()
+		params = NewListGCPDiskTypesParams()
 	}
 
 	result, err := a.transport.Submit(&runtime.ClientOperation{
-		ID:                 "listGCPCredentials",
+		ID:                 "listGCPDiskTypes",
 		Method:             "GET",
-		PathPattern:        "/api/v1/providers/gcp/credentials",
+		PathPattern:        "/api/v1/providers/gcp/disktypes",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json"},
 		Schemes:            []string{"http", "https"},
 		Params:             params,
-		Reader:             &ListGCPCredentialsReader{formats: a.formats},
+		Reader:             &ListGCPDiskTypesReader{formats: a.formats},
 		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
@@ -49,7 +49,94 @@ func (a *Client) ListGCPCredentials(params *ListGCPCredentialsParams, authInfo r
 	if err != nil {
 		return nil, err
 	}
-	return result.(*ListGCPCredentialsOK), nil
+	return result.(*ListGCPDiskTypesOK), nil
+
+}
+
+/*
+ListGCPDiskTypesNoCredentials Lists disk types from GCP
+*/
+func (a *Client) ListGCPDiskTypesNoCredentials(params *ListGCPDiskTypesNoCredentialsParams, authInfo runtime.ClientAuthInfoWriter) (*ListGCPDiskTypesNoCredentialsOK, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewListGCPDiskTypesNoCredentialsParams()
+	}
+
+	result, err := a.transport.Submit(&runtime.ClientOperation{
+		ID:                 "listGCPDiskTypesNoCredentials",
+		Method:             "GET",
+		PathPattern:        "/api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/providers/gcp/disktypes",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json"},
+		Schemes:            []string{"http", "https"},
+		Params:             params,
+		Reader:             &ListGCPDiskTypesNoCredentialsReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.(*ListGCPDiskTypesNoCredentialsOK), nil
+
+}
+
+/*
+ListGCPSizes Lists machine sizes from GCP
+*/
+func (a *Client) ListGCPSizes(params *ListGCPSizesParams, authInfo runtime.ClientAuthInfoWriter) (*ListGCPSizesOK, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewListGCPSizesParams()
+	}
+
+	result, err := a.transport.Submit(&runtime.ClientOperation{
+		ID:                 "listGCPSizes",
+		Method:             "GET",
+		PathPattern:        "/api/v1/providers/gcp/sizes",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json"},
+		Schemes:            []string{"http", "https"},
+		Params:             params,
+		Reader:             &ListGCPSizesReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.(*ListGCPSizesOK), nil
+
+}
+
+/*
+ListGCPSizesNoCredentials Lists machine sizes from GCP
+*/
+func (a *Client) ListGCPSizesNoCredentials(params *ListGCPSizesNoCredentialsParams, authInfo runtime.ClientAuthInfoWriter) (*ListGCPSizesNoCredentialsOK, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewListGCPSizesNoCredentialsParams()
+	}
+
+	result, err := a.transport.Submit(&runtime.ClientOperation{
+		ID:                 "listGCPSizesNoCredentials",
+		Method:             "GET",
+		PathPattern:        "/api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/providers/gcp/sizes",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json"},
+		Schemes:            []string{"http", "https"},
+		Params:             params,
+		Reader:             &ListGCPSizesNoCredentialsReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.(*ListGCPSizesNoCredentialsOK), nil
 
 }
 
@@ -79,6 +166,35 @@ func (a *Client) ListGCPZones(params *ListGCPZonesParams, authInfo runtime.Clien
 		return nil, err
 	}
 	return result.(*ListGCPZonesOK), nil
+
+}
+
+/*
+ListGCPZonesNoCredentials Lists available GCP zones
+*/
+func (a *Client) ListGCPZonesNoCredentials(params *ListGCPZonesNoCredentialsParams, authInfo runtime.ClientAuthInfoWriter) (*ListGCPZonesNoCredentialsOK, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewListGCPZonesNoCredentialsParams()
+	}
+
+	result, err := a.transport.Submit(&runtime.ClientOperation{
+		ID:                 "listGCPZonesNoCredentials",
+		Method:             "GET",
+		PathPattern:        "/api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/providers/gcp/zones",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json"},
+		Schemes:            []string{"http", "https"},
+		Params:             params,
+		Reader:             &ListGCPZonesNoCredentialsReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.(*ListGCPZonesNoCredentialsOK), nil
 
 }
 
