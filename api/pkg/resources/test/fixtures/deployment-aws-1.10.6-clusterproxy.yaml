@@ -142,7 +142,7 @@ spec:
           defaultMode: 256
           secretName: openvpn-client-certificates
       - configMap:
-          defaultMode: 256
+          defaultMode: 292
           name: clusterproxy
         name: clusterproxy
 status: {}
