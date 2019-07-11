@@ -144,7 +144,7 @@ func getVolumes() []corev1.Volume {
 					LocalObjectReference: corev1.LocalObjectReference{
 						Name: resources.ClusterProxyConfigConfigMapName,
 					},
-					DefaultMode: resources.Int32(resources.DefaultOwnerReadOnlyMode),
+					DefaultMode: resources.Int32(resources.DefaultAllReadOnlyMode),
 				},
 			},
 		},
