@@ -117,7 +117,3 @@ logging:
       nodeSelector: {}
       affinity: {}
       tolerations: []
-
-    # this key is only used to make templating easier and should
-    # be removed once we switch to Elasticsearch 7.0
-    resources: {}
