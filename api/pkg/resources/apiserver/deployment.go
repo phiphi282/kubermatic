@@ -43,7 +43,7 @@ func DeploymentCreator(data *resources.TemplateData, enableDexCA bool) reconcili
 			dep.Name = resources.ApiserverDeploymentName
 			dep.Labels = resources.BaseAppLabel(name, nil)
 
-			dep.Spec.Replicas = resources.Int32(1)
+			dep.Spec.Replicas = resources.Int32(2)
 			if data.Cluster().Spec.ComponentsOverride.Apiserver.Replicas != nil {
 				dep.Spec.Replicas = data.Cluster().Spec.ComponentsOverride.Apiserver.Replicas
 			}
