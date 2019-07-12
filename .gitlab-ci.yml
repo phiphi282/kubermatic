@@ -61,10 +61,10 @@ license-validation:
 
 lint:
   stage: check
-  image: golangci/golangci-lint:v1.16.0
+  image: golangci/golangci-lint:v1.17.1
   script:
   - cd api
-  - GOGC=20 make lint # TODO remove GOGC again once https://github.com/golangci/golangci-lint/issues/483 is resolved
+  - GOGC=10 make lint # TODO remove GOGC again once https://github.com/golangci/golangci-lint/issues/483 is resolved
   tags:
   - shared
   - small
