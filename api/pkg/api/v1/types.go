@@ -86,6 +86,18 @@ type OpenstackDatacenterSpec struct {
 	EnforceFloatingIP bool      `json:"enforce_floating_ip"`
 }
 
+// PacketDatacenterSpec specifies a datacenter of Packet.
+type PacketDatacenterSpec struct {
+	Facilities []string `json:"facilities"`
+}
+
+// GCPDatacenterSpec specifies a datacenter of GCP.
+type GCPDatacenterSpec struct {
+	Region       string   `json:"region"`
+	ZoneSuffixes []string `json:"zone_suffixes"`
+	Regional     bool     `json:"regional"`
+}
+
 // DatacenterSpec specifies the data for a datacenter.
 type DatacenterSpec struct {
 	Seed         string                       `json:"seed"`
@@ -97,6 +109,8 @@ type DatacenterSpec struct {
 	AWS          *AWSDatacenterSpec           `json:"aws,omitempty"`
 	Azure        *AzureDatacenterSpec         `json:"azure,omitempty"`
 	Openstack    *OpenstackDatacenterSpec     `json:"openstack,omitempty"`
+	Packet       *PacketDatacenterSpec        `json:"packet,omitempty"`
+	GCP          *GCPDatacenterSpec           `json:"gcp,omitempty"`
 	Hetzner      *HetznerDatacenterSpec       `json:"hetzner,omitempty"`
 	VSphere      *VSphereDatacenterSpec       `json:"vsphere,omitempty"`
 }
@@ -118,6 +132,12 @@ type Datacenter struct {
 type DigitaloceanSizeList struct {
 	Standard  []DigitaloceanSize `json:"standard"`
 	Optimized []DigitaloceanSize `json:"optimized"`
+}
+
+// CredentialList represents a object for provider credential names.
+// swagger:model CredentialList
+type CredentialList struct {
+	Names []string `json:"names,omitempty"`
 }
 
 // DigitaloceanSize is the object representing digitalocean sizes.
@@ -318,6 +338,13 @@ type CreateClusterSpec struct {
 	NodeDeployment *NodeDeployment `json:"nodeDeployment,omitempty"`
 }
 
+const (
+	// OpenShiftClusterType defines the OpenShift cluster type
+	OpenShiftClusterType string = "openshift"
+	// KubernetesClusterType defines the Kubernetes cluster type
+	KubernetesClusterType string = "kubernetes"
+)
+
 // Cluster defines the cluster resource
 //
 // Note:
@@ -327,6 +354,8 @@ type CreateClusterSpec struct {
 // swagger:model Cluster
 type Cluster struct {
 	ObjectMeta `json:",inline"`
+	Type       string        `json:"type"`
+	Credential string        `json:"credential,omitempty"`
 	Spec       ClusterSpec   `json:"spec"`
 	Status     ClusterStatus `json:"status"`
 }
@@ -363,8 +392,10 @@ func (cs *ClusterSpec) MarshalJSON() ([]byte, error) {
 			AWS:            newPublicAWSCloudSpec(cs.Cloud.AWS),
 			Azure:          newPublicAzureCloudSpec(cs.Cloud.Azure),
 			Openstack:      newPublicOpenstackCloudSpec(cs.Cloud.Openstack),
+			Packet:         newPublicPacketCloudSpec(cs.Cloud.Packet),
 			Hetzner:        newPublicHetznerCloudSpec(cs.Cloud.Hetzner),
 			VSphere:        newPublicVSphereCloudSpec(cs.Cloud.VSphere),
+			GCP:            newPublicGCPCloudSpec(cs.Cloud.GCP),
 		},
 		Version:         cs.Version,
 		MachineNetworks: cs.MachineNetworks,
@@ -383,8 +414,10 @@ type PublicCloudSpec struct {
 	AWS            *PublicAWSCloudSpec          `json:"aws,omitempty"`
 	Azure          *PublicAzureCloudSpec        `json:"azure,omitempty"`
 	Openstack      *PublicOpenstackCloudSpec    `json:"openstack,omitempty"`
+	Packet         *PublicPacketCloudSpec       `json:"packet,omitempty"`
 	Hetzner        *PublicHetznerCloudSpec      `json:"hetzner,omitempty"`
 	VSphere        *PublicVSphereCloudSpec      `json:"vsphere,omitempty"`
+	GCP            *PublicGCPCloudSpec          `json:"gcp,omitempty"`
 }
 
 // PublicFakeCloudSpec is a public counterpart of apiv1.FakeCloudSpec.
@@ -479,6 +512,28 @@ func newPublicOpenstackCloudSpec(internal *kubermaticv1.OpenstackCloudSpec) (pub
 	}
 }
 
+// PublicPacketCloudSpec is a public counterpart of apiv1.PacketCloudSpec.
+type PublicPacketCloudSpec struct{}
+
+func newPublicPacketCloudSpec(internal *kubermaticv1.PacketCloudSpec) (public *PublicPacketCloudSpec) {
+	if internal == nil {
+		return nil
+	}
+
+	return &PublicPacketCloudSpec{}
+}
+
+// PublicGCPCloudSpec is a public counterpart of apiv1.GCPCloudSpec.
+type PublicGCPCloudSpec struct{}
+
+func newPublicGCPCloudSpec(internal *kubermaticv1.GCPCloudSpec) (public *PublicGCPCloudSpec) {
+	if internal == nil {
+		return nil
+	}
+
+	return &PublicGCPCloudSpec{}
+}
+
 // ClusterStatus defines the cluster status
 type ClusterStatus struct {
 	// Version actual version of the kubernetes master components
@@ -519,8 +574,10 @@ type NodeCloudSpec struct {
 	AWS          *AWSNodeSpec          `json:"aws,omitempty"`
 	Azure        *AzureNodeSpec        `json:"azure,omitempty"`
 	Openstack    *OpenstackNodeSpec    `json:"openstack,omitempty"`
+	Packet       *PacketNodeSpec       `json:"packet,omitempty"`
 	Hetzner      *HetznerNodeSpec      `json:"hetzner,omitempty"`
 	VSphere      *VSphereNodeSpec      `json:"vsphere,omitempty"`
+	GCP          *GCPNodeSpec          `json:"gcp,omitempty"`
 }
 
 // UbuntuSpec ubuntu specific settings
@@ -578,7 +635,7 @@ type NodeSpec struct {
 	// required: false
 	Labels map[string]string `json:"labels,omitempty"`
 	// List of taints to set on new nodes
-	Taints []TaintSpec `json:"taints"`
+	Taints []TaintSpec `json:"taints,omitempty"`
 }
 
 // DigitaloceanNodeSpec digitalocean node settings
@@ -624,6 +681,7 @@ type AzureNodeSpec struct {
 type VSphereNodeSpec struct {
 	CPUs            int    `json:"cpus"`
 	Memory          int    `json:"memory"`
+	DiskSizeGB      *int64 `json:"diskSizeGB,omitempty"`
 	Template        string `json:"template"`
 	TemplateNetName string `json:"templateNetName"`
 }
@@ -661,6 +719,29 @@ type AWSNodeSpec struct {
 	AMI string `json:"ami"`
 	// additional instance tags
 	Tags map[string]string `json:"tags"`
+}
+
+// PacketNodeSpec specifies packet specific node settings
+// swagger:model PacketNodeSpec
+type PacketNodeSpec struct {
+	// InstanceType denotes the plan to which the device will be provisioned.
+	// required: true
+	InstanceType string `json:"instanceType"`
+	// additional instance tags
+	// required: false
+	Tags []string `json:"tags"`
+}
+
+// GCPNodeSpec gcp specific node settings
+// swagger:model GCPNodeSpec
+type GCPNodeSpec struct {
+	Zone        string            `json:"zone"`
+	MachineType string            `json:"machineType"`
+	DiskSize    int64             `json:"diskSize"`
+	DiskType    string            `json:"diskType"`
+	Preemptible bool              `json:"preemptible"`
+	Labels      map[string]string `json:"labels"`
+	Tags        []string          `json:"tags"`
 }
 
 // NodeResources cpu and memory of a node

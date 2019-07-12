@@ -27,7 +27,9 @@ spec:
         vnetName: cluster-azurecluster-1a2b3c4d5e
       operatingSystem: coreos
       operatingSystemSpec:
-        disableAutoUpdate: true
+        disableAutoUpdate: false
+        disableLocksmithD: true
+        disableUpdateEngine: true
       sshPublicKeys:
       - ssh-rsa TEST123test
   versions:

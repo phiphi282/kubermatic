@@ -34,15 +34,15 @@ const (
 
 var roleARNS = []string{policyRoute53FullAccess, policyEC2FullAccess, policyEC2ContainerRegistryReadOnly}
 
-type amazonEc2 struct {
+type AmazonEC2 struct {
 	dcs map[string]provider.DatacenterMeta
 }
 
-func (a *amazonEc2) DefaultCloudSpec(spec *kubermaticv1.CloudSpec) error {
+func (a *AmazonEC2) DefaultCloudSpec(spec *kubermaticv1.CloudSpec) error {
 	return nil
 }
 
-func (a *amazonEc2) ValidateCloudSpec(spec kubermaticv1.CloudSpec) error {
+func (a *AmazonEC2) ValidateCloudSpec(spec kubermaticv1.CloudSpec) error {
 	client, err := a.getEC2client(spec)
 	if err != nil {
 		return err
@@ -101,9 +101,121 @@ func (a *amazonEc2) ValidateCloudSpec(spec kubermaticv1.CloudSpec) error {
 	return nil
 }
 
-// NewCloudProvider returns a new amazonEc2 provider.
-func NewCloudProvider(datacenters map[string]provider.DatacenterMeta) provider.CloudProvider {
-	return &amazonEc2{
+// MigrateToMultiAZ migrates an AWS cluster from the old AZ-hardcoded spec to multi-AZ spec
+func (a *AmazonEC2) MigrateToMultiAZ(cluster *kubermaticv1.Cluster, update provider.ClusterUpdater) error {
+	// If not even the role name is set, then the cluster is not fully
+	// initialized and we don't need to worry about this migration just yet.
+	if cluster.Spec.Cloud.AWS.RoleName == "" {
+		return nil
+	}
+
+	if cluster.Spec.Cloud.AWS.RoleARN == "" {
+		svcIAM, err := a.getIAMClient(cluster.Spec.Cloud)
+		if err != nil {
+			return fmt.Errorf("failed to get IAM client: %v", err)
+		}
+
+		paramsRoleGet := &iam.GetRoleInput{RoleName: aws.String(cluster.Spec.Cloud.AWS.RoleName)}
+		getRoleOut, err := svcIAM.GetRole(paramsRoleGet)
+		if err != nil {
+			return fmt.Errorf("failed to get already existing aws IAM role %s: %v", cluster.Spec.Cloud.AWS.RoleName, err)
+		}
+
+		cluster, err = update(cluster.Name, func(cluster *kubermaticv1.Cluster) {
+			cluster.Spec.Cloud.AWS.RoleARN = *getRoleOut.Role.Arn
+		})
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// AddICMPRulesIfRequired will create security rules that allow ICMP traffic if these do not yet exist.
+// It is a part of a migration for older clusers (migrationRevision < 1) that didn't have these rules.
+func (a *AmazonEC2) AddICMPRulesIfRequired(cluster *kubermaticv1.Cluster) error {
+	if cluster.Spec.Cloud.AWS.SecurityGroupID == "" {
+		glog.Infof("Not adding ICMP allow rules for cluster %q as it has no securityGroupID set",
+			cluster.Name)
+		return nil
+	}
+
+	client, err := a.getEC2client(cluster.Spec.Cloud)
+	if err != nil {
+		return fmt.Errorf("failed to get EC2 client: %v", err)
+	}
+	out, err := client.DescribeSecurityGroups(&ec2.DescribeSecurityGroupsInput{
+		GroupIds: aws.StringSlice([]string{cluster.Spec.Cloud.AWS.SecurityGroupID}),
+	})
+	if err != nil {
+		return fmt.Errorf("failed to get security group %q: %v", cluster.Spec.Cloud.AWS.SecurityGroupID, err)
+	}
+
+	// Should never happen
+	if len(out.SecurityGroups) > 1 {
+		return fmt.Errorf("got more than one(%d) security group for id %q",
+			(len(out.SecurityGroups)), cluster.Spec.Cloud.AWS.SecurityGroupID)
+	}
+	if len(out.SecurityGroups) == 0 {
+		return fmt.Errorf("did not find a security group for id %q",
+			cluster.Spec.Cloud.AWS.SecurityGroupID)
+	}
+
+	var hasIPV4ICMPRule, hasIPV6ICMPRule bool
+	for _, rule := range out.SecurityGroups[0].IpPermissions {
+		if rule.FromPort != nil && *rule.FromPort == -1 && rule.ToPort != nil && *rule.ToPort == -1 {
+
+			if *rule.IpProtocol == "icmp" && len(rule.IpRanges) == 1 && *rule.IpRanges[0].CidrIp == "0.0.0.0/0" {
+				hasIPV4ICMPRule = true
+			}
+			if *rule.IpProtocol == "icmpv6" && len(rule.Ipv6Ranges) == 1 && *rule.Ipv6Ranges[0].CidrIpv6 == "::/0" {
+				hasIPV6ICMPRule = true
+			}
+		}
+	}
+
+	var secGroupRules []*ec2.IpPermission
+	if !hasIPV4ICMPRule {
+		glog.Infof("Adding allow rule for icmp to cluster %q", cluster.Name)
+		secGroupRules = append(secGroupRules,
+			(&ec2.IpPermission{}).
+				SetIpProtocol("icmp").
+				SetFromPort(-1).
+				SetToPort(-1).
+				SetIpRanges([]*ec2.IpRange{
+					{CidrIp: aws.String("0.0.0.0/0")},
+				}))
+	}
+	if !hasIPV6ICMPRule {
+		glog.Infof("Adding allow rule for icmpv6 to cluster %q", cluster.Name)
+		secGroupRules = append(secGroupRules,
+			(&ec2.IpPermission{}).
+				SetIpProtocol("icmpv6").
+				SetFromPort(-1).
+				SetToPort(-1).
+				SetIpv6Ranges([]*ec2.Ipv6Range{
+					{CidrIpv6: aws.String("::/0")},
+				}))
+	}
+
+	if len(secGroupRules) > 0 {
+		_, err = client.AuthorizeSecurityGroupIngress(&ec2.AuthorizeSecurityGroupIngressInput{
+			GroupId:       aws.String(cluster.Spec.Cloud.AWS.SecurityGroupID),
+			IpPermissions: secGroupRules,
+		})
+		if err != nil {
+			return fmt.Errorf("failed to add ICMP rules to security group %q: %v",
+				cluster.Spec.Cloud.AWS.SecurityGroupID, err)
+		}
+	}
+
+	return nil
+}
+
+// NewCloudProvider returns a new AmazonEC2 provider.
+func NewCloudProvider(datacenters map[string]provider.DatacenterMeta) *AmazonEC2 {
+	return &AmazonEC2{
 		dcs: datacenters,
 	}
 }
@@ -335,6 +447,22 @@ func createSecurityGroup(client *ec2.EC2, vpcID, clusterName string) (string, er
 				SetIpRanges([]*ec2.IpRange{
 					{CidrIp: aws.String("0.0.0.0/0")},
 				}),
+			(&ec2.IpPermission{}).
+				// ICMP from/to everywhere
+				SetIpProtocol("icmp").
+				SetFromPort(-1). // any port
+				SetToPort(-1).   // any port
+				SetIpRanges([]*ec2.IpRange{
+					{CidrIp: aws.String("0.0.0.0/0")},
+				}),
+			(&ec2.IpPermission{}).
+				// ICMPv6 from/to everywhere
+				SetIpProtocol("icmpv6").
+				SetFromPort(-1). // any port
+				SetToPort(-1).   // any port
+				SetIpv6Ranges([]*ec2.Ipv6Range{
+					{CidrIpv6: aws.String("::/0")},
+				}),
 		},
 	})
 	if err != nil {
@@ -436,7 +564,7 @@ func createInstanceProfile(client *iam.IAM, clusterName string) (*iam.Role, *iam
 	return role, instanceProfile, nil
 }
 
-func (a *amazonEc2) InitializeCloudProvider(cluster *kubermaticv1.Cluster, update provider.ClusterUpdater) (*kubermaticv1.Cluster, error) {
+func (a *AmazonEC2) InitializeCloudProvider(cluster *kubermaticv1.Cluster, update provider.ClusterUpdater) (*kubermaticv1.Cluster, error) {
 	client, err := a.getEC2client(cluster.Spec.Cloud)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get EC2 client: %v", err)
@@ -497,7 +625,7 @@ func (a *amazonEc2) InitializeCloudProvider(cluster *kubermaticv1.Cluster, updat
 			return nil, fmt.Errorf("createSecurityGroup for cluster %s did not return sg id", cluster.Name)
 		}
 		cluster, err = update(cluster.Name, func(cluster *kubermaticv1.Cluster) {
-			cluster.Finalizers = append(cluster.Finalizers, securityGroupCleanupFinalizer)
+			kuberneteshelper.AddFinalizer(cluster, securityGroupCleanupFinalizer)
 			cluster.Spec.Cloud.AWS.SecurityGroupID = securityGroupID
 		})
 		if err != nil {
@@ -516,8 +644,9 @@ func (a *amazonEc2) InitializeCloudProvider(cluster *kubermaticv1.Cluster, updat
 			return nil, fmt.Errorf("failed to create instance profile: %v", err)
 		}
 		cluster, err = update(cluster.Name, func(cluster *kubermaticv1.Cluster) {
-			cluster.Finalizers = append(cluster.Finalizers, instanceProfileCleanupFinalizer)
+			kuberneteshelper.AddFinalizer(cluster, instanceProfileCleanupFinalizer)
 			cluster.Spec.Cloud.AWS.RoleName = *role.RoleName
+			cluster.Spec.Cloud.AWS.RoleARN = *role.Arn
 			cluster.Spec.Cloud.AWS.InstanceProfileName = *instanceProfile.InstanceProfileName
 		})
 		if err != nil {
@@ -543,7 +672,7 @@ func (a *amazonEc2) InitializeCloudProvider(cluster *kubermaticv1.Cluster, updat
 			return nil, err
 		}
 		cluster, err = update(cluster.Name, func(cluster *kubermaticv1.Cluster) {
-			cluster.Finalizers = append(cluster.Finalizers, tagCleanupFinalizer)
+			kuberneteshelper.AddFinalizer(cluster, tagCleanupFinalizer)
 		})
 		if err != nil {
 			return nil, err
@@ -553,7 +682,7 @@ func (a *amazonEc2) InitializeCloudProvider(cluster *kubermaticv1.Cluster, updat
 	return cluster, nil
 }
 
-func (a *amazonEc2) getSession(cloud kubermaticv1.CloudSpec) (*session.Session, error) {
+func (a *AmazonEC2) getSession(cloud kubermaticv1.CloudSpec) (*session.Session, error) {
 	config := aws.NewConfig()
 	dc, found := a.dcs[cloud.DatacenterName]
 	if !found || dc.Spec.AWS == nil {
@@ -565,23 +694,23 @@ func (a *amazonEc2) getSession(cloud kubermaticv1.CloudSpec) (*session.Session, 
 	return session.NewSession(config)
 }
 
-func (a *amazonEc2) getEC2client(cloud kubermaticv1.CloudSpec) (*ec2.EC2, error) {
+func (a *AmazonEC2) getEC2client(cloud kubermaticv1.CloudSpec) (*ec2.EC2, error) {
 	sess, err := a.getSession(cloud)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get amazonEc2 session: %v", err)
+		return nil, fmt.Errorf("failed to get AmazonEC2 session: %v", err)
 	}
 	return ec2.New(sess), nil
 }
 
-func (a *amazonEc2) getIAMClient(cloud kubermaticv1.CloudSpec) (*iam.IAM, error) {
+func (a *AmazonEC2) getIAMClient(cloud kubermaticv1.CloudSpec) (*iam.IAM, error) {
 	sess, err := a.getSession(cloud)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get amazonEc2 session: %v", err)
+		return nil, fmt.Errorf("failed to get AmazonEC2 session: %v", err)
 	}
 	return iam.New(sess), nil
 }
 
-func (a *amazonEc2) CleanUpCloudProvider(cluster *kubermaticv1.Cluster, update provider.ClusterUpdater) (*kubermaticv1.Cluster, error) {
+func (a *AmazonEC2) CleanUpCloudProvider(cluster *kubermaticv1.Cluster, update provider.ClusterUpdater) (*kubermaticv1.Cluster, error) {
 	ec2client, err := a.getEC2client(cluster.Spec.Cloud)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get ec2 client: %v", err)
@@ -598,7 +727,7 @@ func (a *amazonEc2) CleanUpCloudProvider(cluster *kubermaticv1.Cluster, update p
 			}
 		}
 		cluster, err = update(cluster.Name, func(cluster *kubermaticv1.Cluster) {
-			cluster.Finalizers = kuberneteshelper.RemoveFinalizer(cluster.Finalizers, securityGroupCleanupFinalizer)
+			kuberneteshelper.RemoveFinalizer(cluster, securityGroupCleanupFinalizer)
 		})
 		if err != nil {
 			return nil, err
@@ -647,7 +776,7 @@ func (a *amazonEc2) CleanUpCloudProvider(cluster *kubermaticv1.Cluster, update p
 			}
 		}
 		cluster, err = update(cluster.Name, func(cluster *kubermaticv1.Cluster) {
-			cluster.Finalizers = kuberneteshelper.RemoveFinalizer(cluster.Finalizers, instanceProfileCleanupFinalizer)
+			kuberneteshelper.RemoveFinalizer(cluster, instanceProfileCleanupFinalizer)
 		})
 		if err != nil {
 			return nil, err
@@ -659,7 +788,7 @@ func (a *amazonEc2) CleanUpCloudProvider(cluster *kubermaticv1.Cluster, update p
 			return nil, err
 		}
 		cluster, err = update(cluster.Name, func(cluster *kubermaticv1.Cluster) {
-			cluster.Finalizers = kuberneteshelper.RemoveFinalizer(cluster.Finalizers, tagCleanupFinalizer)
+			kuberneteshelper.RemoveFinalizer(cluster, tagCleanupFinalizer)
 		})
 		if err != nil {
 			return nil, err
@@ -675,4 +804,9 @@ func isEntityAlreadyExists(err error) bool {
 		return false
 	}
 	return aerr.Code() == "EntityAlreadyExists"
+}
+
+// ValidateCloudSpecUpdate verifies whether an update of cloud spec is valid and permitted
+func (a *AmazonEC2) ValidateCloudSpecUpdate(oldSpec kubermaticv1.CloudSpec, newSpec kubermaticv1.CloudSpec) error {
+	return nil
 }

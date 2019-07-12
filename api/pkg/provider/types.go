@@ -7,11 +7,13 @@ import (
 
 	kubermaticv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
 
+	apicorev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/kubernetes"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
-	ctrlruntimeclient "sigs.k8s.io/controller-runtime/pkg/client"
+	"k8s.io/client-go/tools/record"
 
-	v1 "k8s.io/api/core/v1"
+	ctrlruntimeclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 var (
@@ -29,8 +31,10 @@ const (
 	AWSCloudProvider          = "aws"
 	AzureCloudProvider        = "azure"
 	OpenstackCloudProvider    = "openstack"
+	PacketCloudProvider       = "packet"
 	HetznerCloudProvider      = "hetzner"
 	VSphereCloudProvider      = "vsphere"
+	GCPCloudProvider          = "gcp"
 
 	DefaultSSHPort     = 22
 	DefaultKubeletPort = 10250
@@ -38,20 +42,15 @@ const (
 
 // CloudProvider declares a set of methods for interacting with a cloud provider
 type CloudProvider interface {
-	CloudSpecProvider
-}
-
-// ClusterUpdater defines a function to persist an update to a cluster
-type ClusterUpdater func(string, func(*kubermaticv1.Cluster)) (*kubermaticv1.Cluster, error)
-
-// CloudSpecProvider converts both a cloud spec and is able to create/retrieve nodes
-// on a cloud provider.
-type CloudSpecProvider interface {
 	InitializeCloudProvider(*kubermaticv1.Cluster, ClusterUpdater) (*kubermaticv1.Cluster, error)
 	CleanUpCloudProvider(*kubermaticv1.Cluster, ClusterUpdater) (*kubermaticv1.Cluster, error)
 	DefaultCloudSpec(spec *kubermaticv1.CloudSpec) error
 	ValidateCloudSpec(spec kubermaticv1.CloudSpec) error
+	ValidateCloudSpecUpdate(oldSpec kubermaticv1.CloudSpec, newSpec kubermaticv1.CloudSpec) error
 }
+
+// ClusterUpdater defines a function to persist an update to a cluster
+type ClusterUpdater func(string, func(*kubermaticv1.Cluster)) (*kubermaticv1.Cluster, error)
 
 // ClusterListOptions allows to set filters that will be applied to filter the result.
 type ClusterListOptions struct {
@@ -86,7 +85,7 @@ type ProjectListOptions struct {
 // This provider is Project and RBAC compliant
 type ClusterProvider interface {
 	// New creates a brand new cluster that is bound to the given project
-	New(project *kubermaticv1.Project, userInfo *UserInfo, spec *kubermaticv1.ClusterSpec) (*kubermaticv1.Cluster, error)
+	New(project *kubermaticv1.Project, userInfo *UserInfo, cluster *kubermaticv1.Cluster) (*kubermaticv1.Cluster, error)
 
 	// List gets all clusters that belong to the given project
 	// If you want to filter the result please take a look at ClusterListOptions
@@ -117,6 +116,20 @@ type ClusterProvider interface {
 	//
 	// Note that the client doesn't use admin account instead it authn/authz as userInfo(email, group)
 	GetClientForCustomerCluster(*UserInfo, *kubermaticv1.Cluster) (ctrlruntimeclient.Client, error)
+}
+
+// PrivilegedClusterProvider declares the set of methods for interacting with the seed clusters
+// as an admin.
+type PrivilegedClusterProvider interface {
+	// GetSeedClusterAdminRuntimeClient returns a runtime client to interact with all resources in the seed cluster
+	//
+	// Note that the client you will get has admin privileges in the seed cluster
+	GetSeedClusterAdminRuntimeClient() ctrlruntimeclient.Client
+
+	// GetSeedClusterAdminClient returns a kubernetes client to interact with all resources in the seed cluster
+	//
+	// Note that the client you will get has admin privileges in the seed cluster
+	GetSeedClusterAdminClient() kubernetes.Interface
 }
 
 // SSHKeyListOptions allows to set filters that will be applied to filter the result.
@@ -254,11 +267,17 @@ func ClusterCloudProviderName(spec kubermaticv1.CloudSpec) (string, error) {
 	if spec.Openstack != nil {
 		clouds = append(clouds, OpenstackCloudProvider)
 	}
+	if spec.Packet != nil {
+		clouds = append(clouds, PacketCloudProvider)
+	}
 	if spec.Hetzner != nil {
 		clouds = append(clouds, HetznerCloudProvider)
 	}
 	if spec.VSphere != nil {
 		clouds = append(clouds, VSphereCloudProvider)
+	}
+	if spec.GCP != nil {
+		clouds = append(clouds, GCPCloudProvider)
 	}
 	if len(clouds) == 0 {
 		return "", nil
@@ -306,6 +325,9 @@ func DatacenterCloudProviderName(spec *DatacenterSpec) (string, error) {
 	if spec.Openstack != nil {
 		clouds = append(clouds, OpenstackCloudProvider)
 	}
+	if spec.Packet != nil {
+		clouds = append(clouds, PacketCloudProvider)
+	}
 	if spec.Hetzner != nil {
 		clouds = append(clouds, HetznerCloudProvider)
 	}
@@ -314,6 +336,9 @@ func DatacenterCloudProviderName(spec *DatacenterSpec) (string, error) {
 	}
 	if spec.Azure != nil {
 		clouds = append(clouds, AzureCloudProvider)
+	}
+	if spec.GCP != nil {
+		clouds = append(clouds, GCPCloudProvider)
 	}
 	if len(clouds) == 0 {
 		return "", nil
@@ -350,17 +375,17 @@ type ServiceAccountListOptions struct {
 
 // ServiceAccountTokenProvider declares the set of methods for interacting with kubermatic service account token
 type ServiceAccountTokenProvider interface {
-	Create(userInfo *UserInfo, sa *kubermaticv1.User, projectID, tokenName, tokenID, tokenData string) (*v1.Secret, error)
-	List(userInfo *UserInfo, project *kubermaticv1.Project, sa *kubermaticv1.User, options *ServiceAccountTokenListOptions) ([]*v1.Secret, error)
-	Get(userInfo *UserInfo, name string) (*v1.Secret, error)
-	Update(userInfo *UserInfo, secret *v1.Secret) (*v1.Secret, error)
+	Create(userInfo *UserInfo, sa *kubermaticv1.User, projectID, tokenName, tokenID, tokenData string) (*apicorev1.Secret, error)
+	List(userInfo *UserInfo, project *kubermaticv1.Project, sa *kubermaticv1.User, options *ServiceAccountTokenListOptions) ([]*apicorev1.Secret, error)
+	Get(userInfo *UserInfo, name string) (*apicorev1.Secret, error)
+	Update(userInfo *UserInfo, secret *apicorev1.Secret) (*apicorev1.Secret, error)
 	Delete(userInfo *UserInfo, name string) error
 }
 
 // ServiceAccountTokenListOptions allows to set filters that will be applied to filter the result.
 type ServiceAccountTokenListOptions struct {
-	// TokenName list only tokens with the specified name
-	TokenName string
+	// TokenID list only tokens with the specified name
+	TokenID string
 }
 
 // PrivilegedServiceAccountTokenProvider declares the set of method for interacting with kubermatic's sa's tokens and uses privileged account for it
@@ -370,7 +395,14 @@ type PrivilegedServiceAccountTokenProvider interface {
 	// Note that this function:
 	// is unsafe in a sense that it uses privileged account to get the resource
 	// gets resources from the cache
-	ListUnsecured(*ServiceAccountTokenListOptions) ([]*v1.Secret, error)
+	ListUnsecured(*ServiceAccountTokenListOptions) ([]*apicorev1.Secret, error)
+}
+
+// EventRecorderProvider allows to record events for objects that can be read using K8S API.
+type EventRecorderProvider interface {
+	// ClusterRecorderFor returns a event recorder that will be able to record event for objects in the cluster
+	// referred by provided cluster config.
+	ClusterRecorderFor(client kubernetes.Interface) record.EventRecorder
 }
 
 // AddonProvider declares the set of methods for interacting with addons

@@ -8,12 +8,19 @@ import (
 	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
+	"sort"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/golang/glog"
+	"github.com/kubermatic/kubermatic/api/pkg/presets"
+
+	"github.com/kubermatic/kubermatic/api/pkg/handler/v1/common"
+
 	prometheusapi "github.com/prometheus/client_golang/api"
+
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/client-go/kubernetes/scheme"
 
 	apiv1 "github.com/kubermatic/kubermatic/api/pkg/api/v1"
 	k8cuserclusterclient "github.com/kubermatic/kubermatic/api/pkg/cluster/client"
@@ -23,6 +30,7 @@ import (
 	kubermaticinformers "github.com/kubermatic/kubermatic/api/pkg/crd/client/informers/externalversions"
 	kubermaticapiv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
 	"github.com/kubermatic/kubermatic/api/pkg/handler/auth"
+	kubermaticlog "github.com/kubermatic/kubermatic/api/pkg/log"
 	"github.com/kubermatic/kubermatic/api/pkg/provider"
 	"github.com/kubermatic/kubermatic/api/pkg/provider/cloud"
 	"github.com/kubermatic/kubermatic/api/pkg/provider/kubernetes"
@@ -30,7 +38,7 @@ import (
 	"github.com/kubermatic/kubermatic/api/pkg/serviceaccount"
 	"github.com/kubermatic/kubermatic/api/pkg/version"
 
-	v1 "k8s.io/api/core/v1"
+	"k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -38,7 +46,6 @@ import (
 	"k8s.io/client-go/informers"
 	kubernetesclientset "k8s.io/client-go/kubernetes"
 	fakerestclient "k8s.io/client-go/kubernetes/fake"
-	"k8s.io/client-go/kubernetes/scheme"
 	restclient "k8s.io/client-go/rest"
 
 	clusterv1alpha1 "sigs.k8s.io/cluster-api/pkg/apis/cluster/v1alpha1"
@@ -51,7 +58,7 @@ func init() {
 	// scheme multiple times it is an unprotected concurrent map access and these tests
 	// are very good at making that panic
 	if err := clusterv1alpha1.SchemeBuilder.AddToScheme(scheme.Scheme); err != nil {
-		glog.Fatalf("failed to add clusterv1alpha1 scheme to scheme.Scheme: %v", err)
+		kubermaticlog.Logger.Fatalw("failed to add clusterv1alpha1 scheme to scheme.Scheme", "error", err)
 	}
 }
 
@@ -76,6 +83,16 @@ const (
 	TestServiceAccountHashKey = "eyJhbGciOiJIUzI1NeyJhbGciOiJIUzI1N"
 	// TestFakeToken signed JWT token with fake data
 	TestFakeToken = "eyJhbGciOiJIUzI1NiJ9.eyJlbWFpbCI6IjEiLCJleHAiOjE2NDk3NDg4NTYsImlhdCI6MTU1NTA1NDQ1NiwibmJmIjoxNTU1MDU0NDU2LCJwcm9qZWN0X2lkIjoiMSIsInRva2VuX2lkIjoiMSJ9.Q4qxzOaCvUnWfXneY654YiQjUTd_Lsmw56rE17W2ouo"
+	// TestOSdomain OpenStack domain
+	TestOSdomain = "OSdomain"
+	// TestOSuserPass OpenStack user password
+	TestOSuserPass = "OSpass"
+	// TestOSuserName OpenStack user name
+	TestOSuserName = "OSuser"
+	// TestOSCredential OpenStack provider credential name
+	TestOSCredential = "testOpenstack"
+	// TestFakeCredential Fake provider credential name
+	TestFakeCredential = "pluton"
 )
 
 // GetUser is a convenience function for generating apiv1.User
@@ -112,10 +129,11 @@ type newRoutingFunc func(
 	versions []*version.MasterVersion,
 	updates []*version.MasterUpdate,
 	saTokenAuthenticator serviceaccount.TokenAuthenticator,
-	saTokenGenerator serviceaccount.TokenGenerator) http.Handler
+	saTokenGenerator serviceaccount.TokenGenerator,
+	eventRecorderProvider provider.EventRecorderProvider,
+	credentialManager common.PresetsManager) http.Handler
 
-// CreateTestEndpointAndGetClients is a convenience function that instantiates fake providers and sets up routes  for the tests
-func CreateTestEndpointAndGetClients(user apiv1.User, dc map[string]provider.DatacenterMeta, kubeObjects, machineObjects, kubermaticObjects []runtime.Object, versions []*version.MasterVersion, updates []*version.MasterUpdate, routingFunc newRoutingFunc) (http.Handler, *ClientsSets, error) {
+func initTestEndpoint(user apiv1.User, dc map[string]provider.DatacenterMeta, kubeObjects, machineObjects, kubermaticObjects []runtime.Object, versions []*version.MasterVersion, updates []*version.MasterUpdate, credentialsManager common.PresetsManager, routingFunc newRoutingFunc) (http.Handler, *ClientsSets, error) {
 	datacenters := dc
 	if datacenters == nil {
 		datacenters = buildDatacenterMeta()
@@ -192,6 +210,8 @@ func CreateTestEndpointAndGetClients(user apiv1.User, dc map[string]provider.Dat
 		kubermaticInformerFactory.Kubermatic().V1().Clusters().Lister(),
 		"",
 		rbac.ExtractGroupPrefix,
+		fakeClient,
+		kubernetesClient,
 	)
 	clusterProviders := map[string]provider.ClusterProvider{"us-central1": clusterProvider}
 
@@ -205,6 +225,8 @@ func CreateTestEndpointAndGetClients(user apiv1.User, dc map[string]provider.Dat
 	kubernetesInformerFactory.WaitForCacheSync(wait.NeverStop)
 	kubermaticInformerFactory.Start(wait.NeverStop)
 	kubermaticInformerFactory.WaitForCacheSync(wait.NeverStop)
+
+	eventRecorderProvider := kubernetes.NewEventRecorder()
 
 	// Disable the metrics endpoint in tests
 	var prometheusClient prometheusapi.Client
@@ -229,9 +251,29 @@ func CreateTestEndpointAndGetClients(user apiv1.User, dc map[string]provider.Dat
 		updates,
 		tokenAuth,
 		tokenGenerator,
+		eventRecorderProvider,
+		credentialsManager,
 	)
 
 	return mainRouter, &ClientsSets{kubermaticClient, fakeClient, kubernetesClient, tokenAuth, tokenGenerator}, nil
+}
+
+// CreateTestEndpointAndGetClients is a convenience function that instantiates fake providers and sets up routes  for the tests
+func CreateTestEndpointAndGetClients(user apiv1.User, dc map[string]provider.DatacenterMeta, kubeObjects, machineObjects, kubermaticObjects []runtime.Object, versions []*version.MasterVersion, updates []*version.MasterUpdate, routingFunc newRoutingFunc) (http.Handler, *ClientsSets, error) {
+	credentialManager := presets.New()
+	credentialManager.GetPresets().Fake = presets.Fake{Credentials: []presets.FakeCredentials{
+		{Name: TestFakeCredential, Token: "dummy_pluton_token"},
+	}}
+	credentialManager.GetPresets().Openstack = presets.Openstack{Credentials: []presets.OpenstackCredentials{
+		{Name: TestOSCredential, Username: TestOSuserName, Password: TestOSuserPass, Domain: TestOSdomain},
+	}}
+	return initTestEndpoint(user, dc, kubeObjects, machineObjects, kubermaticObjects, versions, updates, credentialManager, routingFunc)
+}
+
+func CreateCredentialTestEndpoint(credentialsManager common.PresetsManager, routingFunc newRoutingFunc) (http.Handler, error) {
+	apiUser := GenDefaultAPIUser()
+	router, _, err := initTestEndpoint(*apiUser, nil, nil, nil, nil, nil, nil, credentialsManager, routingFunc)
+	return router, err
 }
 
 // CreateTestEndpoint does exactly the same as CreateTestEndpointAndGetClients except it omits ClientsSets when returning
@@ -245,7 +287,6 @@ func buildDatacenterMeta() map[string]provider.DatacenterMeta {
 		"us-central1": {
 			Location: "us-central",
 			Country:  "US",
-			Private:  false,
 			IsSeed:   true,
 			Spec: provider.DatacenterSpec{
 				Digitalocean: &provider.DigitaloceanSpec{
@@ -257,7 +298,6 @@ func buildDatacenterMeta() map[string]provider.DatacenterMeta {
 			Location: "US ",
 			Seed:     "us-central1",
 			Country:  "NL",
-			Private:  true,
 			Spec: provider.DatacenterSpec{
 				Digitalocean: &provider.DigitaloceanSpec{
 					Region: "ams2",
@@ -281,7 +321,7 @@ type fakeUserClusterConnection struct {
 	fakeDynamicClient ctrlruntimeclient.Client
 }
 
-func (f *fakeUserClusterConnection) GetDynamicClient(_ *kubermaticapiv1.Cluster, _ ...k8cuserclusterclient.ConfigOption) (ctrlruntimeclient.Client, error) {
+func (f *fakeUserClusterConnection) GetClient(_ *kubermaticapiv1.Cluster, _ ...k8cuserclusterclient.ConfigOption) (ctrlruntimeclient.Client, error) {
 	return f.fakeDynamicClient, nil
 }
 
@@ -617,7 +657,7 @@ func CheckStatusCode(wantStatusCode int, recorder *httptest.ResponseRecorder, t 
 	}
 }
 
-func GenSecret(projectID, saID, name, id string) *v1.Secret {
+func GenDefaultSaToken(projectID, saID, name, id string) *v1.Secret {
 	secret := &v1.Secret{}
 	secret.Name = fmt.Sprintf("sa-token-%s", id)
 	secret.Type = "Opaque"
@@ -649,24 +689,47 @@ func GenDefaultExpiry() (apiv1.Time, error) {
 	return apiv1.NewTime(claim.Expiry.Time()), nil
 }
 
-// AuthorizeRequestFunc is a helper function for authorizing a request
-type AuthorizeRequestFunc func(serviceaccount.TokenGenerator, *http.Request) error
+func GenTestEvent(eventName, eventType, eventReason, eventMessage, kind, uid string) *corev1.Event {
+	return &corev1.Event{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      eventName,
+			Namespace: metav1.NamespaceSystem,
+		},
+		InvolvedObject: corev1.ObjectReference{
+			UID:       types.UID(uid),
+			Name:      "testMachine",
+			Namespace: metav1.NamespaceSystem,
+			Kind:      kind,
+		},
+		Reason:  eventReason,
+		Message: eventMessage,
+		Source:  corev1.EventSource{Component: "eventTest"},
+		Count:   1,
+		Type:    eventType,
+	}
+}
 
-// AuthorizeRequest given a ServiceAccount and a Secrets knows how to generate and add a valid token that is used for authentication
-func AuthorizeRequest(sa *kubermaticapiv1.User, s *v1.Secret) AuthorizeRequestFunc {
-	return func(tokenGenerator serviceaccount.TokenGenerator, req *http.Request) error {
-		if len(sa.OwnerReferences) <= 0 {
-			return fmt.Errorf("haven't found an owner for the given sa %s", sa.Name)
+func sortMasterVersion(versions []*apiv1.MasterVersion) {
+	sort.SliceStable(versions, func(i, j int) bool {
+		mi, mj := versions[i], versions[j]
+		return mi.Version.LessThan(mj.Version)
+	})
+}
+
+func CompareVersions(t *testing.T, versions, expected []*apiv1.MasterVersion) {
+	if len(versions) != len(expected) {
+		t.Fatalf("got different lengths, got %d expected %d", len(versions), len(expected))
+	}
+
+	sortMasterVersion(versions)
+	sortMasterVersion(expected)
+
+	for i, version := range versions {
+		if !version.Version.Equal(expected[i].Version) {
+			t.Fatalf("expected version %v got %v", expected[i].Version, version.Version)
 		}
-		owner := sa.OwnerReferences[0]
-		if owner.Kind != kubermaticapiv1.ProjectKindName || owner.APIVersion != kubermaticapiv1.SchemeGroupVersion.String() {
-			return fmt.Errorf("the given sa %s should belong (owner) to a project but it doesn't", sa.Name)
+		if version.Default != expected[i].Default {
+			t.Fatalf("expected flag %v got %v", expected[i].Default, version.Default)
 		}
-		token, err := tokenGenerator.Generate(serviceaccount.Claims(sa.Spec.Email, owner.Name, s.Name))
-		if err != nil {
-			return err
-		}
-		req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", token))
-		return nil
 	}
 }

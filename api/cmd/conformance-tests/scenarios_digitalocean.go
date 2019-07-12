@@ -32,13 +32,12 @@ func getDigitaloceanScenarios(versions []*semver.Semver) []testScenario {
 			},
 		})
 		// CentOS
-		//TODO: Fix
-		//scenarios = append(scenarios, &digitaloceanScenario{
-		//	version: v,
-		//	nodeOsSpec: kubermaticapiv1.OperatingSystemSpec{
-		//		CentOS: &kubermaticapiv1.CentOSSpec{},
-		//	},
-		//})
+		scenarios = append(scenarios, &digitaloceanScenario{
+			version: v,
+			nodeOsSpec: kubermaticapiv1.OperatingSystemSpec{
+				CentOS: &kubermaticapiv1.CentOSSpec{},
+			},
+		})
 	}
 
 	return scenarios
@@ -78,7 +77,7 @@ func (s *digitaloceanScenario) Cluster(secrets secrets) *v1.Cluster {
 	}
 }
 
-func (s *digitaloceanScenario) Nodes(num int) *kubermaticapiv1.NodeDeployment {
+func (s *digitaloceanScenario) Nodes(num int, _ secrets) *kubermaticapiv1.NodeDeployment {
 	return &kubermaticapiv1.NodeDeployment{
 		Spec: kubermaticapiv1.NodeDeploymentSpec{
 			Replicas: int32(num),

@@ -9,6 +9,8 @@ import (
 
 	kubermaticclientset "github.com/kubermatic/kubermatic/api/pkg/crd/client/clientset/versioned"
 	kubermaticv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
+	"github.com/kubermatic/kubermatic/api/pkg/provider"
+	"github.com/kubermatic/kubermatic/api/pkg/provider/cloud"
 	kubermaticKubernetesProvider "github.com/kubermatic/kubermatic/api/pkg/provider/kubernetes"
 	"github.com/kubermatic/kubermatic/api/pkg/resources"
 	"github.com/kubermatic/kubermatic/api/pkg/semver"
@@ -31,6 +33,8 @@ type cleanupContext struct {
 	kubeClient       kubernetes.Interface
 	kubermaticClient kubermaticclientset.Interface
 	config           *rest.Config
+	dcs              map[string]provider.DatacenterMeta
+	cloudProvider    map[string]provider.CloudProvider
 }
 
 // ClusterTask represents a cleanup action, taking the current cluster for which the cleanup should be executed and the current context.
@@ -38,7 +42,7 @@ type cleanupContext struct {
 type ClusterTask func(cluster *kubermaticv1.Cluster, ctx *cleanupContext) error
 
 // RunAll runs all migrations
-func RunAll(config *rest.Config, workerName string) error {
+func RunAll(config *rest.Config, workerName string, dcs map[string]provider.DatacenterMeta) error {
 	// required when performing calls against manually crafted URL's
 	config.NegotiatedSerializer = serializer.DirectCodecFactory{CodecFactory: scheme.Codecs}
 
@@ -55,6 +59,8 @@ func RunAll(config *rest.Config, workerName string) error {
 		kubeClient:       kubeClient,
 		kubermaticClient: kubermatiClient,
 		config:           config,
+		dcs:              dcs,
+		cloudProvider:    cloud.Providers(dcs),
 	}
 
 	if err := cleanupClusters(workerName, ctx); err != nil {
@@ -230,6 +236,7 @@ func cleanupCluster(cluster *kubermaticv1.Cluster, ctx *cleanupContext) error {
 		cleanupMetricsServerAddon,
 		migrateClusterUserLabel,
 		cleanupKubeStateMetricsService,
+		setExposeStrategyIfEmpty,
 	}
 
 	w := sync.WaitGroup{}
@@ -525,5 +532,20 @@ func cleanupKubeStateMetricsService(cluster *kubermaticv1.Cluster, ctx *cleanupC
 		return err
 	}
 
+	return nil
+}
+
+// We started to offer the option to expose the cluster via a LoadBalancer. We need to track
+// the expose strategy that is being used for a cluster. If there is none set, we default to NodePort
+// as that was initially the only option
+func setExposeStrategyIfEmpty(cluster *kubermaticv1.Cluster, ctx *cleanupContext) error {
+	if cluster.Spec.ExposeStrategy == "" {
+		cluster.Spec.ExposeStrategy = corev1.ServiceTypeNodePort
+		updatedCluster, err := ctx.kubermaticClient.KubermaticV1().Clusters().Update(cluster)
+		if err != nil {
+			return fmt.Errorf("failed to default exposeStrategy to NodePort for cluster %q: %v", cluster.Name, err)
+		}
+		cluster = updatedCluster
+	}
 	return nil
 }

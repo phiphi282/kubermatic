@@ -66,6 +66,8 @@ const (
 	KubeStateMetricsDeploymentName = "kube-state-metrics"
 	// UserClusterControllerDeploymentName is the name of the usercluster-controller deployment
 	UserClusterControllerDeploymentName = "usercluster-controller"
+	// ClusterAutoscalerDeploymentName is the name of the cluster-autoscaler depoyment
+	ClusterAutoscalerDeploymentName = "cluster-autoscaler"
 
 	//PrometheusStatefulSetName is the name for the prometheus StatefulSet
 	PrometheusStatefulSetName = "prometheus"
@@ -76,6 +78,9 @@ const (
 	ApiserverExternalServiceName = "apiserver-external"
 	//ApiserverInternalServiceName is the name for the internal apiserver service
 	ApiserverInternalServiceName = "apiserver"
+	// FrontLoadBalancerServiceName is the name of the LoadBalancer service that fronts everything
+	// when using exposeStrategy "LoadBalancer"
+	FrontLoadBalancerServiceName = "front-loadbalancer"
 	// MetricsServerServiceName is the name for the metrics-server service
 	MetricsServerServiceName = "metrics-server"
 	// MetricsServerExternalNameServiceName is the name for the metrics-server service inside the user cluster
@@ -115,6 +120,9 @@ const (
 	MachineControllerWebhookServingCertKeyKeyName = "key.pem"
 	//PrometheusApiserverClientCertificateSecretName is the name for the secret containing the client certificate used by prometheus to access the apiserver
 	PrometheusApiserverClientCertificateSecretName = "prometheus-apiserver-certificate"
+	// ClusterAutoscalerKubeconfigSecretName is the name of the kubeconfig secret used for
+	// the cluster-autoscaler
+	ClusterAutoscalerKubeconfigSecretName = "cluster-autoscaler-kubeconfig"
 
 	// ImagePullSecretName specifies the name of the dockercfg secret used to access the private repo.
 	ImagePullSecretName = "dockercfg"
@@ -147,6 +155,10 @@ const (
 	DexCASecretName = "dex-ca"
 	// DexCAFileName is the name of Dex CA bundle file
 	DexCAFileName = "caBundle.pem"
+	// GoogleServiceAccountSecretName is the name of the secret that contains the Google Service Acccount.
+	GoogleServiceAccountSecretName = "google-service-account"
+	// GoogleServiceAccountVolumeName is the name of the volume containing the Google Service Account secret.
+	GoogleServiceAccountVolumeName = "google-service-account-volume"
 
 	//CloudConfigConfigMapName is the name for the configmap containing the cloud-config
 	CloudConfigConfigMapName = "cloud-config"
@@ -184,6 +196,8 @@ const (
 	KubeletDnatControllerCertUsername = "kubermatic:kubeletdnat-controller"
 	// PrometheusCertUsername is the name of the user coming from kubeconfig cert
 	PrometheusCertUsername = "prometheus"
+	// ClusterAutoscalerCertUsername is the name of the user coming from the CA kubeconfig cert
+	ClusterAutoscalerCertUsername = "kubermatic:cluster-autoscaler"
 
 	// KubeletDnatControllerClusterRoleName is the name for the KubeletDnatController cluster role
 	KubeletDnatControllerClusterRoleName = "system:kubermatic-kubeletdnat-controller"
@@ -216,6 +230,10 @@ const (
 	PrometheusClusterRoleBindingName = "system:external-prometheus"
 	//MetricsServerResourceReaderClusterRoleBindingName is the name for the metrics server ClusterRoleBinding
 	MetricsServerResourceReaderClusterRoleBindingName = "system:metrics-server"
+	// ClusterAutoscalerClusterRoleName is the name of the clusterrole for the cluster autoscaler
+	ClusterAutoscalerClusterRoleName = "system:kubermatic-cluster-autoscaler"
+	// ClusterAutoscalerClusterRoleBindingName is the name of the clusterrolebinding for the CA
+	ClusterAutoscalerClusterRoleBindingName = "system:kubermatic-cluster-autoscaler"
 
 	// EtcdPodDisruptionBudgetName is the name of the PDB for the etcd StatefulSet
 	EtcdPodDisruptionBudgetName = "etcd"
@@ -264,8 +282,11 @@ const (
 	// InternalUserClusterAdminKubeconfigSecretName is the name of the secret containing an admin kubeconfig that can only be used from
 	// within the seed cluster
 	InternalUserClusterAdminKubeconfigSecretName = "internal-admin-kubeconfig"
-	// UserClusterControllerCertUsername is the name of the user coming from kubeconfig cert
+	// InternalUserClusterAdminKubeconfigCertUsername is the name of the user coming from kubeconfig cert
 	InternalUserClusterAdminKubeconfigCertUsername = "kubermatic-controllers"
+
+	// DefaultKubermaticImage defines the default image which contains the Kubermatic applications
+	DefaultKubermaticImage = "quay.io/kubermatic/api"
 )
 
 const (

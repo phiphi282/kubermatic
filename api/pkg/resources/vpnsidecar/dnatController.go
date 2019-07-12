@@ -23,6 +23,7 @@ var (
 type dnatControllerData interface {
 	ImageRegistry(string) string
 	NodeAccessNetwork() string
+	KubermaticAPIImage() string
 }
 
 // DnatControllerContainer returns a sidecar container for running the dnat controller.
@@ -40,7 +41,7 @@ func DnatControllerContainer(data dnatControllerData, name, apiserverAddress str
 
 	return &corev1.Container{
 		Name:            name,
-		Image:           data.ImageRegistry(resources.RegistryDocker) + "/syseleven/kubermatic:" + resources.KUBERMATICCOMMIT,
+		Image:           data.KubermaticAPIImage() + ":" + resources.KUBERMATICCOMMIT,
 		ImagePullPolicy: corev1.PullIfNotPresent,
 		Command:         []string{"/usr/local/bin/kubeletdnat-controller"},
 		Args:            args,
@@ -51,9 +52,7 @@ func DnatControllerContainer(data dnatControllerData, name, apiserverAddress str
 			RunAsUser: resources.Int64(0),
 			ProcMount: &procMountType,
 		},
-		TerminationMessagePath:   corev1.TerminationMessagePathDefault,
-		TerminationMessagePolicy: corev1.TerminationMessageReadFile,
-		Resources:                dnatControllerResourceRequirements,
+		Resources: dnatControllerResourceRequirements,
 		VolumeMounts: []corev1.VolumeMount{
 			{
 				MountPath: "/etc/kubernetes/kubeconfig",

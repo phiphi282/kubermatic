@@ -29,4 +29,6 @@ type openshiftData interface {
 	DC() *provider.DatacenterMeta
 	HasEtcdOperatorService() (bool, error)
 	EtcdDiskSize() resource.Quantity
+	NodeLocalDNSCacheEnabled() bool
+	KubermaticAPIImage() string
 }

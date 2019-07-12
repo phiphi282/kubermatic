@@ -25,6 +25,10 @@ versions:
   default: false
 - version: "1.12.8"
   default: false
+- version: "1.12.9"
+  default: false
+- version: "1.12.10"
+  default: false
 # Kubernetes 1.13
 - version: "1.13.0"
   default: false
@@ -37,8 +41,28 @@ versions:
 - version: "1.13.4"
   default: false
 - version: "1.13.5"
-  default: true
+  default: false
+# Insecure https://github.com/kubernetes/kubernetes/issues/78308
+#- version: "1.13.6"
+#  default: false
+- version: "1.13.7"
+  default: false
+# Kubernetes 1.14
 - version: "v1.14.0"
   default: false
 - version: "v1.14.1"
   default: false
+# Insecure https://github.com/kubernetes/kubernetes/issues/78308
+#- version: "v1.14.2"
+#  default: false
+- version: "v1.14.3"
+  default: false
+- version: "v1.14.4"
+  default: true
+# Kubernetes 1.15
+- version: "v1.15.0"
+  default: false
+# OpenShift 3.11
+- version: "v3.11"
+  default: true
+  type: "openshift"

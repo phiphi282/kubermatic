@@ -13,15 +13,17 @@ import (
 	"github.com/kubermatic/kubermatic/api/pkg/provider"
 	"github.com/kubermatic/kubermatic/api/pkg/serviceaccount"
 	"github.com/kubermatic/kubermatic/api/pkg/version"
+
+	corev1 "k8s.io/api/core/v1"
 )
 
 // UpdateManager specifies a set of methods to handle cluster versions & updates
 type UpdateManager interface {
-	GetVersion(string) (*version.MasterVersion, error)
-	GetMasterVersions() ([]*version.MasterVersion, error)
+	GetVersion(from, clusterType string) (*version.MasterVersion, error)
+	GetMasterVersions(clusterType string) ([]*version.MasterVersion, error)
 	GetDefault() (*version.MasterVersion, error)
-	AutomaticUpdate(from string) (*version.MasterVersion, error)
-	GetPossibleUpdates(from string) ([]*version.MasterVersion, error)
+	AutomaticUpdate(from, clusterType string) (*version.MasterVersion, error)
+	GetPossibleUpdates(from, clusterType string) ([]*version.MasterVersion, error)
 }
 
 // Routing represents an object which binds endpoints to http handlers.
@@ -46,6 +48,9 @@ type Routing struct {
 	userProjectMapper           provider.ProjectMemberMapper
 	saTokenAuthenticator        serviceaccount.TokenAuthenticator
 	saTokenGenerator            serviceaccount.TokenGenerator
+	eventRecorderProvider       provider.EventRecorderProvider
+	presetsManager              common.PresetsManager
+	exposeStrategy              corev1.ServiceType
 }
 
 // NewRouting creates a new Routing.
@@ -69,6 +74,9 @@ func NewRouting(
 	userProjectMapper provider.ProjectMemberMapper,
 	saTokenAuthenticator serviceaccount.TokenAuthenticator,
 	saTokenGenerator serviceaccount.TokenGenerator,
+	eventRecorderProvider provider.EventRecorderProvider,
+	presetsManager common.PresetsManager,
+	exposeStrategy corev1.ServiceType,
 ) Routing {
 	return Routing{
 		datacenters:                 datacenters,
@@ -91,6 +99,9 @@ func NewRouting(
 		userProjectMapper:           userProjectMapper,
 		saTokenAuthenticator:        saTokenAuthenticator,
 		saTokenGenerator:            saTokenGenerator,
+		eventRecorderProvider:       eventRecorderProvider,
+		presetsManager:              presetsManager,
+		exposeStrategy:              exposeStrategy,
 	}
 }
 

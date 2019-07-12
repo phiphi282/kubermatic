@@ -122,6 +122,12 @@ func ValidateCloudChange(newSpec, oldSpec kubermaticv1.CloudSpec) error {
 	if newSpec.VSphere == nil && oldSpec.VSphere != nil {
 		return ErrCloudChangeNotAllowed
 	}
+	if newSpec.Packet == nil && oldSpec.Packet != nil {
+		return ErrCloudChangeNotAllowed
+	}
+	if newSpec.GCP == nil && oldSpec.GCP != nil {
+		return ErrCloudChangeNotAllowed
+	}
 	if newSpec.DatacenterName != oldSpec.DatacenterName {
 		return errors.New("changing the datacenter is not allowed")
 	}
@@ -167,9 +173,16 @@ func ValidateUpdateCluster(newCluster, oldCluster *kubermaticv1.Cluster, cloudPr
 		return fmt.Errorf("invalid cloud spec: %v", err)
 	}
 
+	// We ignore the error, since we're here to check the new config, not the old one.
+	oldProviderName, _ := provider.ClusterCloudProviderName(oldCluster.Spec.Cloud)
+
 	providerName, err := provider.ClusterCloudProviderName(newCluster.Spec.Cloud)
 	if err != nil {
 		return fmt.Errorf("invalid cloud spec: %v", err)
+	}
+
+	if oldProviderName != providerName {
+		return fmt.Errorf("changing to a different provider is not allowed")
 	}
 
 	cloudProvider, exists := cloudProviders[providerName]
@@ -180,6 +193,11 @@ func ValidateUpdateCluster(newCluster, oldCluster *kubermaticv1.Cluster, cloudPr
 	if err := cloudProvider.ValidateCloudSpec(newCluster.Spec.Cloud); err != nil {
 		return fmt.Errorf("invalid cloud spec: %v", err)
 	}
+
+	if err := cloudProvider.ValidateCloudSpecUpdate(oldCluster.Spec.Cloud, newCluster.Spec.Cloud); err != nil {
+		return fmt.Errorf("invalid cloud spec modification: %v", err)
+	}
+
 	return nil
 }
 
@@ -265,9 +283,25 @@ func ValidateCloudSpec(spec kubermaticv1.CloudSpec, dc provider.DatacenterMeta) 
 		}
 
 		if spec.VSphere.Password == "" {
-			return errors.New("no password provided")
+			return errors.New("no password specified")
 		}
+		return nil
+	}
 
+	if spec.Packet != nil {
+		if spec.Packet.APIKey == "" {
+			return errors.New("no API key specified")
+		}
+		if spec.Packet.ProjectID == "" {
+			return errors.New("no project ID specified")
+		}
+		return nil
+	}
+
+	if spec.GCP != nil {
+		if spec.GCP.ServiceAccount == "" {
+			return errors.New("no serviceAccount specified")
+		}
 		return nil
 	}
 

@@ -37,6 +37,7 @@ func Deployment(c *kubermaticv1.Cluster, nd *apiv1.NodeDeployment, dc provider.D
 	}
 
 	md.Namespace = metav1.NamespaceSystem
+	md.Finalizers = []string{metav1.FinalizerDeleteDependents}
 
 	md.Spec.Selector.MatchLabels = map[string]string{
 		"machine": fmt.Sprintf("md-%s-%s", c.Name, rand.String(10)),
@@ -146,6 +147,18 @@ func getProviderConfig(c *kubermaticv1.Cluster, nd *apiv1.NodeDeployment, dc pro
 		if err != nil {
 			return nil, err
 		}
+	case nd.Spec.Template.Cloud.Packet != nil:
+		config.CloudProvider = providerconfig.CloudProviderPacket
+		cloudExt, err = getPacketProviderSpec(c, nd.Spec.Template, dc)
+		if err != nil {
+			return nil, err
+		}
+	case nd.Spec.Template.Cloud.GCP != nil:
+		config.CloudProvider = providerconfig.CloudProviderGoogle
+		cloudExt, err = getGCPProviderSpec(c, nd.Spec.Template, dc)
+		if err != nil {
+			return nil, err
+		}
 	default:
 		return nil, errors.New("unknown cloud provider")
 	}
@@ -190,7 +203,9 @@ func Validate(nd *apiv1.NodeDeployment, controlPlaneVersion *semver.Version) (*a
 		nd.Spec.Template.Cloud.AWS == nil &&
 		nd.Spec.Template.Cloud.Hetzner == nil &&
 		nd.Spec.Template.Cloud.VSphere == nil &&
-		nd.Spec.Template.Cloud.Azure == nil {
+		nd.Spec.Template.Cloud.Azure == nil &&
+		nd.Spec.Template.Cloud.Packet == nil &&
+		nd.Spec.Template.Cloud.GCP == nil {
 		return nil, fmt.Errorf("node deployment needs to have cloud provider data")
 	}
 

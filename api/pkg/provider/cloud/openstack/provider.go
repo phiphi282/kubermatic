@@ -5,14 +5,17 @@ import (
 	"net"
 	"strings"
 
+	"github.com/golang/glog"
 	"github.com/gophercloud/gophercloud"
 	goopenstack "github.com/gophercloud/gophercloud/openstack"
 	osflavors "github.com/gophercloud/gophercloud/openstack/compute/v2/flavors"
 	osprojects "github.com/gophercloud/gophercloud/openstack/identity/v3/projects"
 	ossecuritygroups "github.com/gophercloud/gophercloud/openstack/networking/v2/extensions/security/groups"
+	osecuritygrouprules "github.com/gophercloud/gophercloud/openstack/networking/v2/extensions/security/rules"
 	osnetworks "github.com/gophercloud/gophercloud/openstack/networking/v2/networks"
 	ossubnets "github.com/gophercloud/gophercloud/openstack/networking/v2/subnets"
 	"github.com/gophercloud/gophercloud/pagination"
+
 	kubermaticv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
 	"github.com/kubermatic/kubermatic/api/pkg/kubernetes"
 	"github.com/kubermatic/kubermatic/api/pkg/provider"
@@ -41,7 +44,7 @@ type Provider struct {
 }
 
 // NewCloudProvider creates a new openstack provider.
-func NewCloudProvider(dcs map[string]provider.DatacenterMeta) provider.CloudProvider {
+func NewCloudProvider(dcs map[string]provider.DatacenterMeta) *Provider {
 	return &Provider{
 		dcs: dcs,
 	}
@@ -154,7 +157,7 @@ func (os *Provider) InitializeCloudProvider(cluster *kubermaticv1.Cluster, updat
 		}
 		cluster, err = update(cluster.Name, func(cluster *kubermaticv1.Cluster) {
 			cluster.Spec.Cloud.Openstack.SecurityGroups = g.Name
-			cluster.Finalizers = kubernetes.AddFinalizer(cluster.Finalizers, SecurityGroupCleanupFinalizer)
+			kubernetes.AddFinalizer(cluster, SecurityGroupCleanupFinalizer)
 		})
 		if err != nil {
 			return nil, err
@@ -168,7 +171,7 @@ func (os *Provider) InitializeCloudProvider(cluster *kubermaticv1.Cluster, updat
 		}
 		cluster, err = update(cluster.Name, func(cluster *kubermaticv1.Cluster) {
 			cluster.Spec.Cloud.Openstack.Network = network.Name
-			cluster.Finalizers = kubernetes.AddFinalizer(cluster.Finalizers, NetworkCleanupFinalizer)
+			kubernetes.AddFinalizer(cluster, NetworkCleanupFinalizer)
 		})
 		if err != nil {
 			return nil, err
@@ -188,7 +191,7 @@ func (os *Provider) InitializeCloudProvider(cluster *kubermaticv1.Cluster, updat
 
 		cluster, err = update(cluster.Name, func(cluster *kubermaticv1.Cluster) {
 			cluster.Spec.Cloud.Openstack.SubnetID = subnet.ID
-			cluster.Finalizers = kubernetes.AddFinalizer(cluster.Finalizers, SubnetCleanupFinalizer)
+			kubernetes.AddFinalizer(cluster, SubnetCleanupFinalizer)
 		})
 		if err != nil {
 			return nil, err
@@ -207,7 +210,7 @@ func (os *Provider) InitializeCloudProvider(cluster *kubermaticv1.Cluster, updat
 				}
 				cluster, err = update(cluster.Name, func(cluster *kubermaticv1.Cluster) {
 					cluster.Spec.Cloud.Openstack.RouterID = router.ID
-					cluster.Finalizers = kubernetes.AddFinalizer(cluster.Finalizers, RouterCleanupFinalizer)
+					kubernetes.AddFinalizer(cluster, RouterCleanupFinalizer)
 				})
 				if err != nil {
 					return nil, err
@@ -234,8 +237,7 @@ func (os *Provider) InitializeCloudProvider(cluster *kubermaticv1.Cluster, updat
 		}
 
 		cluster, err = update(cluster.Name, func(cluster *kubermaticv1.Cluster) {
-			cluster.Finalizers = kubernetes.AddFinalizer(cluster.Finalizers, RouterSubnetLinkCleanupFinalizer)
-
+			kubernetes.AddFinalizer(cluster, RouterSubnetLinkCleanupFinalizer)
 		})
 		if err != nil {
 			return nil, err
@@ -261,7 +263,7 @@ func (os *Provider) CleanUpCloudProvider(cluster *kubermaticv1.Cluster, update p
 		}
 
 		cluster, err = update(cluster.Name, func(cluster *kubermaticv1.Cluster) {
-			cluster.Finalizers = kubernetes.RemoveFinalizer(cluster.Finalizers, SecurityGroupCleanupFinalizer)
+			kubernetes.RemoveFinalizer(cluster, SecurityGroupCleanupFinalizer)
 		})
 		if err != nil {
 			return nil, err
@@ -275,7 +277,7 @@ func (os *Provider) CleanUpCloudProvider(cluster *kubermaticv1.Cluster, update p
 			}
 		}
 		cluster, err = update(cluster.Name, func(cluster *kubermaticv1.Cluster) {
-			cluster.Finalizers = kubernetes.RemoveFinalizer(cluster.Finalizers, RouterSubnetLinkCleanupFinalizer)
+			kubernetes.RemoveFinalizer(cluster, RouterSubnetLinkCleanupFinalizer)
 		})
 		if err != nil {
 			return nil, err
@@ -287,7 +289,7 @@ func (os *Provider) CleanUpCloudProvider(cluster *kubermaticv1.Cluster, update p
 			return nil, fmt.Errorf("failed to delete subnet '%s': %v", cluster.Spec.Cloud.Openstack.SubnetID, err)
 		}
 		cluster, err = update(cluster.Name, func(cluster *kubermaticv1.Cluster) {
-			cluster.Finalizers = kubernetes.RemoveFinalizer(cluster.Finalizers, SubnetCleanupFinalizer)
+			kubernetes.RemoveFinalizer(cluster, SubnetCleanupFinalizer)
 		})
 		if err != nil {
 			return nil, err
@@ -302,7 +304,7 @@ func (os *Provider) CleanUpCloudProvider(cluster *kubermaticv1.Cluster, update p
 		}
 
 		cluster, err = update(cluster.Name, func(cluster *kubermaticv1.Cluster) {
-			cluster.Finalizers = kubernetes.RemoveFinalizer(cluster.Finalizers, NetworkCleanupFinalizer)
+			kubernetes.RemoveFinalizer(cluster, NetworkCleanupFinalizer)
 		})
 		if err != nil {
 			return nil, err
@@ -317,7 +319,7 @@ func (os *Provider) CleanUpCloudProvider(cluster *kubermaticv1.Cluster, update p
 		}
 
 		cluster, err = update(cluster.Name, func(cluster *kubermaticv1.Cluster) {
-			cluster.Finalizers = kubernetes.RemoveFinalizer(cluster.Finalizers, RouterCleanupFinalizer)
+			kubernetes.RemoveFinalizer(cluster, RouterCleanupFinalizer)
 		})
 		if err != nil {
 			return nil, err
@@ -326,7 +328,7 @@ func (os *Provider) CleanUpCloudProvider(cluster *kubermaticv1.Cluster, update p
 
 	if kubernetes.HasFinalizer(cluster, OldNetworkCleanupFinalizer) {
 		cluster, err = update(cluster.Name, func(cluster *kubermaticv1.Cluster) {
-			cluster.Finalizers = kubernetes.RemoveFinalizer(cluster.Finalizers, OldNetworkCleanupFinalizer)
+			kubernetes.RemoveFinalizer(cluster, OldNetworkCleanupFinalizer)
 		})
 		if err != nil {
 			return nil, err
@@ -463,4 +465,84 @@ func (os *Provider) GetSubnets(cloud kubermaticv1.CloudSpec, networkID string) (
 	}
 
 	return subnets, nil
+}
+
+func (os *Provider) AddICMPRulesIfRequired(cluster *kubermaticv1.Cluster) error {
+	if cluster.Spec.Cloud.Openstack.SecurityGroups == "" {
+		return nil
+	}
+	sgNameOrID := cluster.Spec.Cloud.Openstack.SecurityGroups
+
+	netClient, err := os.getNetClient(cluster.Spec.Cloud)
+	if err != nil {
+		return fmt.Errorf("failed to create a authenticated openstack client: %v", err)
+	}
+
+	// We can only get security groups by ID and can't be sure that whats on the cluster
+	securityGroups, err := getAllSecurityGroups(netClient)
+	if err != nil {
+		return fmt.Errorf("failed to list security groups: %v", err)
+	}
+
+	for _, sg := range securityGroups {
+		if sg.Name == sgNameOrID || sg.ID == sgNameOrID {
+			if err := addICMPRulesToSecurityGroupIfNecesary(cluster, sg, netClient); err != nil {
+				return fmt.Errorf("failed to add rules for ICMP to security group %q: %v", sg.ID, err)
+			}
+			break
+		}
+	}
+
+	return nil
+}
+
+func addICMPRulesToSecurityGroupIfNecesary(cluster *kubermaticv1.Cluster, secGroup ossecuritygroups.SecGroup, netClient *gophercloud.ServiceClient) error {
+	var hasIPV4Rule, hasIPV6Rule bool
+	for _, rule := range secGroup.Rules {
+		if rule.Direction == string(osecuritygrouprules.DirIngress) {
+			if rule.EtherType == string(osecuritygrouprules.EtherType4) && rule.Protocol == string(osecuritygrouprules.ProtocolICMP) {
+				hasIPV4Rule = true
+			}
+			if rule.EtherType == string(osecuritygrouprules.EtherType6) && rule.Protocol == string(osecuritygrouprules.ProtocolIPv6ICMP) {
+				hasIPV6Rule = true
+			}
+		}
+	}
+
+	var rulesToCreate []osecuritygrouprules.CreateOpts
+	if !hasIPV4Rule {
+		rulesToCreate = append(rulesToCreate, osecuritygrouprules.CreateOpts{
+			Direction:  osecuritygrouprules.DirIngress,
+			EtherType:  osecuritygrouprules.EtherType4,
+			SecGroupID: secGroup.ID,
+			Protocol:   osecuritygrouprules.ProtocolICMP,
+		})
+		glog.Infof("Adding ICMP allow rule to cluster %q", cluster.Name)
+	}
+	if !hasIPV6Rule {
+		rulesToCreate = append(rulesToCreate, osecuritygrouprules.CreateOpts{
+			Direction:  osecuritygrouprules.DirIngress,
+			EtherType:  osecuritygrouprules.EtherType6,
+			SecGroupID: secGroup.ID,
+			Protocol:   osecuritygrouprules.ProtocolIPv6ICMP,
+		})
+		glog.Infof("Adding ICMP6 allow rule to cluster %q", cluster.Name)
+	}
+
+	for _, rule := range rulesToCreate {
+		res := osecuritygrouprules.Create(netClient, rule)
+		if res.Err != nil {
+			return fmt.Errorf("failed to create security group rule: %v", res.Err)
+		}
+		if _, err := res.Extract(); err != nil {
+			return fmt.Errorf("failed to extract result after security group creation: %v", err)
+		}
+	}
+
+	return nil
+}
+
+// ValidateCloudSpecUpdate verifies whether an update of cloud spec is valid and permitted
+func (os *Provider) ValidateCloudSpecUpdate(oldSpec kubermaticv1.CloudSpec, newSpec kubermaticv1.CloudSpec) error {
+	return nil
 }

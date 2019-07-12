@@ -2,6 +2,7 @@ package machinecontroller
 
 import (
 	"fmt"
+	"strings"
 
 	kubermaticv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
 	"github.com/kubermatic/kubermatic/api/pkg/provider"
@@ -32,7 +33,9 @@ var (
 const (
 	Name = "machine-controller"
 
-	tag = "v1.1.7"
+	tag = "v1.4.2"
+
+	nodeLocalDNSCacheAddress = "169.254.20.10"
 )
 
 type machinecontrollerData interface {
@@ -41,6 +44,7 @@ type machinecontrollerData interface {
 	Cluster() *kubermaticv1.Cluster
 	ClusterIPByServiceName(string) (string, error)
 	DC() *provider.DatacenterMeta
+	NodeLocalDNSCacheEnabled() bool
 }
 
 // DeploymentCreator returns the function to create and update the machine controller deployment
@@ -90,27 +94,22 @@ func DeploymentCreator(data machinecontrollerData) reconciling.NamedDeploymentCr
 			}
 			dep.Spec.Template.Spec.InitContainers = []corev1.Container{*apiserverIsRunningContainer}
 
-			clusterDNSIP, err := resources.UserClusterDNSResolverIP(data.Cluster())
-			if err != nil {
-				return nil, err
+			clusterDNSIP := nodeLocalDNSCacheAddress
+			if !data.NodeLocalDNSCacheEnabled() {
+				clusterDNSIP, err = resources.UserClusterDNSResolverIP(data.Cluster())
+				if err != nil {
+					return nil, err
+				}
 			}
+
 			dep.Spec.Template.Spec.Containers = []corev1.Container{
 				{
-					Name:            Name,
-					Image:           data.ImageRegistry(resources.RegistryDocker) + "/kubermatic/machine-controller:" + tag,
-					ImagePullPolicy: corev1.PullIfNotPresent,
-					Command:         []string{"/usr/local/bin/machine-controller"},
-					Args: []string{
-						"-kubeconfig", "/etc/kubernetes/kubeconfig/kubeconfig",
-						"-logtostderr",
-						"-v", "4",
-						"-cluster-dns", clusterDNSIP,
-						"-internal-listen-address", "0.0.0.0:8085",
-					},
-					Env:                      getEnvVars(data),
-					TerminationMessagePath:   corev1.TerminationMessagePathDefault,
-					TerminationMessagePolicy: corev1.TerminationMessageReadFile,
-					Resources:                controllerResourceRequirements,
+					Name:      Name,
+					Image:     data.ImageRegistry(resources.RegistryDocker) + "/kubermatic/machine-controller:" + tag,
+					Command:   []string{"/usr/local/bin/machine-controller"},
+					Args:      getFlags(clusterDNSIP, data.DC().Node),
+					Env:       getEnvVars(data),
+					Resources: controllerResourceRequirements,
 					LivenessProbe: &corev1.Probe{
 						Handler: corev1.Handler{
 							HTTPGet: &corev1.HTTPGetAction{
@@ -178,5 +177,39 @@ func getEnvVars(data machinecontrollerData) []corev1.EnvVar {
 		vars = append(vars, corev1.EnvVar{Name: "VSPHERE_USERNAME", Value: data.Cluster().Spec.Cloud.VSphere.InfraManagementUser.Username})
 		vars = append(vars, corev1.EnvVar{Name: "VSPHERE_PASSWORD", Value: data.Cluster().Spec.Cloud.VSphere.InfraManagementUser.Password})
 	}
+	if data.Cluster().Spec.Cloud.Packet != nil {
+		vars = append(vars, corev1.EnvVar{Name: "PACKET_API_KEY", Value: data.Cluster().Spec.Cloud.Packet.APIKey})
+		vars = append(vars, corev1.EnvVar{Name: "PACKET_PROJECT_ID", Value: data.Cluster().Spec.Cloud.Packet.ProjectID})
+	}
+	if data.Cluster().Spec.Cloud.GCP != nil {
+		vars = append(vars, corev1.EnvVar{Name: "GOOGLE_SERVICE_ACCOUNT", Value: data.Cluster().Spec.Cloud.GCP.ServiceAccount})
+	}
 	return vars
+}
+
+func getFlags(clusterDNSIP string, nodeSettings provider.NodeSettings) []string {
+	flags := []string{
+		"-kubeconfig", "/etc/kubernetes/kubeconfig/kubeconfig",
+		"-logtostderr",
+		"-v", "4",
+		"-cluster-dns", clusterDNSIP,
+		"-internal-listen-address", "0.0.0.0:8085",
+	}
+	if len(nodeSettings.InsecureRegistries) > 0 {
+		flags = append(flags, "-node-insecure-registries", strings.Join(nodeSettings.InsecureRegistries, ","))
+	}
+	if nodeSettings.HTTPProxy != "" {
+		flags = append(flags, "-node-http-proxy", nodeSettings.HTTPProxy)
+	}
+	if nodeSettings.NoProxy != "" {
+		flags = append(flags, "-node-no-proxy", nodeSettings.NoProxy)
+	}
+	if nodeSettings.PauseImage != "" {
+		flags = append(flags, "-node-pause-image", nodeSettings.PauseImage)
+	}
+	if nodeSettings.HyperkubeImage != "" {
+		flags = append(flags, "-node-hyperkube-image", nodeSettings.HyperkubeImage)
+	}
+
+	return flags
 }

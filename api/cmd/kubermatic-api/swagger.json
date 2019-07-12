@@ -182,6 +182,21 @@
         ],
         "summary": "Creates a brand new project.",
         "operationId": "createProject",
+        "parameters": [
+          {
+            "name": "Body",
+            "in": "body",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "x-go-name": "Name"
+                }
+              }
+            }
+          }
+        ],
         "responses": {
           "201": {
             "description": "Project",
@@ -264,7 +279,7 @@
           }
         ],
         "responses": {
-          "201": {
+          "200": {
             "description": "Project",
             "schema": {
               "$ref": "#/definitions/Project"
@@ -617,6 +632,7 @@
         }
       }
     },
+<<<<<<< HEAD
     "/api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/addons": {
       "get": {
         "description": "Lists addons that belong to the given cluster",
@@ -793,10 +809,17 @@
       "delete": {
         "produces": [
           "application/json"
+=======
+    "/api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/events": {
+      "get": {
+        "produces": [
+          "application/yaml"
+>>>>>>> v2.11.0
         ],
         "tags": [
           "project"
         ],
+<<<<<<< HEAD
         "summary": "Deletes the given addon that belongs to the cluster.",
         "operationId": "deleteAddon",
         "parameters": [
@@ -856,6 +879,10 @@
         ],
         "summary": "Patches an addon that is assigned to the given cluster.",
         "operationId": "patchAddon",
+=======
+        "summary": "Gets the events related to the specified cluster.",
+        "operationId": "getClusterEvents",
+>>>>>>> v2.11.0
         "parameters": [
           {
             "type": "string",
@@ -880,6 +907,7 @@
           },
           {
             "type": "string",
+<<<<<<< HEAD
             "x-go-name": "AddonID",
             "name": "addon_id",
             "in": "path",
@@ -891,13 +919,26 @@
             "schema": {
               "$ref": "#/definitions/Addon"
             }
+=======
+            "name": "Type",
+            "in": "query"
+>>>>>>> v2.11.0
           }
         ],
         "responses": {
           "200": {
+<<<<<<< HEAD
             "description": "Addon",
             "schema": {
               "$ref": "#/definitions/Addon"
+=======
+            "description": "Event",
+            "schema": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/Event"
+              }
+>>>>>>> v2.11.0
             }
           },
           "401": {
@@ -3494,6 +3535,11 @@
           },
           {
             "type": "string",
+            "name": "Credential",
+            "in": "query"
+          },
+          {
+            "type": "string",
             "name": "NetworkID",
             "in": "query"
           }
@@ -3566,6 +3612,38 @@
         }
       }
     },
+    "/api/v1/providers/{provider_name}/presets/credentials": {
+      "get": {
+        "description": "Lists credential names for the provider",
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "credentials"
+        ],
+        "operationId": "listCredentials",
+        "parameters": [
+          {
+            "type": "string",
+            "x-go-name": "ProviderName",
+            "name": "provider_name",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "CredentialList",
+            "schema": {
+              "$ref": "#/definitions/CredentialList"
+            }
+          },
+          "default": {
+            "$ref": "#/responses/errorResponse"
+          }
+        }
+      }
+    },
     "/api/v1/upgrades/cluster": {
       "get": {
         "description": "Lists all versions which don't result in automatic updates",
@@ -3603,6 +3681,12 @@
         ],
         "operationId": "getNodeUpgrades",
         "parameters": [
+          {
+            "type": "string",
+            "x-go-name": "Type",
+            "name": "type",
+            "in": "query"
+          },
           {
             "type": "string",
             "name": "ControlPlaneVersion",
@@ -3727,9 +3811,15 @@
           "type": "string",
           "x-go-name": "InstanceProfileName"
         },
+<<<<<<< HEAD
         "openstackBillingTenant": {
           "type": "string",
           "x-go-name": "OpenstackBillingTenant"
+=======
+        "roleARN": {
+          "type": "string",
+          "x-go-name": "RoleARN"
+>>>>>>> v2.11.0
         },
         "roleName": {
           "type": "string",
@@ -4260,11 +4350,17 @@
         "fake": {
           "$ref": "#/definitions/FakeCloudSpec"
         },
+        "gcp": {
+          "$ref": "#/definitions/GCPCloudSpec"
+        },
         "hetzner": {
           "$ref": "#/definitions/HetznerCloudSpec"
         },
         "openstack": {
           "$ref": "#/definitions/OpenstackCloudSpec"
+        },
+        "packet": {
+          "$ref": "#/definitions/PacketCloudSpec"
         },
         "vsphere": {
           "$ref": "#/definitions/VSphereCloudSpec"
@@ -4282,6 +4378,10 @@
           "type": "string",
           "format": "date-time",
           "x-go-name": "CreationTimestamp"
+        },
+        "credential": {
+          "type": "string",
+          "x-go-name": "Credential"
         },
         "deletionTimestamp": {
           "description": "DeletionTimestamp is a timestamp representing the server time when this object was deleted.",
@@ -4304,6 +4404,10 @@
         },
         "status": {
           "$ref": "#/definitions/ClusterStatus"
+        },
+        "type": {
+          "type": "string",
+          "x-go-name": "Type"
         }
       },
       "x-go-package": "github.com/kubermatic/kubermatic/api/pkg/api/v1"
@@ -4464,6 +4568,20 @@
       },
       "x-go-package": "github.com/kubermatic/kubermatic/api/pkg/api/v1"
     },
+    "CredentialList": {
+      "type": "object",
+      "title": "CredentialList represents a object for provider credential names.",
+      "properties": {
+        "names": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "x-go-name": "Names"
+        }
+      },
+      "x-go-package": "github.com/kubermatic/kubermatic/api/pkg/api/v1"
+    },
     "Datacenter": {
       "type": "object",
       "title": "Datacenter is the object representing a Kubernetes infra datacenter.",
@@ -4509,6 +4627,9 @@
         "digitalocean": {
           "$ref": "#/definitions/DigitialoceanDatacenterSpec"
         },
+        "gcp": {
+          "$ref": "#/definitions/GCPDatacenterSpec"
+        },
         "hetzner": {
           "$ref": "#/definitions/HetznerDatacenterSpec"
         },
@@ -4518,6 +4639,9 @@
         },
         "openstack": {
           "$ref": "#/definitions/OpenstackDatacenterSpec"
+        },
+        "packet": {
+          "$ref": "#/definitions/PacketDatacenterSpec"
         },
         "provider": {
           "type": "string",
@@ -4809,6 +4933,89 @@
         }
       },
       "x-go-package": "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
+    },
+    "GCPCloudSpec": {
+      "type": "object",
+      "title": "GCPCloudSpec specifies access data to GCP.",
+      "properties": {
+        "network": {
+          "type": "string",
+          "x-go-name": "Network"
+        },
+        "serviceAccount": {
+          "type": "string",
+          "x-go-name": "ServiceAccount"
+        },
+        "subnetwork": {
+          "type": "string",
+          "x-go-name": "Subnetwork"
+        }
+      },
+      "x-go-package": "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
+    },
+    "GCPDatacenterSpec": {
+      "type": "object",
+      "title": "GCPDatacenterSpec specifies a datacenter of GCP.",
+      "properties": {
+        "region": {
+          "type": "string",
+          "x-go-name": "Region"
+        },
+        "regional": {
+          "type": "boolean",
+          "x-go-name": "Regional"
+        },
+        "zone_suffixes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "x-go-name": "ZoneSuffixes"
+        }
+      },
+      "x-go-package": "github.com/kubermatic/kubermatic/api/pkg/api/v1"
+    },
+    "GCPNodeSpec": {
+      "description": "GCPNodeSpec gcp specific node settings",
+      "type": "object",
+      "properties": {
+        "diskSize": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "DiskSize"
+        },
+        "diskType": {
+          "type": "string",
+          "x-go-name": "DiskType"
+        },
+        "labels": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "x-go-name": "Labels"
+        },
+        "machineType": {
+          "type": "string",
+          "x-go-name": "MachineType"
+        },
+        "preemptible": {
+          "type": "boolean",
+          "x-go-name": "Preemptible"
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "x-go-name": "Tags"
+        },
+        "zone": {
+          "type": "string",
+          "x-go-name": "Zone"
+        }
+      },
+      "x-go-package": "github.com/kubermatic/kubermatic/api/pkg/api/v1"
     },
     "HetznerCloudSpec": {
       "type": "object",
@@ -5230,11 +5437,17 @@
         "digitalocean": {
           "$ref": "#/definitions/DigitaloceanNodeSpec"
         },
+        "gcp": {
+          "$ref": "#/definitions/GCPNodeSpec"
+        },
         "hetzner": {
           "$ref": "#/definitions/HetznerNodeSpec"
         },
         "openstack": {
           "$ref": "#/definitions/OpenstackNodeSpec"
+        },
+        "packet": {
+          "$ref": "#/definitions/PacketNodeSpec"
         },
         "vsphere": {
           "$ref": "#/definitions/VSphereNodeSpec"
@@ -5758,6 +5971,62 @@
       },
       "x-go-package": "github.com/kubermatic/kubermatic/api/pkg/api/v1"
     },
+    "PacketCloudSpec": {
+      "type": "object",
+      "title": "PacketCloudSpec specifies access data to a Packet cloud.",
+      "properties": {
+        "apiKey": {
+          "type": "string",
+          "x-go-name": "APIKey"
+        },
+        "billingCycle": {
+          "type": "string",
+          "x-go-name": "BillingCycle"
+        },
+        "projectID": {
+          "type": "string",
+          "x-go-name": "ProjectID"
+        }
+      },
+      "x-go-package": "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
+    },
+    "PacketDatacenterSpec": {
+      "type": "object",
+      "title": "PacketDatacenterSpec specifies a datacenter of Packet.",
+      "properties": {
+        "facilities": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "x-go-name": "Facilities"
+        }
+      },
+      "x-go-package": "github.com/kubermatic/kubermatic/api/pkg/api/v1"
+    },
+    "PacketNodeSpec": {
+      "description": "PacketNodeSpec specifies packet specific node settings",
+      "type": "object",
+      "required": [
+        "instanceType"
+      ],
+      "properties": {
+        "instanceType": {
+          "description": "InstanceType denotes the plan to which the device will be provisioned.",
+          "type": "string",
+          "x-go-name": "InstanceType"
+        },
+        "tags": {
+          "description": "additional instance tags",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "x-go-name": "Tags"
+        }
+      },
+      "x-go-package": "github.com/kubermatic/kubermatic/api/pkg/api/v1"
+    },
     "Preferences": {
       "type": "object",
       "properties": {
@@ -5871,11 +6140,17 @@
         "fake": {
           "$ref": "#/definitions/PublicFakeCloudSpec"
         },
+        "gcp": {
+          "$ref": "#/definitions/PublicGCPCloudSpec"
+        },
         "hetzner": {
           "$ref": "#/definitions/PublicHetznerCloudSpec"
         },
         "openstack": {
           "$ref": "#/definitions/PublicOpenstackCloudSpec"
+        },
+        "packet": {
+          "$ref": "#/definitions/PublicPacketCloudSpec"
         },
         "vsphere": {
           "$ref": "#/definitions/PublicVSphereCloudSpec"
@@ -5893,6 +6168,11 @@
       "title": "PublicFakeCloudSpec is a public counterpart of apiv1.FakeCloudSpec.",
       "x-go-package": "github.com/kubermatic/kubermatic/api/pkg/api/v1"
     },
+    "PublicGCPCloudSpec": {
+      "type": "object",
+      "title": "PublicGCPCloudSpec is a public counterpart of apiv1.GCPCloudSpec.",
+      "x-go-package": "github.com/kubermatic/kubermatic/api/pkg/api/v1"
+    },
     "PublicHetznerCloudSpec": {
       "type": "object",
       "title": "PublicHetznerCloudSpec is a public counterpart of apiv1.HetznerCloudSpec.",
@@ -5907,6 +6187,11 @@
           "x-go-name": "FloatingIPPool"
         }
       },
+      "x-go-package": "github.com/kubermatic/kubermatic/api/pkg/api/v1"
+    },
+    "PublicPacketCloudSpec": {
+      "type": "object",
+      "title": "PublicPacketCloudSpec is a public counterpart of apiv1.PacketCloudSpec.",
       "x-go-package": "github.com/kubermatic/kubermatic/api/pkg/api/v1"
     },
     "PublicServiceAccountToken": {
@@ -6200,6 +6485,10 @@
       "type": "object",
       "title": "VSphereCloudSpec specifies access data to VSphere cloud.",
       "properties": {
+        "folder": {
+          "type": "string",
+          "x-go-name": "Folder"
+        },
         "infraManagementUser": {
           "$ref": "#/definitions/VSphereCredentials"
         },
@@ -6279,6 +6568,11 @@
           "type": "integer",
           "format": "int64",
           "x-go-name": "CPUs"
+        },
+        "diskSizeGB": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "DiskSizeGB"
         },
         "memory": {
           "type": "integer",

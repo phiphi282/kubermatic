@@ -33,7 +33,7 @@ spec:
         - -v
         - "4"
         - -cluster-dns
-        - 10.10.10.10
+        - 169.254.20.10
         - -internal-listen-address
         - 0.0.0.0:8085
         command:
@@ -49,8 +49,12 @@ spec:
           value: openstack-domain
         - name: OS_TENANT_NAME
           value: openstack-tenant
+<<<<<<< HEAD
         image: docker.io/kubermatic/machine-controller:v1.1.7
         imagePullPolicy: IfNotPresent
+=======
+        image: docker.io/kubermatic/machine-controller:v1.4.2
+>>>>>>> v2.11.0
         livenessProbe:
           failureThreshold: 3
           httpGet:
@@ -69,8 +73,6 @@ spec:
           requests:
             cpu: 25m
             memory: 32Mi
-        terminationMessagePath: /dev/termination-log
-        terminationMessagePolicy: File
         volumeMounts:
         - mountPath: /etc/kubernetes/kubeconfig
           name: machinecontroller-kubeconfig

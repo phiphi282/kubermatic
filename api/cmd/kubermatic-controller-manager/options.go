@@ -6,12 +6,17 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/url"
+	"path"
 	"strings"
+
+	"go.uber.org/zap"
 
 	"github.com/kubermatic/kubermatic/api/pkg/cluster/client"
 	backupcontroller "github.com/kubermatic/kubermatic/api/pkg/controller/backup"
 	"github.com/kubermatic/kubermatic/api/pkg/features"
+	kubermaticlog "github.com/kubermatic/kubermatic/api/pkg/log"
 	"github.com/kubermatic/kubermatic/api/pkg/provider"
+	"github.com/kubermatic/kubermatic/api/pkg/resources"
 
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/util/net"
@@ -51,6 +56,8 @@ type controllerRunOptions struct {
 	monitoringEnvironmentLabel                       string
 	monitoringScrapeAnnotationPrefix                 string
 	dockerPullConfigJSONFile                         string
+	log                                              kubermaticlog.Options
+	kubermaticImage                                  string
 
 	// OIDC configuration
 	oidcCAFile             string
@@ -82,7 +89,7 @@ func newControllerRunOptions() (controllerRunOptions, error) {
 	flag.StringVar(&c.nodeAccessNetwork, "node-access-network", "10.254.0.0/16", "A network which allows direct access to nodes via VPN. Uses CIDR notation.")
 	flag.StringVar(&c.kubernetesAddonsPath, "kubernetes-addons-path", "/opt/addons/kubernetes", "Path to addon manifests. Should contain sub-folders for each addon")
 	flag.StringVar(&c.openshiftAddonsPath, "openshift-addons-path", "/opt/addons/openshift", "Path to addon manifests. Should contain sub-folders for each addon")
-	flag.StringVar(&c.kubernetesAddonsList, "kubernetes-addons-list", "canal,dashboard,dns,kube-proxy,openvpn,rbac,kubelet-configmap,default-storage-class,node-exporter", "Comma separated list of Addons to install into every user-cluster")
+	flag.StringVar(&c.kubernetesAddonsList, "kubernetes-addons-list", "canal,dashboard,dns,kube-proxy,openvpn,rbac,kubelet-configmap,default-storage-class,node-exporter,nodelocal-dns-cache", "Comma separated list of Addons to install into every user-cluster")
 	flag.StringVar(&c.openshiftAddonsList, "openshift-addons-list", "networking,openvpn,rbac", "Comma separated list of addons to install into every openshift user cluster")
 	flag.StringVar(&c.backupContainerFile, "backup-container", "", fmt.Sprintf("[Required] Filepath of a backup container yaml. It must mount a volume named %s from which it reads the etcd backups", backupcontroller.SharedVolumeName))
 	flag.StringVar(&c.cleanupContainerFile, "cleanup-container", "", "[Required] Filepath of a cleanup container yaml. The container will be used to cleanup the backup directory for a cluster after it got deleted.")
@@ -101,6 +108,9 @@ func newControllerRunOptions() (controllerRunOptions, error) {
 	flag.StringVar(&c.oidcIssuerURL, "oidc-issuer-url", "", "URL of the OpenID token issuer. Example: http://auth.int.kubermatic.io")
 	flag.StringVar(&c.oidcIssuerClientID, "oidc-issuer-client-id", "", "Issuer client ID")
 	flag.StringVar(&c.oidcIssuerClientSecret, "oidc-issuer-client-secret", "", "OpenID client secret")
+	flag.BoolVar(&c.log.Debug, "log-debug", false, "Enables debug logging")
+	flag.StringVar(&c.log.Format, "log-format", string(kubermaticlog.FormatJSON), "Log format. Available are: "+kubermaticlog.AvailableFormats.String())
+	flag.StringVar(&c.kubermaticImage, "kubermatic-image", resources.DefaultKubermaticImage, "The location from which to pull the Kubermatic image")
 	flag.Parse()
 
 	featureGates, err := features.NewFeatures(rawFeatureGates)
@@ -114,6 +124,10 @@ func newControllerRunOptions() (controllerRunOptions, error) {
 		return c, fmt.Errorf("failed to parse value of flag etcd-disk-size (%q): %v", rawEtcdDiskSize, err)
 	}
 	c.etcdDiskSize = etcdDiskSize
+
+	if c.overwriteRegistry != "" {
+		c.overwriteRegistry = path.Clean(strings.TrimSpace(c.overwriteRegistry))
+	}
 
 	return c, nil
 }
@@ -183,6 +197,10 @@ func (o controllerRunOptions) validate() error {
 		return errors.New("The metrics-server addon must be disabled, it is now deployed inside the seed cluster")
 	}
 
+	if err := o.log.Validate(); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -209,4 +227,5 @@ type controllerContext struct {
 	clientProvider       client.UserClusterConnectionProvider
 	dcs                  map[string]provider.DatacenterMeta
 	dockerPullConfigJSON []byte
+	log                  *zap.SugaredLogger
 }

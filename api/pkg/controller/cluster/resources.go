@@ -3,17 +3,20 @@ package cluster
 import (
 	"context"
 	"fmt"
+
 	kubermaticv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
 	"github.com/kubermatic/kubermatic/api/pkg/resources"
 	"github.com/kubermatic/kubermatic/api/pkg/resources/apiserver"
 	"github.com/kubermatic/kubermatic/api/pkg/resources/certificates"
 	"github.com/kubermatic/kubermatic/api/pkg/resources/cloudconfig"
-	clusterproxy "github.com/kubermatic/kubermatic/api/pkg/resources/clusterproxy"
+	"github.com/kubermatic/kubermatic/api/pkg/resources/clusterautoscaler"
+	"github.com/kubermatic/kubermatic/api/pkg/resources/clusterproxy"
 	"github.com/kubermatic/kubermatic/api/pkg/resources/controllermanager"
 	"github.com/kubermatic/kubermatic/api/pkg/resources/dns"
 	"github.com/kubermatic/kubermatic/api/pkg/resources/etcd"
 	"github.com/kubermatic/kubermatic/api/pkg/resources/machinecontroller"
-	"github.com/kubermatic/kubermatic/api/pkg/resources/metrics-server"
+	metricsserver "github.com/kubermatic/kubermatic/api/pkg/resources/metrics-server"
+	"github.com/kubermatic/kubermatic/api/pkg/resources/nodeportproxy"
 	"github.com/kubermatic/kubermatic/api/pkg/resources/openvpn"
 	"github.com/kubermatic/kubermatic/api/pkg/resources/reconciling"
 	"github.com/kubermatic/kubermatic/api/pkg/resources/scheduler"
@@ -34,6 +37,16 @@ func (r *Reconciler) ensureResourcesAreDeployed(ctx context.Context, cluster *ku
 	// check that all services are available
 	if err := r.ensureServices(ctx, cluster, data); err != nil {
 		return err
+	}
+
+	// Set the hostname & url
+	if err := r.syncAddress(ctx, cluster); err != nil {
+		return fmt.Errorf("failed to sync address: %v", err)
+	}
+
+	// We should not proceed without having an IP address. Its required for all Kubeconfigs & triggers errors otherwise.
+	if cluster.Address.IP == "" {
+		return nil
 	}
 
 	// check that all secrets are available // New way of handling secrets
@@ -81,6 +94,12 @@ func (r *Reconciler) ensureResourcesAreDeployed(ctx context.Context, cluster *ku
 		return err
 	}
 
+	if cluster.Spec.ExposeStrategy == corev1.ServiceTypeLoadBalancer {
+		if err := nodeportproxy.EnsureResources(ctx, r.Client, data); err != nil {
+			return fmt.Errorf("failed to ensure NodePortProxy resources: %v", err)
+		}
+	}
+
 	return nil
 }
 
@@ -110,6 +129,8 @@ func (r *Reconciler) getClusterTemplateData(ctx context.Context, cluster *kuberm
 		r.oidcCAFile,
 		r.oidcIssuerURL,
 		r.oidcIssuerClientID,
+		r.nodeLocalDNSCacheEnabled,
+		r.kubermaticImage,
 	), nil
 }
 
@@ -144,16 +165,22 @@ func (r *Reconciler) ensureNamespaceExists(ctx context.Context, cluster *kuberma
 
 // GetServiceCreators returns all service creators that are currently in use
 func GetServiceCreators(data *resources.TemplateData) []reconciling.NamedServiceCreatorGetter {
-	return []reconciling.NamedServiceCreatorGetter{
+	creators := []reconciling.NamedServiceCreatorGetter{
 		apiserver.InternalServiceCreator(),
-		apiserver.ExternalServiceCreator(),
-		openvpn.ServiceCreator(),
+		apiserver.ExternalServiceCreator(data.Cluster().Spec.ExposeStrategy),
+		openvpn.ServiceCreator(data.Cluster().Spec.ExposeStrategy),
 		etcd.ServiceCreator(data),
 		dns.ServiceCreator(),
 		machinecontroller.ServiceCreator(),
 		metricsserver.ServiceCreator(),
 		clusterproxy.ServiceCreator(data),
 	}
+
+	if data.Cluster().Spec.ExposeStrategy == corev1.ServiceTypeLoadBalancer {
+		creators = append(creators, nodeportproxy.FrontLoadBalancerServiceCreator())
+	}
+
+	return creators
 }
 
 func (r *Reconciler) ensureServices(ctx context.Context, c *kubermaticv1.Cluster, data *resources.TemplateData) error {
@@ -163,7 +190,7 @@ func (r *Reconciler) ensureServices(ctx context.Context, c *kubermaticv1.Cluster
 
 // GetDeploymentCreators returns all DeploymentCreators that are currently in use
 func GetDeploymentCreators(data *resources.TemplateData, enableAPIserverOIDCAuthentication bool) []reconciling.NamedDeploymentCreatorGetter {
-	return []reconciling.NamedDeploymentCreatorGetter{
+	deployments := []reconciling.NamedDeploymentCreatorGetter{
 		openvpn.DeploymentCreator(data),
 		dns.DeploymentCreator(data),
 		apiserver.DeploymentCreator(data, enableAPIserverOIDCAuthentication),
@@ -175,6 +202,12 @@ func GetDeploymentCreators(data *resources.TemplateData, enableAPIserverOIDCAuth
 		usercluster.DeploymentCreator(data, false),
 		clusterproxy.DeploymentCreator(data),
 	}
+	if data.Cluster().Annotations[kubermaticv1.AnnotationNameClusterAutoscalerEnabled] != "" &&
+		data.Cluster().Spec.Version.Minor() > 13 {
+		deployments = append(deployments, clusterautoscaler.DeploymentCreator(data))
+	}
+
+	return deployments
 }
 
 func (r *Reconciler) ensureDeployments(ctx context.Context, cluster *kubermaticv1.Cluster, data *resources.TemplateData) error {
@@ -211,8 +244,16 @@ func (r *Reconciler) GetSecretCreators(data *resources.TemplateData) []reconcili
 		apiserver.TokenUsersCreator(data),
 	}
 
+	if data.Cluster().Spec.Version.Minor() > 13 {
+		creators = append(creators, resources.GetInternalKubeconfigCreator(resources.ClusterAutoscalerKubeconfigSecretName, resources.ClusterAutoscalerCertUsername, nil, data))
+	}
+
 	if len(data.OIDCCAFile()) > 0 {
 		creators = append(creators, apiserver.DexCACertificateCreator(data.GetDexCA))
+	}
+
+	if data.Cluster().Spec.Cloud.GCP != nil {
+		creators = append(creators, resources.ServiceAccountSecretCreator(data.Cluster().Spec.Cloud.GCP.ServiceAccount))
 	}
 
 	return creators
@@ -309,7 +350,7 @@ func (r *Reconciler) ensureVerticalPodAutoscalers(ctx context.Context, c *kuberm
 		return fmt.Errorf("failed to create the functions to handle VPA resources: %v", err)
 	}
 
-	return reconciling.ReconcileVerticalPodAutoscalers(ctx, creators, c.Status.NamespaceName, r.Client, reconciling.OwnerRefWrapper(resources.GetClusterRef(c)))
+	return reconciling.ReconcileVerticalPodAutoscalers(ctx, creators, c.Status.NamespaceName, r.Client)
 }
 
 func (r *Reconciler) ensureStatefulSets(ctx context.Context, c *kubermaticv1.Cluster, data *resources.TemplateData) error {

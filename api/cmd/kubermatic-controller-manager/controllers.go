@@ -80,6 +80,7 @@ func createOpenshiftController(ctrlCtx *controllerContext) error {
 			ClientSecret: ctrlCtx.runOptions.oidcIssuerClientSecret,
 			IssuerURL:    ctrlCtx.runOptions.oidcIssuerURL,
 		},
+		ctrlCtx.runOptions.kubermaticImage,
 		openshiftcontroller.Features{
 			EtcdDataCorruptionChecks: ctrlCtx.runOptions.featureGates.Enabled(EtcdDataCorruptionChecks),
 			VPA:                      ctrlCtx.runOptions.featureGates.Enabled(VerticalPodAutoscaler),
@@ -109,9 +110,11 @@ func createClusterController(ctrlCtx *controllerContext) error {
 		ctrlCtx.runOptions.inClusterPrometheusDisableDefaultScrapingConfigs,
 		ctrlCtx.runOptions.inClusterPrometheusScrapingConfigsFile,
 		ctrlCtx.dockerPullConfigJSON,
+		strings.Contains(ctrlCtx.runOptions.kubernetesAddonsList, "nodelocal-dns-cache"),
 		ctrlCtx.runOptions.oidcCAFile,
 		ctrlCtx.runOptions.oidcIssuerURL,
 		ctrlCtx.runOptions.oidcIssuerClientID,
+		ctrlCtx.runOptions.kubermaticImage,
 		cluster.Features{
 			VPA:                      ctrlCtx.runOptions.featureGates.Enabled(VerticalPodAutoscaler),
 			EtcdDataCorruptionChecks: ctrlCtx.runOptions.featureGates.Enabled(EtcdDataCorruptionChecks),
@@ -133,6 +136,7 @@ func createBackupController(ctrlCtx *controllerContext) error {
 		return fmt.Errorf("failed to parse %s as duration: %v", ctrlCtx.runOptions.backupInterval, err)
 	}
 	return backupcontroller.Add(
+		ctrlCtx.log,
 		ctrlCtx.mgr,
 		ctrlCtx.runOptions.workerCount,
 		ctrlCtx.runOptions.workerName,
@@ -156,6 +160,7 @@ func createMonitoringController(ctrlCtx *controllerContext) error {
 
 	return monitoring.Add(
 		ctrlCtx.mgr,
+		ctrlCtx.log,
 		ctrlCtx.runOptions.workerCount,
 		ctrlCtx.runOptions.workerName,
 		ctrlCtx.clientProvider,
@@ -172,6 +177,7 @@ func createMonitoringController(ctrlCtx *controllerContext) error {
 		ctrlCtx.runOptions.inClusterPrometheusDisableDefaultScrapingConfigs,
 		ctrlCtx.runOptions.inClusterPrometheusScrapingConfigsFile,
 		dockerPullConfigJSON,
+		strings.Contains(ctrlCtx.runOptions.kubernetesAddonsList, "nodelocal-dns-cache"),
 
 		monitoring.Features{
 			VPA: ctrlCtx.runOptions.featureGates.Enabled(VerticalPodAutoscaler),
@@ -215,6 +221,7 @@ func createUpdateController(ctrlCtx *controllerContext) error {
 func createAddonController(ctrlCtx *controllerContext) error {
 	return addon.Add(
 		ctrlCtx.mgr,
+		ctrlCtx.log,
 		ctrlCtx.runOptions.workerCount,
 		ctrlCtx.runOptions.workerName,
 		map[string]interface{}{ // addonVariables
@@ -245,6 +252,7 @@ func createAddonInstallerController(ctrlCtx *controllerContext) error {
 	}
 
 	return addoninstaller.Add(
+		ctrlCtx.log,
 		ctrlCtx.mgr,
 		ctrlCtx.runOptions.workerCount,
 		ctrlCtx.runOptions.workerName,

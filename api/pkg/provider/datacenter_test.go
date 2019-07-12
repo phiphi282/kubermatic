@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+
+	utilpointer "k8s.io/utils/pointer"
 )
 
 func TestLoadDatacentersMeta(t *testing.T) {
@@ -63,7 +65,6 @@ datacenters:
 			Spec: DatacenterSpec{
 				BringYourOwn: &BringYourOwnSpec{},
 			},
-			Private:          false,
 			IsSeed:           true,
 			SeedDNSOverwrite: nil,
 		},
@@ -76,7 +77,6 @@ datacenters:
 					Region: "ams3",
 				},
 			},
-			Private:          false,
 			IsSeed:           false,
 			SeedDNSOverwrite: nil,
 		},
@@ -97,7 +97,6 @@ datacenters:
 					EnforceFloatingIP: true,
 				},
 			},
-			Private:          false,
 			IsSeed:           false,
 			SeedDNSOverwrite: nil,
 		},
@@ -120,4 +119,63 @@ datacenters:
 	assert.NoError(t, err)
 
 	assert.Equal(t, expectedDatacenters, resultDatacenters)
+}
+
+func TestValidateDataCenters(t *testing.T) {
+	testCases := []struct {
+		name        string
+		datacenters map[string]DatacenterMeta
+		errExpected bool
+	}{
+		{
+			name: "Invalid name, error",
+			datacenters: map[string]DatacenterMeta{
+				"&invalid": {
+					IsSeed: true,
+				},
+			},
+			errExpected: true,
+		},
+		{
+			name: "Valid name succeeds",
+			datacenters: map[string]DatacenterMeta{
+				"valid": {
+					IsSeed: true,
+				},
+			},
+		},
+		{
+			name: "Invalid name, valid seed dns override",
+			datacenters: map[string]DatacenterMeta{
+				"&invalid": {
+					IsSeed:           true,
+					SeedDNSOverwrite: utilpointer.StringPtr("valid"),
+				},
+			},
+		},
+		{
+			name: "Valid name, invalid seed dns override",
+			datacenters: map[string]DatacenterMeta{
+				"valid": {
+					IsSeed:           true,
+					SeedDNSOverwrite: utilpointer.StringPtr("&invalid"),
+				},
+			},
+			errExpected: true,
+		},
+		{
+			name: "Invalid name, but is not a seed",
+			datacenters: map[string]DatacenterMeta{
+				"&invalid": {},
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := validateDatacenters(tc.datacenters); (err != nil) != tc.errExpected {
+				t.Fatalf("Expected err: %t, but got err: %v", tc.errExpected, err)
+			}
+		})
+	}
 }

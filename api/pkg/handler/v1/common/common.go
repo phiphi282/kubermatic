@@ -1,10 +1,12 @@
 package common
 
 import (
+	"github.com/prometheus/client_golang/prometheus"
+
 	"github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
+	"github.com/kubermatic/kubermatic/api/pkg/presets"
 	"github.com/kubermatic/kubermatic/api/pkg/provider"
 	"github.com/kubermatic/kubermatic/api/pkg/version"
-	"github.com/prometheus/client_golang/prometheus"
 )
 
 // OIDCConfiguration is a struct that holds
@@ -28,11 +30,17 @@ type OIDCConfiguration struct {
 
 // UpdateManager specifies a set of methods to handle cluster versions & updates
 type UpdateManager interface {
-	GetVersion(string) (*version.MasterVersion, error)
-	GetMasterVersions() ([]*version.MasterVersion, error)
+	GetVersion(from, clusterType string) (*version.MasterVersion, error)
+	GetMasterVersions(string) ([]*version.MasterVersion, error)
 	GetDefault() (*version.MasterVersion, error)
-	AutomaticUpdate(from string) (*version.MasterVersion, error)
-	GetPossibleUpdates(from string) ([]*version.MasterVersion, error)
+	AutomaticUpdate(from, clusterType string) (*version.MasterVersion, error)
+	GetPossibleUpdates(from, clusterType string) ([]*version.MasterVersion, error)
+}
+
+// PresetsManager specifies a set of methods to handle presets for specific provider
+type PresetsManager interface {
+	GetPresets() *presets.Presets
+	SetCloudCredentials(credentialName string, cloud v1.CloudSpec) (*v1.CloudSpec, error)
 }
 
 // ServerMetrics defines metrics used by the API.

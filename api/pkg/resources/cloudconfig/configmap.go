@@ -1,6 +1,9 @@
 package cloudconfig
 
 import (
+	"encoding/base64"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -10,6 +13,7 @@ import (
 	"github.com/kubermatic/kubermatic/api/pkg/resources/reconciling"
 	"github.com/kubermatic/machine-controller/pkg/cloudprovider/provider/aws"
 	"github.com/kubermatic/machine-controller/pkg/cloudprovider/provider/azure"
+	"github.com/kubermatic/machine-controller/pkg/cloudprovider/provider/gce"
 	"github.com/kubermatic/machine-controller/pkg/cloudprovider/provider/openstack"
 	"github.com/kubermatic/machine-controller/pkg/cloudprovider/provider/vsphere"
 
@@ -52,14 +56,17 @@ func CloudConfig(cluster *kubermaticv1.Cluster, dc *provider.DatacenterMeta) (cl
 	cloud := cluster.Spec.Cloud
 	if cloud.AWS != nil {
 		awsCloudConfig := &aws.CloudConfig{
+			// Dummy AZ, so that K8S can extract the region from it.
+			// https://github.com/kubernetes/kubernetes/blob/v1.15.0/staging/src/k8s.io/legacy-cloud-providers/aws/aws.go#L1199
+			// https://github.com/kubernetes/kubernetes/blob/v1.15.0/staging/src/k8s.io/legacy-cloud-providers/aws/aws.go#L1174
 			Global: aws.GlobalOpts{
-				Zone:                        cloud.AWS.AvailabilityZone,
+				Zone:                        dc.Spec.AWS.Region + "x",
 				VPC:                         cloud.AWS.VPCID,
 				KubernetesClusterID:         cluster.Name,
 				DisableSecurityGroupIngress: false,
-				SubnetID:                    cloud.AWS.SubnetID,
 				RouteTableID:                cloud.AWS.RouteTableID,
 				DisableStrictZoneCheck:      true,
+				RoleARN:                     cloud.AWS.RoleARN,
 			},
 		}
 		cloudConfig, err = aws.CloudConfigToString(awsCloudConfig)
@@ -143,6 +150,47 @@ func CloudConfig(cluster *kubermaticv1.Cluster, dc *provider.DatacenterMeta) (cl
 			},
 		}
 		cloudConfig, err = vsphere.CloudConfigToString(vsphereCloudConfig)
+		if err != nil {
+			return cloudConfig, err
+		}
+	} else if cloud.GCP != nil {
+		b, err := base64.StdEncoding.DecodeString(cloud.GCP.ServiceAccount)
+		if err != nil {
+			return "", fmt.Errorf("error decoding service account: %v", err)
+		}
+		sam := map[string]string{}
+		err = json.Unmarshal(b, &sam)
+		if err != nil {
+			return "", fmt.Errorf("failed unmarshalling service account: %v", err)
+		}
+		projectID := sam["project_id"]
+		if projectID == "" {
+			return "", errors.New("empty project_id")
+		}
+
+		tag := fmt.Sprintf("kubernetes-cluster-%s", cluster.Name)
+		localZone := dc.Spec.GCP.Region + "-" + dc.Spec.GCP.ZoneSuffixes[0]
+		var multizone bool
+		if len(dc.Spec.GCP.ZoneSuffixes) > 1 {
+			multizone = true
+		}
+		if cloud.GCP.Network == "" {
+			cloud.GCP.Network = "global/networks/default"
+		}
+
+		gcpCloudConfig := &gce.CloudConfig{
+			Global: gce.GlobalOpts{
+				ProjectID:      projectID,
+				LocalZone:      localZone,
+				MultiZone:      multizone,
+				Regional:       dc.Spec.GCP.Regional,
+				NetworkName:    cloud.GCP.Network,
+				SubnetworkName: cloud.GCP.Subnetwork,
+				TokenURL:       "nil",
+				NodeTags:       []string{tag},
+			},
+		}
+		cloudConfig, err = gcpCloudConfig.AsString()
 		if err != nil {
 			return cloudConfig, err
 		}

@@ -7,8 +7,10 @@ import (
 	"github.com/kubermatic/machine-controller/pkg/cloudprovider/provider/aws"
 	"github.com/kubermatic/machine-controller/pkg/cloudprovider/provider/azure"
 	"github.com/kubermatic/machine-controller/pkg/cloudprovider/provider/digitalocean"
+	"github.com/kubermatic/machine-controller/pkg/cloudprovider/provider/gce"
 	"github.com/kubermatic/machine-controller/pkg/cloudprovider/provider/hetzner"
 	"github.com/kubermatic/machine-controller/pkg/cloudprovider/provider/openstack"
+	"github.com/kubermatic/machine-controller/pkg/cloudprovider/provider/packet"
 	"github.com/kubermatic/machine-controller/pkg/cloudprovider/provider/vsphere"
 	"github.com/kubermatic/machine-controller/pkg/providerconfig"
 	"github.com/kubermatic/machine-controller/pkg/userdata/centos"
@@ -130,8 +132,34 @@ func GetAPIV2NodeCloudSpec(machineSpec clusterv1alpha1.MachineSpec) (*apiv1.Node
 		cloudSpec.VSphere = &apiv1.VSphereNodeSpec{
 			CPUs:            int(config.CPUs),
 			Memory:          int(config.MemoryMB),
+			DiskSizeGB:      config.DiskSizeGB,
 			Template:        config.TemplateVMName.Value,
 			TemplateNetName: config.TemplateNetName.Value,
+		}
+	case providerconfig.CloudProviderPacket:
+		config := &packet.RawConfig{}
+		if err := json.Unmarshal(decodedProviderSpec.CloudProviderSpec.Raw, &config); err != nil {
+			return nil, fmt.Errorf("failed to parse packet config: %v", err)
+		}
+		cloudSpec.Packet = &apiv1.PacketNodeSpec{
+			InstanceType: config.InstanceType.Value,
+		}
+		for _, v := range config.Tags {
+			cloudSpec.Packet.Tags = append(cloudSpec.Packet.Tags, v.Value)
+		}
+	case providerconfig.CloudProviderGoogle:
+		config := &gce.CloudProviderSpec{}
+		if err := json.Unmarshal(decodedProviderSpec.CloudProviderSpec.Raw, &config); err != nil {
+			return nil, fmt.Errorf("failed to parse gcp config: %v", err)
+		}
+		cloudSpec.GCP = &apiv1.GCPNodeSpec{
+			Zone:        config.Zone.Value,
+			MachineType: config.MachineType.Value,
+			DiskSize:    config.DiskSize,
+			DiskType:    config.DiskType.Value,
+			Preemptible: config.Preemptible.Value,
+			Labels:      config.Labels,
+			Tags:        config.Tags,
 		}
 	default:
 		return nil, fmt.Errorf("unknown cloud provider %q", decodedProviderSpec.CloudProvider)

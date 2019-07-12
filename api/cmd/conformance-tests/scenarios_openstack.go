@@ -32,13 +32,12 @@ func getOpenStackScenarios(versions []*semver.Semver) []testScenario {
 			},
 		})
 		// CentOS
-		//TODO: Fix
-		//scenarios = append(scenarios, &openStackScenario{
-		//	version: v,
-		//	nodeOsSpec: kubermaticapiv1.OperatingSystemSpec{
-		//		CentOS: &kubermaticapiv1.CentOSSpec{},
-		//	},
-		//})
+		scenarios = append(scenarios, &openStackScenario{
+			version: v,
+			nodeOsSpec: kubermaticapiv1.OperatingSystemSpec{
+				CentOS: &kubermaticapiv1.CentOSSpec{},
+			},
+		})
 	}
 
 	return scenarios
@@ -81,7 +80,7 @@ func (s *openStackScenario) Cluster(secrets secrets) *v1.Cluster {
 	}
 }
 
-func (s *openStackScenario) Nodes(num int) *kubermaticapiv1.NodeDeployment {
+func (s *openStackScenario) Nodes(num int, _ secrets) *kubermaticapiv1.NodeDeployment {
 	osName := getOSNameFromSpec(s.nodeOsSpec)
 	return &kubermaticapiv1.NodeDeployment{
 		Spec: kubermaticapiv1.NodeDeploymentSpec{

@@ -24,7 +24,7 @@ const (
 var (
 	defaultResourceRequirements = corev1.ResourceRequirements{
 		Requests: corev1.ResourceList{
-			corev1.ResourceMemory: resource.MustParse("128Mi"),
+			corev1.ResourceMemory: resource.MustParse("256Mi"),
 			corev1.ResourceCPU:    resource.MustParse("50m"),
 		},
 		Limits: corev1.ResourceList{
@@ -74,7 +74,9 @@ func StatefulSetCreator(data *resources.TemplateData) reconciling.NamedStatefulS
 			}
 			set.Spec.Template.Spec.ImagePullSecrets = []corev1.LocalObjectReference{{Name: resources.ImagePullSecretName}}
 			set.Spec.Template.Spec.ServiceAccountName = resources.PrometheusServiceAccountName
-			set.Spec.Template.Spec.TerminationGracePeriodSeconds = resources.Int64(600)
+			// We don't persist data, so there's no need for a graceful shutdown.
+			// The faster restart time is preferable
+			set.Spec.Template.Spec.TerminationGracePeriodSeconds = resources.Int64(0)
 			resourceRequirements := defaultResourceRequirements
 			if data.Cluster().Spec.ComponentsOverride.Prometheus.Resources != nil {
 				resourceRequirements = *data.Cluster().Spec.ComponentsOverride.Prometheus.Resources

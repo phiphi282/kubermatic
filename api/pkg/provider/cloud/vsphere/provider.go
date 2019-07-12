@@ -32,7 +32,7 @@ type Network struct {
 }
 
 // NewCloudProvider creates a new vSphere provider.
-func NewCloudProvider(dcs map[string]provider.DatacenterMeta) provider.CloudProvider {
+func NewCloudProvider(dcs map[string]provider.DatacenterMeta) *Provider {
 	return &Provider{
 		dcs: dcs,
 	}
@@ -80,6 +80,11 @@ func (v *Provider) getVsphereRootPath(spec kubermaticv1.CloudSpec) (string, erro
 
 // createVMFolderForCluster adds a vm folder beneath the rootpath set in the datacenter.yamls with the name of the cluster.
 func (v *Provider) createVMFolderForCluster(cluster *kubermaticv1.Cluster, update provider.ClusterUpdater) (*kubermaticv1.Cluster, error) {
+	// Don't add the finalizer if the folder is passed in
+	if cluster.Spec.Cloud.VSphere.Folder != "" {
+		return cluster, nil
+	}
+
 	dcRootPath, err := v.getVsphereRootPath(cluster.Spec.Cloud)
 	if err != nil {
 		return nil, err
@@ -99,7 +104,7 @@ func (v *Provider) createVMFolderForCluster(cluster *kubermaticv1.Cluster, updat
 	if err != nil {
 		return nil, fmt.Errorf("couldn't find rootpath, see: %v", err)
 	}
-	_, err = finder.Folder(ctx, cluster.ObjectMeta.Name)
+	_, err = finder.Folder(ctx, cluster.Name)
 	if err != nil {
 		if _, ok := err.(*find.NotFoundError); !ok {
 			return nil, fmt.Errorf("Failed to get cluster folder: %v", err)
@@ -109,13 +114,14 @@ func (v *Provider) createVMFolderForCluster(cluster *kubermaticv1.Cluster, updat
 		}
 	}
 
-	if !kuberneteshelper.HasFinalizer(cluster, folderCleanupFinalizer) {
-		cluster, err = update(cluster.Name, func(cluster *kubermaticv1.Cluster) {
+	cluster, err = update(cluster.Name, func(cluster *kubermaticv1.Cluster) {
+		if !kuberneteshelper.HasFinalizer(cluster, folderCleanupFinalizer) {
 			cluster.Finalizers = append(cluster.Finalizers, folderCleanupFinalizer)
-		})
-		if err != nil {
-			return nil, err
 		}
+		cluster.Spec.Cloud.VSphere.Folder = fmt.Sprintf("%s/%s", dcRootPath, cluster.Name)
+	})
+	if err != nil {
+		return nil, err
 	}
 
 	return cluster, nil
@@ -245,7 +251,7 @@ func (v *Provider) CleanUpCloudProvider(cluster *kubermaticv1.Cluster, update pr
 		}
 		// Folder is not there anymore, maybe someone deleted it manually
 		cluster, err = update(cluster.Name, func(cluster *kubermaticv1.Cluster) {
-			cluster.Finalizers = kuberneteshelper.RemoveFinalizer(cluster.Finalizers, folderCleanupFinalizer)
+			kuberneteshelper.RemoveFinalizer(cluster, folderCleanupFinalizer)
 		})
 		if err != nil {
 			return nil, err
@@ -262,7 +268,7 @@ func (v *Provider) CleanUpCloudProvider(cluster *kubermaticv1.Cluster, update pr
 	}
 
 	cluster, err = update(cluster.Name, func(cluster *kubermaticv1.Cluster) {
-		cluster.Finalizers = kuberneteshelper.RemoveFinalizer(cluster.Finalizers, folderCleanupFinalizer)
+		kuberneteshelper.RemoveFinalizer(cluster, folderCleanupFinalizer)
 	})
 	if err != nil {
 		return nil, err
@@ -276,4 +282,9 @@ func logout(client *govmomi.Client) {
 	if err := client.Logout(context.Background()); err != nil {
 		kruntime.HandleError(fmt.Errorf("Failed to logout from vsphere: %v", err))
 	}
+}
+
+// ValidateCloudSpecUpdate verifies whether an update of cloud spec is valid and permitted
+func (v *Provider) ValidateCloudSpecUpdate(oldSpec kubermaticv1.CloudSpec, newSpec kubermaticv1.CloudSpec) error {
+	return nil
 }

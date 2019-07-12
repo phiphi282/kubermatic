@@ -18,8 +18,13 @@ spec:
         tags:
         - digitalocean-example-tag-1
         - digitalocean-example-tag-2
+<<<<<<< HEAD
         - metakube
         - metakube-cluster-docluster-1a2b3c4d5e
+=======
+        - kubernetes
+        - kubernetes-cluster-docluster-1a2b3c4d5e
+>>>>>>> v2.11.0
         token: ""
       operatingSystem: ubuntu
       operatingSystemSpec:

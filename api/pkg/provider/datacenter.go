@@ -9,6 +9,7 @@ import (
 	"gopkg.in/yaml.v2"
 
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/apimachinery/pkg/util/validation"
 )
 
 // DigitaloceanSpec describes a DigitalOcean datacenter
@@ -97,6 +98,18 @@ type AWSSpec struct {
 type BringYourOwnSpec struct {
 }
 
+// PacketSpec describes a packet datacenter
+type PacketSpec struct {
+	Facilities []string `yaml:"facilities"`
+}
+
+// GCPSpec describes a GCP datacenter
+type GCPSpec struct {
+	Region       string   `yaml:"region"`
+	ZoneSuffixes []string `yaml:"zone_suffixes"`
+	Regional     bool     `yaml:"regional,omitempty"`
+}
+
 // DatacenterSpec describes mutually points to provider datacenter spec
 type DatacenterSpec struct {
 	Digitalocean *DigitaloceanSpec `yaml:"digitalocean,omitempty"`
@@ -104,8 +117,24 @@ type DatacenterSpec struct {
 	AWS          *AWSSpec          `yaml:"aws,omitempty"`
 	Azure        *AzureSpec        `yaml:"azure,omitempty"`
 	Openstack    *OpenstackSpec    `yaml:"openstack,omitempty"`
+	Packet       *PacketSpec       `yaml:"packet,omitempty"`
 	Hetzner      *HetznerSpec      `yaml:"hetzner,omitempty"`
 	VSphere      *VSphereSpec      `yaml:"vsphere,omitempty"`
+	GCP          *GCPSpec          `yaml:"gcp,omitempty"`
+}
+
+// NodeSettings are node specific which can be configured on datacenter level
+type NodeSettings struct {
+	// If set, this proxy will be configured on all nodes.
+	HTTPProxy string `yaml:"http_proxy,omitempty"`
+	// If set this will be set as NO_PROXY on the node
+	NoProxy string `yaml:"no_proxy,omitempty"`
+	// If set, this image registry will be configured as insecure on the container runtime.
+	InsecureRegistries []string `yaml:"insecure_registries,omitempty"`
+	// Translates to --pod-infra-container-image on the kubelet. If not set, the kubelet will default it
+	PauseImage string `yaml:"pause_image,omitempty"`
+	// The hyperkube image to use. Currently only Container Linux uses it
+	HyperkubeImage string `yaml:"hyperkube_image,omitempty"`
 }
 
 // DatacenterMeta describes a Kubermatic datacenter.
@@ -114,9 +143,9 @@ type DatacenterMeta struct {
 	Seed             string         `yaml:"seed"`
 	Country          string         `yaml:"country"`
 	Spec             DatacenterSpec `yaml:"spec"`
-	Private          bool           `yaml:"private"`
 	IsSeed           bool           `yaml:"is_seed"`
 	SeedDNSOverwrite *string        `yaml:"seed_dns_overwrite,omitempty"`
+	Node             NodeSettings   `yaml:"node,omitempty"`
 }
 
 // datacentersMeta describes a number of Kubermatic datacenters.
@@ -161,6 +190,22 @@ func validateDatacenters(datacenters map[string]DatacenterMeta) error {
 			if err := validateImageList(dc.Spec.Openstack.Images); err != nil {
 				return fmt.Errorf("invalid datacenter defined '%s': %v", name, err)
 			}
+		}
+	}
+
+	for datacenterName, datacenter := range datacenters {
+		if !datacenter.IsSeed {
+			continue
+		}
+		if datacenter.SeedDNSOverwrite != nil && *datacenter.SeedDNSOverwrite != "" {
+			if errs := validation.IsDNS1123Subdomain(*datacenter.SeedDNSOverwrite); errs != nil {
+				return fmt.Errorf("SeedDNS overwrite %q of datacenter %q is not a valid DNS name: %v",
+					*datacenter.SeedDNSOverwrite, datacenterName, errs)
+			}
+			continue
+		}
+		if errs := validation.IsDNS1123Subdomain(datacenterName); errs != nil {
+			return fmt.Errorf("Datacentername %q is not a valid DNS name: %v", datacenterName, errs)
 		}
 	}
 

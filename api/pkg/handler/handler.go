@@ -6,8 +6,7 @@ import (
 	"net/http"
 	"reflect"
 
-	"github.com/golang/glog"
-
+	"github.com/kubermatic/kubermatic/api/pkg/log"
 	"github.com/kubermatic/kubermatic/api/pkg/util/errors"
 )
 
@@ -71,7 +70,7 @@ func errorEncoder(ctx context.Context, err error, w http.ResponseWriter) {
 	w.WriteHeader(errorCode)
 	err = encodeJSON(ctx, w, e)
 	if err != nil {
-		glog.Info(err)
+		log.Logger.Error(err)
 	}
 }
 
@@ -108,6 +107,7 @@ func statusOK(res http.ResponseWriter, _ *http.Request) {
 
 func setStatusCreatedHeader(f func(context.Context, http.ResponseWriter, interface{}) error) func(context.Context, http.ResponseWriter, interface{}) error {
 	return func(ctx context.Context, r http.ResponseWriter, i interface{}) error {
+		r.Header().Set(headerContentType, contentTypeJSON)
 		r.WriteHeader(http.StatusCreated)
 		return f(ctx, r, i)
 	}

@@ -10,6 +10,8 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/util/retry"
 	ctrlruntimeclient "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/event"
@@ -91,13 +93,18 @@ func (r *Reconciler) labelAllContainerLinuxNodes(ctx context.Context) (bool, err
 		hasLabel := hasContainerLinuxLabel(&node)
 
 		if usesContainerLinux && !hasLabel {
-			if node.Labels == nil {
-				node.Labels = map[string]string{}
-			}
-			node.Labels[resources.NodeSelectorLabelKey] = resources.NodeSelectorLabelValue
-
-			if err := r.Client.Update(ctx, &node); err != nil {
-				return false, fmt.Errorf("failed to update node: %v", err)
+			if err := retry.RetryOnConflict(retry.DefaultBackoff, func() error {
+				newNode := &corev1.Node{}
+				if err := r.Get(ctx, types.NamespacedName{Name: node.Name}, newNode); err != nil {
+					return err
+				}
+				if newNode.Labels == nil {
+					newNode.Labels = map[string]string{}
+				}
+				newNode.Labels[resources.NodeSelectorLabelKey] = resources.NodeSelectorLabelValue
+				return r.Client.Update(ctx, newNode)
+			}); err != nil {
+				return false, fmt.Errorf("failed to update node %q: %v", node.Name, err)
 			}
 		}
 
@@ -133,16 +140,12 @@ func (r *Reconciler) reconcileUpdateOperatorResources(ctx context.Context) error
 		return fmt.Errorf("failed to reconcile the ClusterRoleBindings: %v", err)
 	}
 
-	depCreators := []reconciling.NamedDeploymentCreatorGetter{
-		resources.DeploymentCreator(r.DefaultRegistry),
-	}
+	depCreators := GetDeploymentCreators(r.overwriteRegistry)
 	if err := reconciling.ReconcileDeployments(ctx, depCreators, metav1.NamespaceSystem, r.Client); err != nil {
 		return fmt.Errorf("failed to reconcile the Deployments: %v", err)
 	}
 
-	dsCreators := []reconciling.NamedDaemonSetCreatorGetter{
-		resources.DaemonSetCreator(r.DefaultRegistry),
-	}
+	dsCreators := GetDaemonSetCreators(r.overwriteRegistry)
 	if err := reconciling.ReconcileDaemonSets(ctx, dsCreators, metav1.NamespaceSystem, r.Client); err != nil {
 		return fmt.Errorf("failed to reconcile the DaemonSet: %v", err)
 	}
@@ -150,11 +153,13 @@ func (r *Reconciler) reconcileUpdateOperatorResources(ctx context.Context) error
 	return nil
 }
 
-func (r *Reconciler) DefaultRegistry(defaultRegistry string) string {
-	if r.overwriteRegistry != "" {
-		return r.overwriteRegistry
+func getRegistryDefaultFunc(overwriteRegistry string) func(defaultRegistry string) string {
+	return func(defaultRegistry string) string {
+		if overwriteRegistry != "" {
+			return overwriteRegistry
+		}
+		return defaultRegistry
 	}
-	return defaultRegistry
 }
 
 func isContainerLinuxNode(node *corev1.Node) bool {
@@ -164,4 +169,15 @@ func isContainerLinuxNode(node *corev1.Node) bool {
 
 func hasContainerLinuxLabel(node *corev1.Node) bool {
 	return node.Labels[resources.NodeSelectorLabelKey] == resources.NodeSelectorLabelValue
+}
+
+func GetDeploymentCreators(overwriteRegistry string) []reconciling.NamedDeploymentCreatorGetter {
+	return []reconciling.NamedDeploymentCreatorGetter{
+		resources.DeploymentCreator(getRegistryDefaultFunc(overwriteRegistry)),
+	}
+}
+func GetDaemonSetCreators(overwriteRegistry string) []reconciling.NamedDaemonSetCreatorGetter {
+	return []reconciling.NamedDaemonSetCreatorGetter{
+		resources.DaemonSetCreator(getRegistryDefaultFunc(overwriteRegistry)),
+	}
 }

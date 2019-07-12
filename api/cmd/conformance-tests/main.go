@@ -21,20 +21,16 @@ import (
 	"golang.org/x/crypto/ssh"
 
 	clusterclient "github.com/kubermatic/kubermatic/api/pkg/cluster/client"
-	kubermaticclientset "github.com/kubermatic/kubermatic/api/pkg/crd/client/clientset/versioned"
-	kubermaticinformers "github.com/kubermatic/kubermatic/api/pkg/crd/client/informers/externalversions"
-	kubermaticv1lister "github.com/kubermatic/kubermatic/api/pkg/crd/client/listers/kubermatic/v1"
-	"github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
+	kubermaticv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
 	"github.com/kubermatic/kubermatic/api/pkg/provider"
 	"github.com/kubermatic/kubermatic/api/pkg/semver"
 	kubermaticsignals "github.com/kubermatic/kubermatic/api/pkg/signals"
-	"github.com/kubermatic/kubermatic/api/pkg/util/informer"
 	"github.com/kubermatic/machine-controller/pkg/providerconfig"
 
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/clientcmd"
+	clusterv1alpha1 "sigs.k8s.io/cluster-api/pkg/apis/cluster/v1alpha1"
 	ctrlruntimeclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -52,12 +48,9 @@ type Opts struct {
 	deleteClusterAfterTests      bool
 	kubeconfigPath               string
 	nodeCount                    int
-	nodeReadyWaitTimeout         time.Duration
 	publicKeys                   [][]byte
 	reportsRoot                  string
-	clusterLister                kubermaticv1lister.ClusterLister
-	kubermaticClient             kubermaticclientset.Interface
-	seedKubeClient               kubernetes.Interface
+	seedClusterClient            ctrlruntimeclient.Client
 	clusterClientProvider        clusterclient.UserClusterConnectionProvider
 	dcFile                       string
 	repoRoot                     string
@@ -71,6 +64,9 @@ type Opts struct {
 	excludeSelector              excludeSelector
 	excludeSelectorRaw           string
 	existingClusterLabel         string
+	openshift                    bool
+	printGinkoLogs               bool
+	onlyTestCreation             bool
 
 	secrets secrets
 }
@@ -102,16 +98,27 @@ type secrets struct {
 		Username string
 		Password string
 	}
+	Packet struct {
+		APIKey    string
+		ProjectID string
+	}
+	GCP struct {
+		ServiceAccount string
+		Network        string
+		Subnetwork     string
+		Zone           string
+	}
 }
 
 const (
-	defaultTimeout                 = 10 * time.Minute
 	defaultUserClusterPollInterval = 10 * time.Second
 	defaultAPIRetries              = 100
 
 	controlPlaneReadyPollPeriod = 5 * time.Second
 	nodesReadyPollPeriod        = 5 * time.Second
 )
+
+var defaultTimeout = 10 * time.Minute
 
 var (
 	providers  string
@@ -130,6 +137,8 @@ func main() {
 		versions:   []*semver.Semver{},
 	}
 
+	defaultTimeoutMinutes := 10
+
 	usr, err := user.Current()
 	if err != nil {
 		mainLog.Fatal(err)
@@ -138,7 +147,7 @@ func main() {
 
 	flag.StringVar(&opts.kubeconfigPath, "kubeconfig", "/config/kubeconfig", "path to kubeconfig file")
 	flag.StringVar(&opts.existingClusterLabel, "existing-cluster-label", "", "label to use to select an existing cluster for testing. If provided, no cluster will be created. Sample: my=cluster")
-	flag.StringVar(&providers, "providers", "aws,digitalocean,openstack,hetzner,vsphere,azure", "comma separated list of providers to test")
+	flag.StringVar(&providers, "providers", "aws,digitalocean,openstack,hetzner,vsphere,azure,packet,gcp", "comma separated list of providers to test")
 	flag.StringVar(&opts.namePrefix, "name-prefix", "", "prefix used for all cluster names")
 	flag.StringVar(&opts.repoRoot, "repo-root", "/opt/kube-test/", "Root path for the different kubernetes repositories")
 	flag.IntVar(&opts.nodeCount, "kubermatic-nodes", 3, "number of worker nodes")
@@ -147,7 +156,6 @@ func main() {
 	flag.StringVar(&opts.reportsRoot, "reports-root", "/opt/reports", "Root for reports")
 	flag.BoolVar(&opts.cleanupOnStart, "cleanup-on-start", false, "Cleans up all clusters on start and exit afterwards - must be used with name-prefix.")
 	flag.DurationVar(&opts.controlPlaneReadyWaitTimeout, "kubermatic-cluster-timeout", defaultTimeout, "cluster creation timeout")
-	flag.DurationVar(&opts.nodeReadyWaitTimeout, "kubermatic-nodes-timeout", defaultTimeout, "nodes creation timeout")
 	flag.BoolVar(&opts.deleteClusterAfterTests, "kubermatic-delete-cluster", true, "delete test cluster at the exit")
 	flag.BoolVar(&debug, "debug", false, "Enable debug logs")
 	flag.StringVar(&pubKeyPath, "node-ssh-pub-key", pubkeyPath, "path to a public key which gets deployed onto every node")
@@ -155,6 +163,10 @@ func main() {
 	flag.StringVar(&sversions, "versions", "v1.10.11,v1.11.6,v1.12.4,v1.13.1", "a comma-separated list of versions to test")
 	flag.StringVar(&opts.excludeSelectorRaw, "exclude-distributions", "", "a comma-separated list of distributions that will get excluded from the tests")
 	_ = flag.Bool("run-kubermatic-controller-manager", false, "Unused, but kept for compatibility reasons")
+	flag.IntVar(&defaultTimeoutMinutes, "default-timeout-minutes", 10, "The default timeout in minutes")
+	flag.BoolVar(&opts.openshift, "openshift", false, "Whether to create an openshift cluster")
+	flag.BoolVar(&opts.printGinkoLogs, "print-ginkgo-logs", false, "Whether to print ginkgo logs when ginkgo encountered failures")
+	flag.BoolVar(&opts.onlyTestCreation, "only-test-creation", false, "Only test if nodes become ready. Does not perform any extended checks like conformance tests")
 
 	flag.StringVar(&opts.secrets.AWS.AccessKeyID, "aws-access-key-id", "", "AWS: AccessKeyID")
 	flag.StringVar(&opts.secrets.AWS.SecretAccessKey, "aws-secret-access-key", "", "AWS: SecretAccessKey")
@@ -170,8 +182,16 @@ func main() {
 	flag.StringVar(&opts.secrets.Azure.ClientSecret, "azure-client-secret", "", "Azure: ClientSecret")
 	flag.StringVar(&opts.secrets.Azure.TenantID, "azure-tenant-id", "", "Azure: TenantID")
 	flag.StringVar(&opts.secrets.Azure.SubscriptionID, "azure-subscription-id", "", "Azure: SubscriptionID")
+	flag.StringVar(&opts.secrets.Packet.APIKey, "packet-api-key", "", "Packet: APIKey")
+	flag.StringVar(&opts.secrets.Packet.ProjectID, "packet-project-id", "", "Packet: ProjectID")
+	flag.StringVar(&opts.secrets.GCP.ServiceAccount, "gcp-service-account", "", "GCP: Service Account")
+	flag.StringVar(&opts.secrets.GCP.Zone, "gcp-zone", "europe-west3-c", "GCP: Zone")
+	flag.StringVar(&opts.secrets.GCP.Network, "gcp-network", "", "GCP: Network")
+	flag.StringVar(&opts.secrets.GCP.Subnetwork, "gcp-subnetwork", "", "GCP: Subnetwork")
 
 	flag.Parse()
+
+	defaultTimeout = time.Duration(defaultTimeoutMinutes) * time.Minute
 
 	if debug {
 		mainLog.SetLevel(logrus.DebugLevel)
@@ -255,31 +275,27 @@ func main() {
 		log.Fatal(err)
 	}
 
-	kubermaticClient := kubermaticclientset.NewForConfigOrDie(config)
-	opts.kubermaticClient = kubermaticClient
-	seedKubeClient := kubernetes.NewForConfigOrDie(config)
-	opts.seedKubeClient = seedKubeClient
-
-	seedCtrlruntimeClient, err := ctrlruntimeclient.New(config, ctrlruntimeclient.Options{})
-	if err != nil {
-		log.Fatalf("failed to create ctrlruntimeclient for seed: %v", err)
+	if err := kubermaticv1.SchemeBuilder.AddToScheme(scheme.Scheme); err != nil {
+		log.Fatalf("failed to add kubermatic scheme to mgr: %v", err)
+	}
+	if err := clusterv1alpha1.SchemeBuilder.AddToScheme(scheme.Scheme); err != nil {
+		log.Fatalf("failed to add clusterv1alpha1 to scheme: %v", err)
 	}
 
-	kubermaticInformerFactory := kubermaticinformers.NewSharedInformerFactory(kubermaticClient, informer.DefaultInformerResyncPeriod)
+	seedClusterClient, err := ctrlruntimeclient.New(config, ctrlruntimeclient.Options{})
+	if err != nil {
+		log.Fatal(err)
+	}
+	opts.seedClusterClient = seedClusterClient
 
-	opts.clusterLister = kubermaticInformerFactory.Kubermatic().V1().Clusters().Lister()
-
-	clusterClientProvider, err := clusterclient.NewExternal(seedCtrlruntimeClient)
+	clusterClientProvider, err := clusterclient.NewExternal(seedClusterClient)
 	if err != nil {
 		log.Fatalf("failed to get clusterClientProvider: %v", err)
 	}
 	opts.clusterClientProvider = clusterClientProvider
 
-	kubermaticInformerFactory.Start(rootCtx.Done())
-	kubermaticInformerFactory.WaitForCacheSync(rootCtx.Done())
-
 	if opts.cleanupOnStart {
-		if err := cleanupClusters(opts, log, kubermaticClient, clusterClientProvider); err != nil {
+		if err := cleanupClusters(opts, log, seedClusterClient, clusterClientProvider); err != nil {
 			log.Fatalf("failed to cleanup old clusters: %v", err)
 		}
 	}
@@ -294,22 +310,23 @@ func main() {
 	log.Infof("Whole suite took: %.2f seconds", time.Since(start).Seconds())
 }
 
-func cleanupClusters(opts Opts, log *logrus.Entry, kubermaticClient kubermaticclientset.Interface, clusterClientProvider clusterclient.UserClusterConnectionProvider) error {
+func cleanupClusters(opts Opts, log *logrus.Entry, seedClusterClient ctrlruntimeclient.Client, clusterClientProvider clusterclient.UserClusterConnectionProvider) error {
 	if opts.namePrefix == "" {
 		log.Fatalf("cleanup-on-start was specified but name-prefix is empty")
 	}
-	clusterList, err := kubermaticClient.KubermaticV1().Clusters().List(metav1.ListOptions{})
-	if err != nil {
+	clusterList := &kubermaticv1.ClusterList{}
+	if err := seedClusterClient.List(context.Background(), &ctrlruntimeclient.ListOptions{}, clusterList); err != nil {
 		return err
 	}
+
 	var wg sync.WaitGroup
 	for _, cluster := range clusterList.Items {
 		if strings.HasPrefix(cluster.Name, opts.namePrefix) {
 			wg.Add(1)
-			go func(cluster v1.Cluster) {
+			go func(cluster kubermaticv1.Cluster) {
 				clusterDeleteLog := logrus.WithFields(logrus.Fields{"cluster": cluster.Name})
 				defer wg.Done()
-				if err := tryToDeleteClusterWithRetries(clusterDeleteLog, &cluster, clusterClientProvider, kubermaticClient); err != nil {
+				if err := tryToDeleteClusterWithRetries(clusterDeleteLog, &cluster, clusterClientProvider, seedClusterClient); err != nil {
 					clusterDeleteLog.Errorf("failed to delete cluster: %v", err)
 				}
 			}(cluster)
@@ -321,6 +338,15 @@ func cleanupClusters(opts Opts, log *logrus.Entry, kubermaticClient kubermaticcl
 }
 
 func getScenarios(opts Opts, log *logrus.Entry) []testScenario {
+	if opts.openshift {
+		// Openshift is only supported on CentOS
+		opts.excludeSelector.Distributions[providerconfig.OperatingSystemUbuntu] = true
+		opts.excludeSelector.Distributions[providerconfig.OperatingSystemCoreos] = true
+		opts.excludeSelector.Distributions[providerconfig.OperatingSystemCentOS] = false
+		// We only support one version of openshift
+		opts.versions = []*semver.Semver{semver.NewSemverOrDie("3.11.0")}
+	}
+
 	var scenarios []testScenario
 	if opts.providers.Has("aws") {
 		log.Info("Adding AWS scenarios")
@@ -346,10 +372,18 @@ func getScenarios(opts Opts, log *logrus.Entry) []testScenario {
 		log.Info("Adding Azure scenarios")
 		scenarios = append(scenarios, getAzureScenarios(opts.versions)...)
 	}
+	if opts.providers.Has("packet") {
+		log.Info("Adding Packet scenarios")
+		scenarios = append(scenarios, getPacketScenarios(opts.versions)...)
+	}
+	if opts.providers.Has("gcp") {
+		log.Info("Adding GCP scenarios")
+		scenarios = append(scenarios, getGCPScenarios(opts.versions)...)
+	}
 
 	var filteredScenarios []testScenario
 	for _, scenario := range scenarios {
-		nd := scenario.Nodes(1)
+		nd := scenario.Nodes(1, secrets{})
 		if nd.Spec.Template.OperatingSystem.Ubuntu != nil {
 			if !opts.excludeSelector.Distributions[providerconfig.OperatingSystemUbuntu] {
 				filteredScenarios = append(filteredScenarios, scenario)
@@ -366,6 +400,7 @@ func getScenarios(opts Opts, log *logrus.Entry) []testScenario {
 			}
 		}
 	}
+
 	// Shuffle scenarios - avoids timeouts caused by quota issues
 	return shuffle(filteredScenarios)
 }

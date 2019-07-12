@@ -31,14 +31,13 @@ func getAWSScenarios(versions []*semver.Semver) []testScenario {
 				},
 			},
 		})
-		// CentOS
-		//TODO: Fix
-		//scenarios = append(scenarios, &awsScenario{
-		//	version: v,
-		//	nodeOsSpec: kubermaticapiv2.OperatingSystemSpec{
-		//		CentOS: &kubermaticapiv2.CentOSSpec{},
-		//	},
-		//})
+		//TODO: This doesnt work for Kubernetes, fix
+		scenarios = append(scenarios, &awsScenario{
+			version: v,
+			nodeOsSpec: kubermaticapiv1.OperatingSystemSpec{
+				CentOS: &kubermaticapiv1.CentOSSpec{},
+			},
+		})
 	}
 	return scenarios
 }
@@ -78,7 +77,7 @@ func (s *awsScenario) Cluster(secrets secrets) *v1.Cluster {
 	}
 }
 
-func (s *awsScenario) Nodes(num int) *kubermaticapiv1.NodeDeployment {
+func (s *awsScenario) Nodes(num int, _ secrets) *kubermaticapiv1.NodeDeployment {
 	return &kubermaticapiv1.NodeDeployment{
 		Spec: kubermaticapiv1.NodeDeploymentSpec{
 			Replicas: int32(num),

@@ -7,10 +7,10 @@ import (
 	"sort"
 
 	"github.com/go-kit/kit/endpoint"
-	"github.com/golang/glog"
 	"github.com/gorilla/mux"
 
 	apiv1 "github.com/kubermatic/kubermatic/api/pkg/api/v1"
+	"github.com/kubermatic/kubermatic/api/pkg/log"
 	"github.com/kubermatic/kubermatic/api/pkg/provider"
 	"github.com/kubermatic/kubermatic/api/pkg/util/errors"
 )
@@ -30,7 +30,7 @@ func ListEndpoint(dcs map[string]provider.DatacenterMeta) endpoint.Endpoint {
 
 			spec, err := apiSpec(&dc)
 			if err != nil {
-				glog.Errorf("api spec error in dc %q: %v", dcName, err)
+				log.Logger.Errorf("api spec error in dc %q: %v", dcName, err)
 				continue
 			}
 
@@ -134,6 +134,16 @@ func apiSpec(dc *provider.DatacenterMeta) (*apiv1.DatacenterSpec, error) {
 	case dc.Spec.Azure != nil:
 		spec.Azure = &apiv1.AzureDatacenterSpec{
 			Location: dc.Spec.Azure.Location,
+		}
+	case dc.Spec.Packet != nil:
+		spec.Packet = &apiv1.PacketDatacenterSpec{
+			Facilities: dc.Spec.Packet.Facilities,
+		}
+	case dc.Spec.GCP != nil:
+		spec.GCP = &apiv1.GCPDatacenterSpec{
+			Region:       dc.Spec.GCP.Region,
+			ZoneSuffixes: dc.Spec.GCP.ZoneSuffixes,
+			Regional:     dc.Spec.GCP.Regional,
 		}
 	}
 

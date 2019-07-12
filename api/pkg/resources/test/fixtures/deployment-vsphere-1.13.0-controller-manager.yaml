@@ -86,7 +86,6 @@ spec:
         command:
         - /usr/sbin/openvpn
         image: quay.io/kubermatic/openvpn:v0.5
-        imagePullPolicy: IfNotPresent
         name: openvpn-client
         resources:
           limits:
@@ -98,8 +97,6 @@ spec:
         securityContext:
           privileged: true
           procMount: Default
-        terminationMessagePath: /dev/termination-log
-        terminationMessagePolicy: File
         volumeMounts:
         - mountPath: /etc/openvpn/pki/client
           name: openvpn-client-certificates
@@ -117,7 +114,6 @@ spec:
         - /etc/kubernetes/pki/ca/ca.key
         - --cluster-cidr
         - 172.25.0.0/16
-        - --configure-cloud-routes=false
         - --allocate-node-cidrs=true
         - --controllers
         - '*,bootstrapsigner,tokencleaner'
@@ -128,6 +124,7 @@ spec:
         - vsphere
         - --cloud-config
         - /etc/kubernetes/cloud/config
+        - --configure-cloud-routes=false
         - --authentication-kubeconfig
         - /etc/kubernetes/kubeconfig/kubeconfig
         - --client-ca-file
@@ -140,9 +137,8 @@ spec:
         - "0"
         command:
         - /hyperkube
-        - controller-manager
+        - kube-controller-manager
         image: gcr.io/google_containers/hyperkube-amd64:v1.13.0
-        imagePullPolicy: IfNotPresent
         livenessProbe:
           failureThreshold: 8
           httpGet:
@@ -170,8 +166,6 @@ spec:
           requests:
             cpu: 100m
             memory: 100Mi
-        terminationMessagePath: /dev/termination-log
-        terminationMessagePolicy: File
         volumeMounts:
         - mountPath: /etc/kubernetes/pki/ca
           name: ca

@@ -17,8 +17,10 @@ import (
 	prometheusv1 "github.com/prometheus/client_golang/api/prometheus/v1"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/common/model"
+	"k8s.io/client-go/tools/record"
 
 	apiv1 "github.com/kubermatic/kubermatic/api/pkg/api/v1"
+	"github.com/kubermatic/kubermatic/api/pkg/controller/cloud"
 	kubermaticapiv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
 	"github.com/kubermatic/kubermatic/api/pkg/handler/middleware"
 	"github.com/kubermatic/kubermatic/api/pkg/handler/v1/common"
@@ -30,20 +32,52 @@ import (
 	"github.com/kubermatic/kubermatic/api/pkg/util/errors"
 	"github.com/kubermatic/kubermatic/api/pkg/validation"
 
+	corev1 "k8s.io/api/core/v1"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
 )
 
+// NodeDeploymentEvent represents type of events related to Node Deployment
+type NodeDeploymentEvent string
+
+const (
+	nodeDeploymentCreationStart   NodeDeploymentEvent = "NodeDeploymentCreationStart"
+	nodeDeploymentCreationSuccess NodeDeploymentEvent = "NodeDeploymentCreationSuccess"
+	nodeDeploymentCreationFail    NodeDeploymentEvent = "NodeDeploymentCreationFail"
+	nodeDeploymentCreationRetry   NodeDeploymentEvent = "NodeDeploymentCreationRetry"
+)
+
+// clusterTypes holds a list of supported cluster types
+var clusterTypes = []string{
+	apiv1.OpenShiftClusterType,
+	apiv1.KubernetesClusterType,
+}
+
 func CreateEndpoint(sshKeyProvider provider.SSHKeyProvider, cloudProviders map[string]provider.CloudProvider, projectProvider provider.ProjectProvider,
-	dcs map[string]provider.DatacenterMeta, initNodeDeploymentFailures *prometheus.CounterVec) endpoint.Endpoint {
+	dcs map[string]provider.DatacenterMeta, initNodeDeploymentFailures *prometheus.CounterVec, eventRecorderProvider provider.EventRecorderProvider, credentialManager common.PresetsManager, exposeStrategy corev1.ServiceType) endpoint.Endpoint {
 	return func(ctx context.Context, request interface{}) (interface{}, error) {
 		req := request.(CreateReq)
+		err := req.Validate()
+		if err != nil {
+			return nil, errors.NewBadRequest(err.Error())
+		}
 		clusterProvider := ctx.Value(middleware.ClusterProviderContextKey).(provider.ClusterProvider)
+		privilegedClusterProvider := ctx.Value(middleware.PrivilegedClusterProviderContextKey).(provider.PrivilegedClusterProvider)
 		userInfo := ctx.Value(middleware.UserInfoContextKey).(*provider.UserInfo)
 		project, err := projectProvider.Get(userInfo, req.ProjectID, &provider.ProjectGetOptions{})
+		k8sClient := privilegedClusterProvider.GetSeedClusterAdminClient()
 		if err != nil {
 			return nil, common.KubernetesErrorToHTTPError(err)
+		}
+
+		credentialName := req.Body.Cluster.Credential
+		if len(credentialName) > 0 {
+			cloudSpec, err := credentialManager.SetCloudCredentials(credentialName, req.Body.Cluster.Spec.Cloud)
+			if err != nil {
+				return nil, errors.NewBadRequest("invalid credentials: %v", err)
+			}
+			req.Body.Cluster.Spec.Cloud = *cloudSpec
 		}
 
 		// Create the cluster.
@@ -51,6 +85,7 @@ func CreateEndpoint(sshKeyProvider provider.SSHKeyProvider, cloudProviders map[s
 		if err != nil {
 			return nil, errors.NewBadRequest("invalid cluster: %v", err)
 		}
+		spec.ExposeStrategy = exposeStrategy
 
 		existingClusters, err := clusterProvider.List(project, &provider.ClusterListOptions{ClusterSpecName: spec.HumanReadableName})
 		if err != nil {
@@ -61,7 +96,16 @@ func CreateEndpoint(sshKeyProvider provider.SSHKeyProvider, cloudProviders map[s
 			return nil, errors.NewAlreadyExists("cluster", spec.HumanReadableName)
 		}
 
-		newCluster, err := clusterProvider.New(project, userInfo, spec)
+		partialCluster := &kubermaticapiv1.Cluster{}
+		partialCluster.Spec = *spec
+		if req.Body.Cluster.Type == "openshift" {
+			partialCluster.Annotations = map[string]string{
+				"kubermatic.io/openshift": "true",
+			}
+		}
+		partialCluster.Status.CloudMigrationRevision = cloud.CurrentMigrationRevision
+
+		newCluster, err := clusterProvider.New(project, userInfo, partialCluster)
 		if err != nil {
 			return nil, common.KubernetesErrorToHTTPError(err)
 		}
@@ -80,12 +124,16 @@ func CreateEndpoint(sshKeyProvider provider.SSHKeyProvider, cloudProviders map[s
 
 			go func() {
 				defer utilruntime.HandleCrash()
-				err := createInitialNodeDeploymentWithRetries(req.Body.NodeDeployment, newCluster, project, sshKeyProvider, dcs, clusterProvider, userInfo)
+				ndName := getNodeDeploymentDisplayName(req.Body.NodeDeployment)
+				eventRecorderProvider.ClusterRecorderFor(k8sClient).Eventf(newCluster, corev1.EventTypeNormal, string(nodeDeploymentCreationStart), "started creation of initial node deployment%s", ndName)
+				err := createInitialNodeDeploymentWithRetries(req.Body.NodeDeployment, newCluster, project, sshKeyProvider, dcs, clusterProvider, userInfo, eventRecorderProvider.ClusterRecorderFor(k8sClient))
 				if err != nil {
+					eventRecorderProvider.ClusterRecorderFor(k8sClient).Eventf(newCluster, corev1.EventTypeWarning, string(nodeDeploymentCreationFail), "failed to create initial node deployment%s: %v", ndName, err)
 					glog.Errorf("failed to create initial node deployment for cluster %s: %v", newCluster.Name, err)
 					initNodeDeploymentFailures.With(prometheus.Labels{"cluster": newCluster.Name, "seed_dc": req.DC}).Add(1)
 				} else {
-					glog.V(2).Infof("created initial node deployment for cluster %s", newCluster.Name)
+					eventRecorderProvider.ClusterRecorderFor(k8sClient).Eventf(newCluster, corev1.EventTypeNormal, string(nodeDeploymentCreationSuccess), "created initial node deployment%s", ndName)
+					glog.V(5).Infof("created initial node deployment for cluster %s", newCluster.Name)
 				}
 			}()
 		}
@@ -96,7 +144,7 @@ func CreateEndpoint(sshKeyProvider provider.SSHKeyProvider, cloudProviders map[s
 
 func createInitialNodeDeploymentWithRetries(nodeDeployment *apiv1.NodeDeployment, cluster *kubermaticapiv1.Cluster,
 	project *kubermaticapiv1.Project, sshKeyProvider provider.SSHKeyProvider, dcs map[string]provider.DatacenterMeta,
-	clusterProvider provider.ClusterProvider, userInfo *provider.UserInfo) error {
+	clusterProvider provider.ClusterProvider, userInfo *provider.UserInfo, eventRecorder record.EventRecorder) error {
 	return wait.Poll(5*time.Second, 30*time.Minute, func() (bool, error) {
 		err := createInitialNodeDeployment(nodeDeployment, cluster, project, sshKeyProvider, dcs, clusterProvider, userInfo)
 		switch {
@@ -111,6 +159,7 @@ func createInitialNodeDeploymentWithRetries(nodeDeployment *apiv1.NodeDeployment
 		case kerrors.IsServiceUnavailable(err):
 			fallthrough
 		case kerrors.IsServerTimeout(err):
+			eventRecorder.Eventf(cluster, corev1.EventTypeNormal, string(nodeDeploymentCreationRetry), "retrying creating initial Node Deployments%s for cluster %s (%s) due to %v", getNodeDeploymentDisplayName(nodeDeployment), cluster.Name, cluster.Spec.HumanReadableName, err)
 			glog.V(4).Infof("retrying creating initial Node Deployments for cluster %s (%s) due to %v", cluster.Name, cluster.Spec.HumanReadableName, err)
 			return false, nil
 		}
@@ -156,6 +205,14 @@ func createInitialNodeDeployment(nodeDeployment *apiv1.NodeDeployment, cluster *
 	}
 
 	return client.Create(ctx, md)
+}
+
+func getNodeDeploymentDisplayName(nd *apiv1.NodeDeployment) string {
+	if len(nd.Name) != 0 {
+		return " " + nd.Name
+	}
+
+	return ""
 }
 
 func GetEndpoint(projectProvider provider.ProjectProvider) endpoint.Endpoint {
@@ -293,10 +350,10 @@ func DeleteEndpoint(sshKeyProvider provider.SSHKeyProvider, projectProvider prov
 				return nil, common.KubernetesErrorToHTTPError(err)
 			}
 			if req.DeleteLoadBalancers {
-				existingCluster.Finalizers = kuberneteshelper.AddFinalizer(existingCluster.Finalizers, apiv1.InClusterLBCleanupFinalizer)
+				kuberneteshelper.AddFinalizer(existingCluster, apiv1.InClusterLBCleanupFinalizer)
 			}
 			if req.DeleteVolumes {
-				existingCluster.Finalizers = kuberneteshelper.AddFinalizer(existingCluster.Finalizers, apiv1.InClusterPVCleanupFinalizer)
+				kuberneteshelper.AddFinalizer(existingCluster, apiv1.InClusterPVCleanupFinalizer)
 			}
 
 			if _, err = clusterProvider.Update(userInfo, existingCluster); err != nil {
@@ -309,6 +366,40 @@ func DeleteEndpoint(sshKeyProvider provider.SSHKeyProvider, projectProvider prov
 			return nil, common.KubernetesErrorToHTTPError(err)
 		}
 		return nil, nil
+	}
+}
+
+func GetClusterEventsEndpoint() endpoint.Endpoint {
+	return func(ctx context.Context, request interface{}) (interface{}, error) {
+		req := request.(EventsReq)
+		clusterProvider := ctx.Value(middleware.ClusterProviderContextKey).(provider.ClusterProvider)
+		privilegedClusterProvider := ctx.Value(middleware.PrivilegedClusterProviderContextKey).(provider.PrivilegedClusterProvider)
+		userInfo := ctx.Value(middleware.UserInfoContextKey).(*provider.UserInfo)
+		client := privilegedClusterProvider.GetSeedClusterAdminRuntimeClient()
+
+		cluster, err := clusterProvider.Get(userInfo, req.ClusterID, &provider.ClusterGetOptions{})
+		if err != nil {
+			return nil, common.KubernetesErrorToHTTPError(err)
+		}
+
+		eventType := ""
+		switch req.Type {
+		case "warning":
+			eventType = corev1.EventTypeWarning
+		case "normal":
+			eventType = corev1.EventTypeNormal
+		}
+
+		events, err := common.GetEvents(ctx, client, cluster, "")
+		if err != nil {
+			return nil, common.KubernetesErrorToHTTPError(err)
+		}
+
+		if len(eventType) > 0 {
+			events = common.FilterEventsByType(events, eventType)
+		}
+
+		return events, nil
 	}
 }
 
@@ -417,7 +508,7 @@ func ListSSHKeysEndpoint(sshKeyProvider provider.SSHKeyProvider, projectProvider
 }
 
 func convertInternalClusterToExternal(internalCluster *kubermaticapiv1.Cluster) *apiv1.Cluster {
-	return &apiv1.Cluster{
+	cluster := &apiv1.Cluster{
 		ObjectMeta: apiv1.ObjectMeta{
 			ID:                internalCluster.Name,
 			Name:              internalCluster.Spec.HumanReadableName,
@@ -440,7 +531,17 @@ func convertInternalClusterToExternal(internalCluster *kubermaticapiv1.Cluster) 
 			Version: internalCluster.Spec.Version,
 			URL:     internalCluster.Address.URL,
 		},
+		Type: apiv1.KubernetesClusterType,
 	}
+
+	isOpenShift, ok := internalCluster.Annotations["kubermatic.io/openshift"]
+	if ok {
+		if isOpenShift == "true" {
+			cluster.Type = apiv1.OpenShiftClusterType
+		}
+	}
+
+	return cluster
 }
 
 func convertInternalClustersToExternal(internalClusters []*kubermaticapiv1.Cluster) []*apiv1.Cluster {
@@ -628,6 +729,20 @@ type CreateReq struct {
 	Body apiv1.CreateClusterSpec
 }
 
+// Validate validates DeleteEndpoint request
+func (r CreateReq) Validate() error {
+	if len(r.ProjectID) == 0 || len(r.DC) == 0 {
+		return fmt.Errorf("the service account ID and datacenter cannot be empty")
+	}
+
+	for _, clusterType := range clusterTypes {
+		if clusterType == r.Body.Cluster.Type {
+			return nil
+		}
+	}
+	return fmt.Errorf("invalid cluster type %s", r.Body.Cluster.Type)
+}
+
 func DecodeCreateReq(c context.Context, r *http.Request) (interface{}, error) {
 	var req CreateReq
 
@@ -639,6 +754,10 @@ func DecodeCreateReq(c context.Context, r *http.Request) (interface{}, error) {
 
 	if err := json.NewDecoder(r.Body).Decode(&req.Body); err != nil {
 		return nil, err
+	}
+
+	if len(req.Body.Cluster.Type) == 0 {
+		req.Body.Cluster.Type = apiv1.KubernetesClusterType
 	}
 
 	return req, nil
@@ -865,4 +984,34 @@ func getClusters(clusterProvider provider.ClusterProvider, userInfo *provider.Us
 
 	apiClusters := convertInternalClustersToExternal(clusters)
 	return apiClusters, nil
+}
+
+// EventsReq defines HTTP request for getClusterEvents endpoint
+// swagger:parameters getClusterEvents
+type EventsReq struct {
+	common.GetClusterReq
+
+	// in: query
+	Type string
+}
+
+func DecodeGetClusterEvents(c context.Context, r *http.Request) (interface{}, error) {
+	var req EventsReq
+
+	clusterReqRaw, err := common.DecodeGetClusterReq(c, r)
+	if err != nil {
+		return nil, err
+	}
+	clusterReq := clusterReqRaw.(common.GetClusterReq)
+	req.GetClusterReq = clusterReq
+
+	req.Type = r.URL.Query().Get("type")
+	if len(req.Type) > 0 {
+		if req.Type == "warning" || req.Type == "normal" {
+			return req, nil
+		}
+		return nil, fmt.Errorf("wrong query paramater, unsupported type: %s", req.Type)
+	}
+
+	return req, nil
 }

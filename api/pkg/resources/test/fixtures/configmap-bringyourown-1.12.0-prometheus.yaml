@@ -62,6 +62,31 @@ data:
         target_label: __metrics_path__
         replacement: /api/v1/nodes/${1}/proxy/metrics
 
+    - job_name: cadvisor
+      scheme: https
+      tls_config:
+        ca_file: /etc/kubernetes/ca.crt
+        cert_file: /etc/kubernetes/prometheus-client.crt
+        key_file: /etc/kubernetes/prometheus-client.key
+
+      kubernetes_sd_configs:
+      - role: node
+        api_server: 'https://apiserver-external.cluster-de-test-01.svc.cluster.local.:30000'
+        tls_config:
+          ca_file: /etc/kubernetes/ca.crt
+          cert_file: /etc/kubernetes/prometheus-client.crt
+          key_file: /etc/kubernetes/prometheus-client.key
+
+      relabel_configs:
+      - action: labelmap
+        regex: __meta_kubernetes_node_label_(.+)
+      - target_label: __address__
+        replacement: 'apiserver-external.cluster-de-test-01.svc.cluster.local.:30000'
+      - source_labels: [__meta_kubernetes_node_name]
+        regex: (.+)
+        target_label: __metrics_path__
+        replacement: /api/v1/nodes/${1}/proxy/metrics/cadvisor
+
     - job_name: 'kubernetes-control-plane'
       kubernetes_sd_configs:
       - role: pod
@@ -207,7 +232,7 @@ data:
       alertmanagers:
       - dns_sd_configs:
         - names:
-          - 'alertmanager-kubermatic.monitoring.svc.cluster.local'
+          - 'alertmanager.monitoring.svc.cluster.local'
           type: A
           port: 9093
   rules.yaml: |2
@@ -513,7 +538,7 @@ data:
       - alert: KubernetesControllerManagerDown
         annotations:
           message: Kubernetes controller-manager has disappeared from Prometheus target discovery.
-        expr: absent(up{job="controller-manager"} == 1)
+        expr: absent(up{job="controller-manager"} == 1) and absent(up{job="openshift-controller-manager"} == 1)
         for: 15m
         labels:
           severity: critical
@@ -521,7 +546,7 @@ data:
       - alert: KubernetesSchedulerDown
         annotations:
           message: Kubernetes scheduler has disappeared from Prometheus target discovery.
-        expr: absent(up{job="scheduler"} == 1)
+        expr: absent(up{job="scheduler"} == 1) and absent(up{job="openshift-controller-manager"} == 1)
         for: 15m
         labels:
           severity: critical

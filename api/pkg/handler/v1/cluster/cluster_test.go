@@ -17,6 +17,7 @@ import (
 	"github.com/kubermatic/kubermatic/api/pkg/semver"
 	"github.com/kubermatic/kubermatic/api/pkg/validation"
 
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -24,6 +25,11 @@ import (
 	clienttesting "k8s.io/client-go/testing"
 	clusterv1alpha1 "sigs.k8s.io/cluster-api/pkg/apis/cluster/v1alpha1"
 )
+
+func init() {
+	// Mock timezone to keep creation timestamp always the same.
+	time.Local = time.UTC
+}
 
 func TestDeleteClusterEndpointWithFinalizers(t *testing.T) {
 	t.Parallel()
@@ -664,7 +670,7 @@ func TestCreateClusterEndpoint(t *testing.T) {
 		{
 			Name:             "scenario 2: cluster is created when valid spec and ssh key are passed",
 			Body:             `{"cluster":{"name":"keen-snyder","spec":{"version":"1.9.7","cloud":{"fake":{"token":"dummy_token"},"dc":"us-central1"}}}}`,
-			ExpectedResponse: `{"id":"%s","name":"keen-snyder","creationTimestamp":"0001-01-01T00:00:00Z","spec":{"cloud":{"dc":"us-central1","fake":{}},"version":"1.9.7","oidc":{}},"status":{"version":"1.9.7","url":""}}`,
+			ExpectedResponse: `{"id":"%s","name":"keen-snyder","creationTimestamp":"0001-01-01T00:00:00Z","type":"kubernetes","spec":{"cloud":{"dc":"us-central1","fake":{}},"version":"1.9.7","oidc":{}},"status":{"version":"1.9.7","url":""}}`,
 			RewriteClusterID: true,
 			HTTPStatus:       http.StatusCreated,
 			ProjectToSync:    test.GenDefaultProject().Name,
@@ -717,6 +723,38 @@ func TestCreateClusterEndpoint(t *testing.T) {
 				test.GenDefaultOwnerBinding(),
 			},
 			ExistingAPIUser: test.GenDefaultAPIUser(),
+		},
+		// scenario 5
+		{
+			Name:                   "scenario 5: openShift cluster is created",
+			Body:                   `{"cluster":{"name":"keen-snyder","type":"openshift","spec":{"version":"1.9.7","cloud":{"fake":{"token":"dummy_token"},"dc":"us-central1"}}}}`,
+			ExpectedResponse:       `{"id":"%s","name":"keen-snyder","creationTimestamp":"0001-01-01T00:00:00Z","type":"openshift","spec":{"cloud":{"dc":"us-central1","fake":{}},"version":"1.9.7"},"status":{"version":"1.9.7","url":""}}`,
+			RewriteClusterID:       true,
+			HTTPStatus:             http.StatusCreated,
+			ProjectToSync:          test.GenDefaultProject().Name,
+			ExistingKubermaticObjs: test.GenDefaultKubermaticObjects(),
+			ExistingAPIUser:        test.GenDefaultAPIUser(),
+		},
+		// scenario 6
+		{
+			Name:                   "scenario 6: openShift cluster is created with existing custom credential",
+			Body:                   `{"cluster":{"name":"keen-snyder","type":"openshift","credential":"pluton","spec":{"version":"1.9.7","cloud":{"fake":{},"dc":"us-central1"}}}}`,
+			ExpectedResponse:       `{"id":"%s","name":"keen-snyder","creationTimestamp":"0001-01-01T00:00:00Z","type":"openshift","spec":{"cloud":{"dc":"us-central1","fake":{}},"version":"1.9.7"},"status":{"version":"1.9.7","url":""}}`,
+			RewriteClusterID:       true,
+			HTTPStatus:             http.StatusCreated,
+			ProjectToSync:          test.GenDefaultProject().Name,
+			ExistingKubermaticObjs: test.GenDefaultKubermaticObjects(),
+			ExistingAPIUser:        test.GenDefaultAPIUser(),
+		},
+		// scenario 7
+		{
+			Name:                   "scenario 7: custom credential doesn't exist for Fake cloud provider",
+			Body:                   `{"cluster":{"name":"keen-snyder","type":"openshift","credential":"default","spec":{"version":"1.9.7","cloud":{"fake":{},"dc":"us-central1"}}}}`,
+			ExpectedResponse:       `{"error":{"code":400,"message":"invalid credentials: can not find default credential"}}`,
+			HTTPStatus:             http.StatusBadRequest,
+			ProjectToSync:          test.GenDefaultProject().Name,
+			ExistingKubermaticObjs: test.GenDefaultKubermaticObjects(),
+			ExistingAPIUser:        test.GenDefaultAPIUser(),
 		},
 	}
 
@@ -825,8 +863,6 @@ func TestGetClusterHealth(t *testing.T) {
 func TestPatchCluster(t *testing.T) {
 	t.Parallel()
 
-	// Mock timezone to keep creation timestamp always the same.
-	time.Local = time.UTC
 	cluster := test.GenCluster("keen-snyder", "clusterAbc", test.GenDefaultProject().Name, time.Date(2013, 02, 03, 19, 54, 0, 0, time.UTC))
 	cluster.Spec.Cloud.DatacenterName = "us-central1"
 
@@ -845,7 +881,7 @@ func TestPatchCluster(t *testing.T) {
 		{
 			Name:             "scenario 1: update the cluster version",
 			Body:             `{"spec":{"version":"1.2.3"}}`,
-			ExpectedResponse: `{"id":"keen-snyder","name":"clusterAbc","creationTimestamp":"2013-02-03T19:54:00Z","spec":{"cloud":{"dc":"us-central1","fake":{}},"version":"1.2.3","oidc":{}},"status":{"version":"1.2.3","url":"https://w225mx4z66.asia-east1-a-1.cloud.kubermatic.io:31885"}}`,
+			ExpectedResponse: `{"id":"keen-snyder","name":"clusterAbc","creationTimestamp":"2013-02-03T19:54:00Z","type":"kubernetes","spec":{"cloud":{"dc":"us-central1","fake":{}},"version":"1.2.3","oidc":{}},"status":{"version":"1.2.3","url":"https://w225mx4z66.asia-east1-a-1.cloud.kubermatic.io:31885"}}`,
 			cluster:          "keen-snyder",
 			HTTPStatus:       http.StatusOK,
 			project:          test.GenDefaultProject().Name,
@@ -872,7 +908,7 @@ func TestPatchCluster(t *testing.T) {
 		{
 			Name:             "scenario 3: tried to update cluser with older but compatible nodes",
 			Body:             `{"spec":{"version":"9.11.3"}}`, // kubelet is 9.9.9, maximum compatible master is 9.11.x
-			ExpectedResponse: `{"id":"keen-snyder","name":"clusterAbc","creationTimestamp":"2013-02-03T19:54:00Z","spec":{"cloud":{"dc":"us-central1","fake":{}},"version":"9.11.3","oidc":{}},"status":{"version":"9.11.3","url":"https://w225mx4z66.asia-east1-a-1.cloud.kubermatic.io:31885"}}`,
+			ExpectedResponse: `{"id":"keen-snyder","name":"clusterAbc","creationTimestamp":"2013-02-03T19:54:00Z","type":"kubernetes","spec":{"cloud":{"dc":"us-central1","fake":{}},"version":"9.11.3","oidc":{}},"status":{"version":"9.11.3","url":"https://w225mx4z66.asia-east1-a-1.cloud.kubermatic.io:31885"}}`,
 			cluster:          "keen-snyder",
 			HTTPStatus:       http.StatusOK,
 			project:          test.GenDefaultProject().Name,
@@ -975,7 +1011,7 @@ func TestGetCluster(t *testing.T) {
 		{
 			Name:             "scenario 1: gets cluster with the given name that belongs to the given project",
 			Body:             ``,
-			ExpectedResponse: `{"id":"defClusterID","name":"defClusterName","creationTimestamp":"2013-02-03T19:54:00Z","spec":{"cloud":{"dc":"FakeDatacenter","fake":{}},"version":"9.9.9","oidc":{}},"status":{"version":"9.9.9","url":"https://w225mx4z66.asia-east1-a-1.cloud.kubermatic.io:31885"}}`,
+			ExpectedResponse: `{"id":"defClusterID","name":"defClusterName","creationTimestamp":"2013-02-03T19:54:00Z","type":"kubernetes","spec":{"cloud":{"dc":"FakeDatacenter","fake":{}},"version":"9.9.9","oidc":{}},"status":{"version":"9.9.9","url":"https://w225mx4z66.asia-east1-a-1.cloud.kubermatic.io:31885"}}`,
 			ClusterToGet:     test.GenDefaultCluster().Name,
 			HTTPStatus:       http.StatusOK,
 			ExistingKubermaticObjs: test.GenDefaultKubermaticObjects(
@@ -988,7 +1024,7 @@ func TestGetCluster(t *testing.T) {
 		{
 			Name:             "scenario 2: gets cluster for Openstack and no sensitive data (credentials) are returned",
 			Body:             ``,
-			ExpectedResponse: `{"id":"defClusterID","name":"defClusterName","creationTimestamp":"2013-02-03T19:54:00Z","spec":{"cloud":{"dc":"OpenstackDatacenter","openstack":{"floatingIpPool":"floatingIPPool"}},"version":"9.9.9","oidc":{}},"status":{"version":"9.9.9","url":"https://w225mx4z66.asia-east1-a-1.cloud.kubermatic.io:31885"}}`,
+			ExpectedResponse: `{"id":"defClusterID","name":"defClusterName","creationTimestamp":"2013-02-03T19:54:00Z","type":"kubernetes","spec":{"cloud":{"dc":"OpenstackDatacenter","openstack":{"floatingIpPool":"floatingIPPool"}},"version":"9.9.9","oidc":{}},"status":{"version":"9.9.9","url":"https://w225mx4z66.asia-east1-a-1.cloud.kubermatic.io:31885"}}`,
 			ClusterToGet:     test.GenDefaultCluster().Name,
 			HTTPStatus:       http.StatusOK,
 			ExistingKubermaticObjs: test.GenDefaultKubermaticObjects(
@@ -1051,6 +1087,7 @@ func TestListClusters(t *testing.T) {
 						Version: *semver.NewSemverOrDie("9.9.9"),
 						URL:     "https://w225mx4z66.asia-east1-a-1.cloud.kubermatic.io:31885",
 					},
+					Type: "kubernetes",
 				},
 				{
 					ObjectMeta: apiv1.ObjectMeta{
@@ -1069,6 +1106,7 @@ func TestListClusters(t *testing.T) {
 						Version: *semver.NewSemverOrDie("9.9.9"),
 						URL:     "https://w225mx4z66.asia-east1-a-1.cloud.kubermatic.io:31885",
 					},
+					Type: "kubernetes",
 				},
 				{
 					ObjectMeta: apiv1.ObjectMeta{
@@ -1089,6 +1127,7 @@ func TestListClusters(t *testing.T) {
 						Version: *semver.NewSemverOrDie("9.9.9"),
 						URL:     "https://w225mx4z66.asia-east1-a-1.cloud.kubermatic.io:31885",
 					},
+					Type: "kubernetes",
 				},
 			},
 			HTTPStatus: http.StatusOK,
@@ -1159,6 +1198,7 @@ func TestListClustersForProject(t *testing.T) {
 						Version: *semver.NewSemverOrDie("9.9.9"),
 						URL:     "https://w225mx4z66.asia-east1-a-1.cloud.kubermatic.io:31885",
 					},
+					Type: "kubernetes",
 				},
 				{
 					ObjectMeta: apiv1.ObjectMeta{
@@ -1179,6 +1219,7 @@ func TestListClustersForProject(t *testing.T) {
 						Version: *semver.NewSemverOrDie("9.9.9"),
 						URL:     "https://w225mx4z66.asia-east1-a-1.cloud.kubermatic.io:31885",
 					},
+					Type: "kubernetes",
 				},
 			},
 			HTTPStatus: http.StatusOK,
@@ -1264,6 +1305,96 @@ func TestRevokeClusterAdminTokenEndpoint(t *testing.T) {
 
 	if !wasUpdateActionValidated {
 		t.Error("updated admin token in cluster resource was not persisted")
+	}
+}
+
+func TestGetClusterEventsEndpoint(t *testing.T) {
+	t.Parallel()
+	testcases := []struct {
+		Name                   string
+		HTTPStatus             int
+		ExpectedResult         string
+		ProjectIDToSync        string
+		ClusterIDToSync        string
+		ExistingProject        *kubermaticv1.Project
+		ExistingKubermaticUser *kubermaticv1.User
+		ExistingAPIUser        *apiv1.User
+		ExistingKubermaticObjs []runtime.Object
+		ExistingEvents         []*corev1.Event
+		NodeDeploymentID       string
+		QueryParams            string
+	}{
+		// scenario 1
+		{
+			Name:                   "scenario 1: list all events",
+			HTTPStatus:             http.StatusOK,
+			ClusterIDToSync:        test.GenDefaultCluster().Name,
+			ProjectIDToSync:        test.GenDefaultProject().Name,
+			ExistingKubermaticObjs: test.GenDefaultKubermaticObjects(test.GenDefaultCluster()),
+			ExistingAPIUser:        test.GenDefaultAPIUser(),
+			ExistingEvents: []*corev1.Event{
+				test.GenTestEvent("event-1", corev1.EventTypeNormal, "Started", "message started", "Cluster", "venus-1-machine"),
+				test.GenTestEvent("event-2", corev1.EventTypeWarning, "Killed", "message killed", "Cluster", "venus-1-machine"),
+			},
+			ExpectedResult: `[{"name":"event-1","creationTimestamp":"0001-01-01T00:00:00Z","message":"message started","type":"Normal","involvedObject":{"type":"Cluster","namespace":"kube-system","name":"testMachine"},"lastTimestamp":"0001-01-01T00:00:00Z","count":1},{"name":"event-2","creationTimestamp":"0001-01-01T00:00:00Z","message":"message killed","type":"Warning","involvedObject":{"type":"Cluster","namespace":"kube-system","name":"testMachine"},"lastTimestamp":"0001-01-01T00:00:00Z","count":1}]`,
+		},
+		// scenario 2
+		{
+			Name:                   "scenario 2: list all warning events",
+			QueryParams:            "?type=warning",
+			HTTPStatus:             http.StatusOK,
+			ClusterIDToSync:        test.GenDefaultCluster().Name,
+			ProjectIDToSync:        test.GenDefaultProject().Name,
+			ExistingKubermaticObjs: test.GenDefaultKubermaticObjects(test.GenDefaultCluster()),
+			ExistingAPIUser:        test.GenDefaultAPIUser(),
+			ExistingEvents: []*corev1.Event{
+				test.GenTestEvent("event-1", corev1.EventTypeNormal, "Started", "message started", "Cluster", "venus-1-machine"),
+				test.GenTestEvent("event-2", corev1.EventTypeWarning, "Killed", "message killed", "Cluster", "venus-1-machine"),
+			},
+			ExpectedResult: `[{"name":"event-2","creationTimestamp":"0001-01-01T00:00:00Z","message":"message killed","type":"Warning","involvedObject":{"type":"Cluster","namespace":"kube-system","name":"testMachine"},"lastTimestamp":"0001-01-01T00:00:00Z","count":1}]`,
+		},
+		// scenario 3
+		{
+			Name:                   "scenario 3: list all normal events",
+			QueryParams:            "?type=normal",
+			HTTPStatus:             http.StatusOK,
+			ClusterIDToSync:        test.GenDefaultCluster().Name,
+			ProjectIDToSync:        test.GenDefaultProject().Name,
+			ExistingKubermaticObjs: test.GenDefaultKubermaticObjects(test.GenDefaultCluster()),
+			ExistingAPIUser:        test.GenDefaultAPIUser(),
+			ExistingEvents: []*corev1.Event{
+				test.GenTestEvent("event-1", corev1.EventTypeNormal, "Started", "message started", "Cluster", "venus-1-machine"),
+				test.GenTestEvent("event-2", corev1.EventTypeWarning, "Killed", "message killed", "Cluster", "venus-1-machine"),
+			},
+			ExpectedResult: `[{"name":"event-1","creationTimestamp":"0001-01-01T00:00:00Z","message":"message started","type":"Normal","involvedObject":{"type":"Cluster","namespace":"kube-system","name":"testMachine"},"lastTimestamp":"0001-01-01T00:00:00Z","count":1}]`,
+		},
+	}
+
+	for _, tc := range testcases {
+		t.Run(tc.Name, func(t *testing.T) {
+			req := httptest.NewRequest("GET", fmt.Sprintf("/api/v1/projects/%s/dc/us-central1/clusters/%s/events%s", tc.ProjectIDToSync, tc.ClusterIDToSync, tc.QueryParams), strings.NewReader(""))
+			res := httptest.NewRecorder()
+			kubermaticObj := make([]runtime.Object, 0)
+			machineObj := make([]runtime.Object, 0)
+			kubernetesObj := make([]runtime.Object, 0)
+			for _, existingEvents := range tc.ExistingEvents {
+				kubernetesObj = append(kubernetesObj, existingEvents)
+			}
+			kubermaticObj = append(kubermaticObj, tc.ExistingKubermaticObjs...)
+
+			ep, _, err := test.CreateTestEndpointAndGetClients(*tc.ExistingAPIUser, nil, kubernetesObj, machineObj, kubermaticObj, nil, nil, hack.NewTestRouting)
+			if err != nil {
+				t.Fatalf("failed to create test endpoint due to %v", err)
+			}
+
+			ep.ServeHTTP(res, req)
+
+			if res.Code != tc.HTTPStatus {
+				t.Fatalf("Expected HTTP status code %d, got %d: %s", tc.HTTPStatus, res.Code, res.Body.String())
+			}
+
+			test.CompareWithResult(t, res, tc.ExpectedResult)
+		})
 	}
 }
 

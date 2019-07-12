@@ -2,7 +2,7 @@ package machine
 
 import (
 	"errors"
-	"path"
+	"fmt"
 
 	"github.com/aws/aws-sdk-go/service/ec2"
 
@@ -12,8 +12,10 @@ import (
 	"github.com/kubermatic/machine-controller/pkg/cloudprovider/provider/aws"
 	"github.com/kubermatic/machine-controller/pkg/cloudprovider/provider/azure"
 	"github.com/kubermatic/machine-controller/pkg/cloudprovider/provider/digitalocean"
+	"github.com/kubermatic/machine-controller/pkg/cloudprovider/provider/gce"
 	"github.com/kubermatic/machine-controller/pkg/cloudprovider/provider/hetzner"
 	"github.com/kubermatic/machine-controller/pkg/cloudprovider/provider/openstack"
+	"github.com/kubermatic/machine-controller/pkg/cloudprovider/provider/packet"
 	"github.com/kubermatic/machine-controller/pkg/cloudprovider/provider/vsphere"
 	"github.com/kubermatic/machine-controller/pkg/providerconfig"
 	"github.com/kubermatic/machine-controller/pkg/userdata/centos"
@@ -91,13 +93,14 @@ func getAzureProviderSpec(c *kubermaticv1.Cluster, nodeSpec apiv1.NodeSpec, dc p
 		ClientID:       providerconfig.ConfigVarString{Value: c.Spec.Cloud.Azure.ClientID},
 		ClientSecret:   providerconfig.ConfigVarString{Value: c.Spec.Cloud.Azure.ClientSecret},
 
-		Location:        providerconfig.ConfigVarString{Value: dc.Spec.Azure.Location},
-		ResourceGroup:   providerconfig.ConfigVarString{Value: c.Spec.Cloud.Azure.ResourceGroup},
-		VMSize:          providerconfig.ConfigVarString{Value: nodeSpec.Cloud.Azure.Size},
-		VNetName:        providerconfig.ConfigVarString{Value: c.Spec.Cloud.Azure.VNetName},
-		SubnetName:      providerconfig.ConfigVarString{Value: c.Spec.Cloud.Azure.SubnetName},
-		RouteTableName:  providerconfig.ConfigVarString{Value: c.Spec.Cloud.Azure.RouteTableName},
-		AvailabilitySet: providerconfig.ConfigVarString{Value: c.Spec.Cloud.Azure.AvailabilitySet},
+		Location:          providerconfig.ConfigVarString{Value: dc.Spec.Azure.Location},
+		ResourceGroup:     providerconfig.ConfigVarString{Value: c.Spec.Cloud.Azure.ResourceGroup},
+		VMSize:            providerconfig.ConfigVarString{Value: nodeSpec.Cloud.Azure.Size},
+		VNetName:          providerconfig.ConfigVarString{Value: c.Spec.Cloud.Azure.VNetName},
+		SubnetName:        providerconfig.ConfigVarString{Value: c.Spec.Cloud.Azure.SubnetName},
+		RouteTableName:    providerconfig.ConfigVarString{Value: c.Spec.Cloud.Azure.RouteTableName},
+		AvailabilitySet:   providerconfig.ConfigVarString{Value: c.Spec.Cloud.Azure.AvailabilitySet},
+		SecurityGroupName: providerconfig.ConfigVarString{Value: c.Spec.Cloud.Azure.SecurityGroup},
 
 		// Revisit when we have the DNAT topic complete and we can use private machines. Then we can use: node.Spec.Cloud.Azure.AssignPublicIP
 		AssignPublicIP: providerconfig.ConfigVarBool{Value: true},
@@ -119,7 +122,6 @@ func getAzureProviderSpec(c *kubermaticv1.Cluster, nodeSpec apiv1.NodeSpec, dc p
 }
 
 func getVSphereProviderSpec(c *kubermaticv1.Cluster, nodeSpec apiv1.NodeSpec, dc provider.DatacenterMeta) (*runtime.RawExtension, error) {
-	folderPath := path.Join(dc.Spec.VSphere.RootPath, c.ObjectMeta.Name)
 
 	config := vsphere.RawConfig{
 		TemplateVMName:  providerconfig.ConfigVarString{Value: nodeSpec.Cloud.VSphere.Template},
@@ -127,10 +129,11 @@ func getVSphereProviderSpec(c *kubermaticv1.Cluster, nodeSpec apiv1.NodeSpec, dc
 		VMNetName:       providerconfig.ConfigVarString{Value: c.Spec.Cloud.VSphere.VMNetName},
 		CPUs:            int32(nodeSpec.Cloud.VSphere.CPUs),
 		MemoryMB:        int64(nodeSpec.Cloud.VSphere.Memory),
+		DiskSizeGB:      nodeSpec.Cloud.VSphere.DiskSizeGB,
 		Datacenter:      providerconfig.ConfigVarString{Value: dc.Spec.VSphere.Datacenter},
 		Datastore:       providerconfig.ConfigVarString{Value: dc.Spec.VSphere.Datastore},
 		Cluster:         providerconfig.ConfigVarString{Value: dc.Spec.VSphere.Cluster},
-		Folder:          providerconfig.ConfigVarString{Value: folderPath},
+		Folder:          providerconfig.ConfigVarString{Value: c.Spec.Cloud.VSphere.Folder},
 		AllowInsecure:   providerconfig.ConfigVarBool{Value: dc.Spec.VSphere.AllowInsecure},
 	}
 
@@ -224,6 +227,65 @@ func getDigitaloceanProviderSpec(c *kubermaticv1.Cluster, nodeSpec apiv1.NodeSpe
 	return ext, nil
 }
 
+func getPacketProviderSpec(c *kubermaticv1.Cluster, nodeSpec apiv1.NodeSpec, dc provider.DatacenterMeta) (*runtime.RawExtension, error) {
+	config := packet.RawConfig{
+		InstanceType: providerconfig.ConfigVarString{Value: nodeSpec.Cloud.Packet.InstanceType},
+	}
+
+	tags := sets.NewString(nodeSpec.Cloud.Packet.Tags...)
+	tags.Insert("kubernetes", "kubernetes-cluster-"+c.Name)
+	config.Tags = make([]providerconfig.ConfigVarString, len(tags.List()))
+	for i, tag := range tags.List() {
+		config.Tags[i].Value = tag
+	}
+
+	facilities := sets.NewString(dc.Spec.Packet.Facilities...)
+	config.Facilities = make([]providerconfig.ConfigVarString, len(facilities.List()))
+	for i, facility := range facilities.List() {
+		config.Facilities[i].Value = facility
+	}
+
+	ext := &runtime.RawExtension{}
+	b, err := json.Marshal(config)
+	if err != nil {
+		return nil, err
+	}
+
+	ext.Raw = b
+	return ext, nil
+}
+
+func getGCPProviderSpec(c *kubermaticv1.Cluster, nodeSpec apiv1.NodeSpec, dc provider.DatacenterMeta) (*runtime.RawExtension, error) {
+	config := gce.CloudProviderSpec{
+		Zone:                  providerconfig.ConfigVarString{Value: nodeSpec.Cloud.GCP.Zone},
+		MachineType:           providerconfig.ConfigVarString{Value: nodeSpec.Cloud.GCP.MachineType},
+		DiskSize:              nodeSpec.Cloud.GCP.DiskSize,
+		DiskType:              providerconfig.ConfigVarString{Value: nodeSpec.Cloud.GCP.DiskType},
+		Preemptible:           providerconfig.ConfigVarBool{Value: nodeSpec.Cloud.GCP.Preemptible},
+		Network:               providerconfig.ConfigVarString{Value: c.Spec.Cloud.GCP.Network},
+		Subnetwork:            providerconfig.ConfigVarString{Value: c.Spec.Cloud.GCP.Subnetwork},
+		AssignPublicIPAddress: &providerconfig.ConfigVarBool{Value: true},
+	}
+
+	tags := sets.NewString(nodeSpec.Cloud.GCP.Tags...)
+	tags.Insert(fmt.Sprintf("kubernetes-cluster-%s", c.Name))
+	config.Tags = tags.List()
+
+	config.Labels = map[string]string{}
+	for key, value := range nodeSpec.Cloud.GCP.Labels {
+		config.Labels[key] = value
+	}
+
+	ext := &runtime.RawExtension{}
+	b, err := json.Marshal(config)
+	if err != nil {
+		return nil, err
+	}
+
+	ext.Raw = b
+	return ext, nil
+}
+
 func getCentOSOperatingSystemSpec(nodeSpec apiv1.NodeSpec) (*runtime.RawExtension, error) {
 	config := centos.Config{
 		DistUpgradeOnBoot: nodeSpec.OperatingSystem.CentOS.DistUpgradeOnBoot,
@@ -241,7 +303,10 @@ func getCentOSOperatingSystemSpec(nodeSpec apiv1.NodeSpec) (*runtime.RawExtensio
 
 func getCoreosOperatingSystemSpec(nodeSpec apiv1.NodeSpec) (*runtime.RawExtension, error) {
 	config := coreos.Config{
-		DisableAutoUpdate: nodeSpec.OperatingSystem.ContainerLinux.DisableAutoUpdate,
+		DisableUpdateEngine: nodeSpec.OperatingSystem.ContainerLinux.DisableAutoUpdate,
+		// We manage CoreOS updates via the CoreOS update operator which requires locksmithd
+		// to be disabled: https://github.com/coreos/container-linux-update-operator#design
+		DisableLocksmithD: true,
 	}
 
 	ext := &runtime.RawExtension{}

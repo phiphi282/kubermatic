@@ -38,8 +38,12 @@ spec:
           value: https://vs-endpoint.io
         - name: VSPHERE_USERNAME
         - name: VSPHERE_PASSWORD
+<<<<<<< HEAD
         image: docker.io/kubermatic/machine-controller:v1.1.7
         imagePullPolicy: IfNotPresent
+=======
+        image: docker.io/kubermatic/machine-controller:v1.4.2
+>>>>>>> v2.11.0
         livenessProbe:
           failureThreshold: 8
           httpGet:
@@ -67,8 +71,6 @@ spec:
           requests:
             cpu: 10m
             memory: 32Mi
-        terminationMessagePath: /dev/termination-log
-        terminationMessagePolicy: File
         volumeMounts:
         - mountPath: /etc/kubernetes/kubeconfig
           name: machinecontroller-kubeconfig

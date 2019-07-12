@@ -47,6 +47,7 @@ func main() {
 				ResourceName: "Deployment",
 				ImportAlias:  "appsv1",
 				// Don't specify ResourceImportPath so this block does not create a new import line in the generated code
+				DefaultingFunc: "DefaultDeployment",
 			},
 			{
 				ResourceName: "DaemonSet",
@@ -148,7 +149,7 @@ import (
 )
 
 {{ range .Resources }}
-{{ namedReconcileFunc .ResourceName .ImportAlias .RequiresRecreate }}
+{{ namedReconcileFunc .ResourceName .ImportAlias .DefaultingFunc .RequiresRecreate }}
 {{- end }}
 
 `))
@@ -158,18 +159,25 @@ type reconcileFunctionData struct {
 	ResourceName       string
 	ResourceImportPath string
 	ImportAlias        string
-	RequiresRecreate   bool
+	// Optional: A defaulting func for the given object type
+	// Must be defined inside the resources package
+	DefaultingFunc string
+	// Whether the resource must be recreated instead of updated. Required
+	// e.G. for PDBs
+	RequiresRecreate bool
 }
 
-func namedReconcileFunc(resourceName, importAlias string, requiresRecreate bool) (string, error) {
+func namedReconcileFunc(resourceName, importAlias, defaultingFunc string, requiresRecreate bool) (string, error) {
 	b := &bytes.Buffer{}
 	err := namedReconcileFunctionTemplate.Execute(b, struct {
 		ResourceName     string
 		ImportAlias      string
+		DefaultingFunc   string
 		RequiresRecreate bool
 	}{
 		ResourceName:     resourceName,
 		ImportAlias:      importAlias,
+		DefaultingFunc:   defaultingFunc,
 		RequiresRecreate: requiresRecreate,
 	})
 
@@ -207,6 +215,9 @@ func {{ .ResourceName }}ObjectWrapper(create {{ .ResourceName }}Creator) ObjectC
 func Reconcile{{ .ResourceName }}s(ctx context.Context, namedGetters []Named{{ .ResourceName }}CreatorGetter, namespace string, client ctrlruntimeclient.Client, objectModifiers ...ObjectModifier) error {
 	for _, get := range namedGetters {
 		name, create := get()
+{{- if .DefaultingFunc }}
+		create = {{ .DefaultingFunc }}(create)
+{{- end }}
 		createObject := {{ .ResourceName }}ObjectWrapper(create)
 		for _, objectModifier := range objectModifiers {
 			createObject = objectModifier(createObject)

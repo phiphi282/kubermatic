@@ -141,6 +141,7 @@ func TestLoadFiles(t *testing.T) {
 				SecurityGroupID:     "aws-security-group",
 				SubnetID:            "aws-subnet-id",
 				VPCID:               "aws-vpn-id",
+				RoleARN:             "aws-role-arn",
 			},
 		},
 		"openstack": {
@@ -537,7 +538,8 @@ func TestLoadFiles(t *testing.T) {
 					"test",
 					"https://dev.kubermatic.io/dex",
 					"kubermaticIssuer",
-				)
+					true,
+					"quay.io/kubermatic/api")
 
 				var deploymentCreators []reconciling.NamedDeploymentCreatorGetter
 				deploymentCreators = append(deploymentCreators, clustercontroller.GetDeploymentCreators(data, true)...)

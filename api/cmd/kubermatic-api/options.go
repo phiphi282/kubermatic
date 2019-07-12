@@ -5,7 +5,11 @@ import (
 	"fmt"
 
 	"github.com/kubermatic/kubermatic/api/pkg/features"
+	kubermaticlog "github.com/kubermatic/kubermatic/api/pkg/log"
 	"github.com/kubermatic/kubermatic/api/pkg/provider"
+	"github.com/kubermatic/kubermatic/api/pkg/serviceaccount"
+
+	corev1 "k8s.io/api/core/v1"
 )
 
 type serverRunOptions struct {
@@ -19,6 +23,8 @@ type serverRunOptions struct {
 	versionsFile    string
 	updatesFile     string
 	domain          string
+	exposeStrategy  corev1.ServiceType
+	log             kubermaticlog.Options
 
 	// OIDC configuration
 	oidcURL                        string
@@ -40,11 +46,12 @@ type serverRunOptions struct {
 func newServerRunOptions() (serverRunOptions, error) {
 	s := serverRunOptions{}
 	var rawFeatureGates string
+	var rawExposeStrategy string
 
 	flag.StringVar(&s.listenAddress, "address", ":8080", "The address to listen on")
 	flag.StringVar(&s.kubeconfig, "kubeconfig", "", "Path to the kubeconfig.")
 	flag.StringVar(&s.internalAddr, "internal-address", "127.0.0.1:8085", "The address on which the internal handler should be exposed")
-	flag.StringVar(&s.prometheusURL, "prometheus-url", "http://prometheus-kubermatic.monitoring.svc.local:web", "The URL on which this API can talk to Prometheus")
+	flag.StringVar(&s.prometheusURL, "prometheus-url", "http://prometheus.monitoring.svc.local:web", "The URL on which this API can talk to Prometheus")
 	flag.StringVar(&s.masterResources, "master-resources", "", "The path to the master resources (Required).")
 	flag.StringVar(&s.dcFile, "datacenters", "datacenters.yaml", "The datacenters.yaml file path")
 	flag.StringVar(&s.workerName, "worker-name", "", "Create clusters only processed by worker-name cluster controller")
@@ -61,6 +68,10 @@ func newServerRunOptions() (serverRunOptions, error) {
 	flag.BoolVar(&s.oidcIssuerOfflineAccessAsScope, "oidc-issuer-offline-access-as-scope", true, "Set it to false if OIDC provider requires to set \"access_type=offline\" query param when accessing the refresh token")
 	flag.StringVar(&rawFeatureGates, "feature-gates", "", "A set of key=value pairs that describe feature gates for various features.")
 	flag.StringVar(&s.domain, "domain", "localhost", "A domain name on which the server is deployed")
+	flag.StringVar(&s.serviceAccountSigningKey, "service-account-signing-key", "", "Signing key authenticates the service account's token value using HMAC. It is recommended to use a key with 32 bytes or longer.")
+	flag.StringVar(&rawExposeStrategy, "expose-strategy", "NodePort", "The strategy to expose the controlplane with, either \"NodePort\" which creates NodePorts with a \"nodeport-proxy.k8s.io/expose: true\" annotation or \"LoadBalancer\", which creates a LoadBalancer")
+	flag.BoolVar(&s.log.Debug, "log-debug", false, "Enables debug logging")
+	flag.StringVar(&s.log.Format, "log-format", string(kubermaticlog.FormatJSON), "Log format. Available are: "+kubermaticlog.AvailableFormats.String())
 	flag.Parse()
 
 	featureGates, err := features.NewFeatures(rawFeatureGates)
@@ -68,6 +79,15 @@ func newServerRunOptions() (serverRunOptions, error) {
 		return s, err
 	}
 	s.featureGates = featureGates
+
+	switch rawExposeStrategy {
+	case "NodePort":
+		s.exposeStrategy = corev1.ServiceTypeNodePort
+	case "LoadBalancer":
+		s.exposeStrategy = corev1.ServiceTypeLoadBalancer
+	default:
+		return s, fmt.Errorf("--expose-strategy must be either `NodePort` or `LoadBalancer`, got %q", rawExposeStrategy)
+	}
 	return s, nil
 }
 
@@ -91,6 +111,10 @@ func (o serverRunOptions) validate() error {
 		}
 	}
 
+	if err := serviceaccount.ValidateKey([]byte(o.serviceAccountSigningKey)); err != nil {
+		return fmt.Errorf("the service-account-signing-key is incorrect due to error: %v", err)
+	}
+
 	return nil
 }
 
@@ -105,6 +129,7 @@ type providers struct {
 	projectMember                         provider.ProjectMemberProvider
 	memberMapper                          provider.ProjectMemberMapper
 	cloud                                 provider.CloudRegistry
+	eventRecorderProvider                 provider.EventRecorderProvider
 	clusters                              map[string]provider.ClusterProvider
 	datacenters                           map[string]provider.DatacenterMeta
 	addons                                map[string]provider.AddonProvider

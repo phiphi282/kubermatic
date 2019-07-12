@@ -17,6 +17,11 @@ const (
 
 	// ClusterKindName represents "Kind" defined in Kubernetes
 	ClusterKindName = "Cluster"
+
+	// AnnotationNameClusterAutoscalerEnabled is the name of the annotation that is being
+	// used to determine if the cluster-autoscaler is enabled for this cluster. It is
+	// enabled when this Annotation is set with any value
+	AnnotationNameClusterAutoscalerEnabled = "kubermatic.io/cluster-autoscaler-enabled"
 )
 
 // ClusterPhase is the life cycle phase of a cluster.
@@ -81,6 +86,10 @@ type ClusterSpec struct {
 
 	// HumanReadableName is the cluster name provided by the user
 	HumanReadableName string `json:"humanReadableName"`
+
+	// ExposeStrategy is the approach we use to expose this cluster, either via NodePort
+	// or via a dedicated LoadBalancer
+	ExposeStrategy corev1.ServiceType `json:"exposeStrategy"`
 
 	// Pause tells that this cluster is currently not managed by the controller.
 	// It indicates that the user needs to do some action to resolve the pause.
@@ -217,6 +226,10 @@ type ClusterStatus struct {
 	// Conditions contains conditions the cluster is in, its primary use case is status signaling between controllers or between
 	// controllers and the API
 	Conditions []ClusterCondition `json:"conditions,omitempty"`
+
+	// CloudMigrationRevision describes the latest version of the migration that has been done
+	// It is used to avoid redundant and potentially costly migrations
+	CloudMigrationRevision int `json:"cloudMigrationRevision"`
 }
 
 type ClusterStatusError string
@@ -238,8 +251,10 @@ type CloudSpec struct {
 	AWS          *AWSCloudSpec          `json:"aws,omitempty"`
 	Azure        *AzureCloudSpec        `json:"azure,omitempty"`
 	Openstack    *OpenstackCloudSpec    `json:"openstack,omitempty"`
+	Packet       *PacketCloudSpec       `json:"packet,omitempty"`
 	Hetzner      *HetznerCloudSpec      `json:"hetzner,omitempty"`
 	VSphere      *VSphereCloudSpec      `json:"vsphere,omitempty"`
+	GCP          *GCPCloudSpec          `json:"gcp,omitempty"`
 }
 
 // ClusterHealth stores health information of a cluster and the timestamp of the last change.
@@ -303,6 +318,7 @@ type VSphereCloudSpec struct {
 	Username  string `json:"username"`
 	Password  string `json:"password"`
 	VMNetName string `json:"vmNetName"`
+	Folder    string `json:"folder,omitempty"`
 
 	// This user will be used for everything except cloud provider functionality
 	InfraManagementUser VSphereCredentials `json:"infraManagementUser"`
@@ -318,6 +334,7 @@ type AWSCloudSpec struct {
 	VPCID               string `json:"vpcId"`
 	SubnetID            string `json:"subnetId"`
 	RoleName            string `json:"roleName"`
+	RoleARN             string `json:"roleARN"`
 	RouteTableID        string `json:"routeTableId"`
 	InstanceProfileName string `json:"instanceProfileName"`
 	SecurityGroupID     string `json:"securityGroupID"`
@@ -349,6 +366,20 @@ type OpenstackCloudSpec struct {
 	FloatingIPPool string `json:"floatingIpPool"`
 	RouterID       string `json:"routerID"`
 	SubnetID       string `json:"subnetID"`
+}
+
+// PacketCloudSpec specifies access data to a Packet cloud.
+type PacketCloudSpec struct {
+	APIKey       string `json:"apiKey"`
+	ProjectID    string `json:"projectID"`
+	BillingCycle string `json:"billingCycle"`
+}
+
+// GCPCloudSpec specifies access data to GCP.
+type GCPCloudSpec struct {
+	ServiceAccount string `json:"serviceAccount"`
+	Network        string `json:"network"`
+	Subnetwork     string `json:"subnetwork"`
 }
 
 // ClusterHealthStatus stores health information of the components of a cluster.

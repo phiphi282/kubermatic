@@ -1,0 +1,19 @@
+helmExporter:
+  replicas: 1
+  tillerNamespace: kubermatic-installer
+  image:
+    repository: docker.io/sstarcher/helm-exporter
+    tag: 0.4.0
+    pullPolicy: IfNotPresent
+  nameOverride: ''
+
+  resources:
+    requests:
+      cpu: 50m
+      memory: 32Mi
+    limits:
+      cpu: 250m
+      memory: 64Mi
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}

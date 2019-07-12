@@ -17,9 +17,11 @@ import (
 	"github.com/kubermatic/kubermatic/api/pkg/resources/apiserver"
 	"github.com/kubermatic/kubermatic/api/pkg/resources/certificates"
 	"github.com/kubermatic/kubermatic/api/pkg/resources/cloudconfig"
+	"github.com/kubermatic/kubermatic/api/pkg/resources/clusterautoscaler"
 	"github.com/kubermatic/kubermatic/api/pkg/resources/dns"
 	"github.com/kubermatic/kubermatic/api/pkg/resources/etcd"
 	"github.com/kubermatic/kubermatic/api/pkg/resources/machinecontroller"
+	"github.com/kubermatic/kubermatic/api/pkg/resources/nodeportproxy"
 	"github.com/kubermatic/kubermatic/api/pkg/resources/openvpn"
 	"github.com/kubermatic/kubermatic/api/pkg/resources/reconciling"
 	"github.com/kubermatic/kubermatic/api/pkg/resources/usercluster"
@@ -80,6 +82,7 @@ type Reconciler struct {
 	workerName           string
 	externalURL          string
 	oidc                 OIDCConfig
+	kubermaticImage      string
 	features             Features
 }
 
@@ -95,6 +98,7 @@ func Add(
 	dockerPullConfigJSON []byte,
 	externalURL string,
 	oidcConfig OIDCConfig,
+	kubermaticImage string,
 	features Features,
 ) error {
 	reconciler := &Reconciler{
@@ -110,6 +114,7 @@ func Add(
 		workerName:           workerName,
 		externalURL:          externalURL,
 		oidc:                 oidcConfig,
+		kubermaticImage:      kubermaticImage,
 		features:             features,
 	}
 
@@ -205,10 +210,7 @@ func (r *Reconciler) reconcile(ctx context.Context, cluster *kubermaticv1.Cluste
 		nodeAccessNetwork: r.nodeAccessNetwork,
 		oidc:              r.oidc,
 		etcdDiskSize:      r.etcdDiskSize,
-	}
-
-	if err := r.address(ctx, cluster); err != nil {
-		return nil, fmt.Errorf("failed to reconcile the cluster address: %v", err)
+		kubermaticImage:   r.kubermaticImage,
 	}
 
 	if err := r.networkDefaults(ctx, cluster); err != nil {
@@ -217,6 +219,10 @@ func (r *Reconciler) reconcile(ctx context.Context, cluster *kubermaticv1.Cluste
 
 	if err := r.services(ctx, osData); err != nil {
 		return nil, fmt.Errorf("failed to reconcile Services: %v", err)
+	}
+
+	if err := r.address(ctx, cluster); err != nil {
+		return nil, fmt.Errorf("failed to reconcile the cluster address: %v", err)
 	}
 
 	if err := r.secrets(ctx, osData); err != nil {
@@ -242,6 +248,12 @@ func (r *Reconciler) reconcile(ctx context.Context, cluster *kubermaticv1.Cluste
 
 	if err := r.deployments(ctx, osData); err != nil {
 		return nil, fmt.Errorf("failed to reconcile Deployments: %v", err)
+	}
+
+	if osData.Cluster().Spec.ExposeStrategy == corev1.ServiceTypeLoadBalancer {
+		if err := nodeportproxy.EnsureResources(ctx, r.Client, osData); err != nil {
+			return nil, fmt.Errorf("failed to ensure NodePortProxy resources: %v", err)
+		}
 	}
 
 	if err := r.cronJobs(ctx, osData); err != nil {
@@ -273,7 +285,7 @@ func (r *Reconciler) reconcile(ctx context.Context, cluster *kubermaticv1.Cluste
 	// Otherwise we fail to delete the nodes and are stuck in a loop
 	if !kuberneteshelper.HasFinalizer(cluster, kubermaticapiv1.NodeDeletionFinalizer) {
 		err = r.updateCluster(ctx, cluster, func(c *kubermaticv1.Cluster) {
-			c.Finalizers = append(c.Finalizers, kubermaticapiv1.NodeDeletionFinalizer)
+			kuberneteshelper.AddFinalizer(cluster, kubermaticapiv1.NodeDeletionFinalizer)
 		})
 		if err != nil {
 			return nil, err
@@ -295,6 +307,7 @@ func (r *Reconciler) syncHeath(ctx context.Context, osData *openshiftData) error
 		openshiftresources.ControllerManagerDeploymentName: {healthy: &currentHealth.Controller, minReady: 1},
 		resources.MachineControllerDeploymentName:          {healthy: &currentHealth.MachineController, minReady: 1},
 		resources.OpenVPNServerDeploymentName:              {healthy: &currentHealth.OpenVPN, minReady: 1},
+		resources.UserClusterControllerDeploymentName:      {healthy: &currentHealth.UserClusterControllerManager, minReady: 1},
 	}
 
 	var err error
@@ -446,11 +459,16 @@ func (r *Reconciler) getAllSecretCreators(ctx context.Context, osData *openshift
 		resources.GetInternalKubeconfigCreator(resources.KubeStateMetricsKubeconfigSecretName, resources.KubeStateMetricsCertUsername, nil, osData),
 		resources.GetInternalKubeconfigCreator(resources.MetricsServerKubeconfigSecretName, resources.MetricsServerCertUsername, nil, osData),
 		resources.GetInternalKubeconfigCreator(resources.InternalUserClusterAdminKubeconfigSecretName, resources.InternalUserClusterAdminKubeconfigCertUsername, []string{"system:masters"}, osData),
+		resources.GetInternalKubeconfigCreator(resources.ClusterAutoscalerKubeconfigSecretName, resources.ClusterAutoscalerCertUsername, nil, osData),
 
 		//TODO: This is only needed because of the ServiceAccount Token needed for Openshift
 		//TODO: Streamline this by using it everywhere and use the clientprovider here or remove
 		openshiftresources.ExternalX509KubeconfigCreator(osData),
 		openshiftresources.GetLoopbackKubeconfigCreator(ctx, osData)}
+
+	if osData.cluster.Spec.Cloud.GCP != nil {
+		creators = append(creators, resources.ServiceAccountSecretCreator(osData.cluster.Spec.Cloud.GCP.ServiceAccount))
+	}
 
 	return creators
 }
@@ -511,24 +529,23 @@ func (r *Reconciler) configMaps(ctx context.Context, osData *openshiftData) erro
 }
 
 func (r *Reconciler) getAllDeploymentCreators(ctx context.Context, osData *openshiftData) []reconciling.NamedDeploymentCreatorGetter {
-	return []reconciling.NamedDeploymentCreatorGetter{openshiftresources.APIDeploymentCreator(ctx, osData),
+	creators := []reconciling.NamedDeploymentCreatorGetter{openshiftresources.APIDeploymentCreator(ctx, osData),
 		openshiftresources.ControllerManagerDeploymentCreator(ctx, osData),
 		openshiftresources.MachineController(osData),
 		openvpn.DeploymentCreator(osData),
 		dns.DeploymentCreator(osData),
 		machinecontroller.WebhookDeploymentCreator(osData),
 		usercluster.DeploymentCreator(osData, true)}
+
+	if osData.Cluster().Annotations[kubermaticv1.AnnotationNameClusterAutoscalerEnabled] != "" {
+		creators = append(creators, clusterautoscaler.DeploymentCreator(osData))
+	}
+
+	return creators
 }
 
 func (r *Reconciler) deployments(ctx context.Context, osData *openshiftData) error {
-	for _, namedDeploymentCreator := range r.getAllDeploymentCreators(ctx, osData) {
-		deploymentName, deploymentCreator := namedDeploymentCreator()
-		if err := reconciling.EnsureNamedObject(ctx,
-			nn(osData.Cluster().Status.NamespaceName, deploymentName), reconciling.DeploymentObjectWrapper(deploymentCreator), r.Client, &appsv1.Deployment{}, false); err != nil {
-			return fmt.Errorf("failed to ensure Deployment %s: %v", deploymentName, err)
-		}
-	}
-	return nil
+	return reconciling.ReconcileDeployments(ctx, r.getAllDeploymentCreators(ctx, osData), osData.Cluster().Status.NamespaceName, r.Client)
 }
 
 func GetCronJobCreators(osData *openshiftData) []reconciling.NamedCronJobCreatorGetter {
@@ -676,14 +693,20 @@ func (r *Reconciler) networkDefaults(ctx context.Context, cluster *kubermaticv1.
 
 // GetServiceCreators returns all service creators that are currently in use
 func getAllServiceCreators(osData *openshiftData) []reconciling.NamedServiceCreatorGetter {
-	return []reconciling.NamedServiceCreatorGetter{
+	creators := []reconciling.NamedServiceCreatorGetter{
 		apiserver.InternalServiceCreator(),
-		apiserver.ExternalServiceCreator(),
-		openvpn.ServiceCreator(),
+		apiserver.ExternalServiceCreator(osData.Cluster().Spec.ExposeStrategy),
+		openvpn.ServiceCreator(osData.Cluster().Spec.ExposeStrategy),
 		etcd.ServiceCreator(osData),
 		dns.ServiceCreator(),
 		machinecontroller.ServiceCreator(),
 	}
+
+	if osData.Cluster().Spec.ExposeStrategy == corev1.ServiceTypeLoadBalancer {
+		creators = append(creators, nodeportproxy.FrontLoadBalancerServiceCreator())
+	}
+
+	return creators
 }
 
 func (r *Reconciler) services(ctx context.Context, osData *openshiftData) error {

@@ -26,7 +26,6 @@ import (
 	"net/http"
 	"os"
 
-	"github.com/golang/glog"
 	"github.com/gorilla/handlers"
 	"github.com/gorilla/mux"
 	prometheusapi "github.com/prometheus/client_golang/api"
@@ -38,54 +37,70 @@ import (
 	"github.com/kubermatic/kubermatic/api/pkg/handler"
 	"github.com/kubermatic/kubermatic/api/pkg/handler/auth"
 	"github.com/kubermatic/kubermatic/api/pkg/handler/v1/common"
+	kubermaticlog "github.com/kubermatic/kubermatic/api/pkg/log"
 	metricspkg "github.com/kubermatic/kubermatic/api/pkg/metrics"
+	"github.com/kubermatic/kubermatic/api/pkg/presets"
 	"github.com/kubermatic/kubermatic/api/pkg/provider"
 	"github.com/kubermatic/kubermatic/api/pkg/provider/cloud"
 	kubernetesprovider "github.com/kubermatic/kubermatic/api/pkg/provider/kubernetes"
 	"github.com/kubermatic/kubermatic/api/pkg/serviceaccount"
 	"github.com/kubermatic/kubermatic/api/pkg/util/informer"
 	"github.com/kubermatic/kubermatic/api/pkg/version"
-	ctrlruntimeclient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
+	ctrlruntimeclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 func main() {
 	options, err := newServerRunOptions()
 	if err != nil {
-		glog.Fatalf("failed to create server run options due to = %v", err)
+		fmt.Printf("failed to create server run options due to = %v\n", err)
+		os.Exit(1)
 	}
 	if err := options.validate(); err != nil {
-		glog.Fatalf("incorrect flags were passed to the server, err  = %v", err)
+		fmt.Println(err)
+		os.Exit(1)
 	}
+	rawLog := kubermaticlog.New(options.log.Debug, kubermaticlog.Format(options.log.Format))
+	log := rawLog.Sugar()
+	defer func() {
+		if err := log.Sync(); err != nil {
+			fmt.Println(err)
+		}
+	}()
+	kubermaticlog.Logger = log
 
 	providers, err := createInitProviders(options)
 	if err != nil {
-		glog.Fatalf("failed to create and initialize providers due to %v", err)
+		log.Fatalw("failed to create and initialize providers", "error", err)
 	}
 	oidcIssuerVerifier, err := createOIDCClients(options)
 	if err != nil {
-		glog.Fatalf("failed to create an openid authenticator for issuer %s (oidcClientID=%s) due to %v", options.oidcURL, options.oidcAuthenticatorClientID, err)
+		log.Fatalw("failed to create an openid authenticator", "issuer", options.oidcURL, "oidcClientID", options.oidcAuthenticatorClientID, "error", err)
 	}
 	tokenVerifiers, tokenExtractors, err := createAuthClients(options, providers)
 	if err != nil {
-		glog.Fatalf("failed to create auth clients due to %v", err)
+		log.Fatalw("failed to create auth clients", "error", err)
 	}
 	updateManager, err := version.NewFromFiles(options.versionsFile, options.updatesFile)
 	if err != nil {
-		glog.Fatal(fmt.Sprintf("failed to create update manager due to %v", err))
+		log.Fatalw("failed to create update manager", "error", err)
 	}
-	apiHandler, err := createAPIHandler(options, providers, oidcIssuerVerifier, tokenVerifiers, tokenExtractors, updateManager)
+	presetsManager, err := presets.NewFromFile("")
 	if err != nil {
-		glog.Fatalf(fmt.Sprintf("failed to create API Handler due to %v", err))
+		log.Fatalw("failed to create presets manager", "error", err)
+	}
+	apiHandler, err := createAPIHandler(options, providers, oidcIssuerVerifier, tokenVerifiers, tokenExtractors, updateManager, presetsManager)
+	if err != nil {
+		log.Fatalw("failed to create API Handler", "error", err)
 	}
 
 	go metricspkg.ServeForever(options.internalAddr, "/metrics")
-	glog.Info(fmt.Sprintf("Listening on %s", options.listenAddress))
-	glog.Fatal(http.ListenAndServe(options.listenAddress, handlers.CombinedLoggingHandler(os.Stdout, apiHandler)))
+	log.Infow("the API server listening", "listenAddress", options.listenAddress)
+	log.Fatalw("failed to start API server", "error", http.ListenAndServe(options.listenAddress, handlers.CombinedLoggingHandler(os.Stdout, apiHandler)))
 }
 
 func createInitProviders(options serverRunOptions) (providers, error) {
@@ -109,8 +124,7 @@ func createInitProviders(options serverRunOptions) (providers, error) {
 			if err != nil {
 				return providers{}, fmt.Errorf("unable to create client config for %s due to %v", ctx, err)
 			}
-			glog.V(2).Infof("adding %s as seed", ctx)
-
+			kubermaticlog.Logger.Infow("adding seed", "seed", ctx)
 			kubeClient := kubernetes.NewForConfigOrDie(cfg)
 			kubeInformerFactory := informers.NewSharedInformerFactory(kubeClient, informer.DefaultInformerResyncPeriod)
 			kubermaticSeedClient := kubermaticclientset.NewForConfigOrDie(cfg)
@@ -132,6 +146,8 @@ func createInitProviders(options serverRunOptions) (providers, error) {
 				kubermaticSeedInformerFactory.Kubermatic().V1().Clusters().Lister(),
 				options.workerName,
 				rbac.ExtractGroupPrefix,
+				seedCtrlruntimeClient,
+				kubeClient,
 			)
 
 			addonProviders[ctx] = kubernetesprovider.NewAddonProvider(
@@ -190,6 +206,8 @@ func createInitProviders(options serverRunOptions) (providers, error) {
 	kubermaticMasterInformerFactory.Start(wait.NeverStop)
 	kubermaticMasterInformerFactory.WaitForCacheSync(wait.NeverStop)
 
+	eventRecorderProvider := kubernetesprovider.NewEventRecorder()
+
 	return providers{
 			sshKey:                                sshKeyProvider,
 			user:                                  userProvider,
@@ -201,6 +219,7 @@ func createInitProviders(options serverRunOptions) (providers, error) {
 			projectMember:                         projectMemberProvider,
 			memberMapper:                          projectMemberProvider,
 			cloud:                                 cloudProviders,
+			eventRecorderProvider:                 eventRecorderProvider,
 			clusters:                              clusterProviders,
 			datacenters:                           datacenters,
 			addons:                                addonProviders},
@@ -249,7 +268,7 @@ func createAuthClients(options serverRunOptions, prov providers) (auth.TokenVeri
 	return tokenVerifiers, tokenExtractors, nil
 }
 
-func createAPIHandler(options serverRunOptions, prov providers, oidcIssuerVerifier auth.OIDCIssuerVerifier, tokenVerifiers auth.TokenVerifier, tokenExtractors auth.TokenExtractor, updateManager common.UpdateManager) (http.HandlerFunc, error) {
+func createAPIHandler(options serverRunOptions, prov providers, oidcIssuerVerifier auth.OIDCIssuerVerifier, tokenVerifiers auth.TokenVerifier, tokenExtractors auth.TokenExtractor, updateManager common.UpdateManager, presetsManager common.PresetsManager) (http.HandlerFunc, error) {
 	var prometheusClient prometheusapi.Client
 	if options.featureGates.Enabled(PrometheusEndpoint) {
 		var err error
@@ -259,6 +278,12 @@ func createAPIHandler(options serverRunOptions, prov providers, oidcIssuerVerifi
 			return nil, err
 		}
 	}
+
+	serviceAccountTokenGenerator, err := serviceaccount.JWTTokenGenerator([]byte(options.serviceAccountSigningKey))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create service account token generator due to %v", err)
+	}
+	serviceAccountTokenAuth := serviceaccount.JWTTokenAuthenticator([]byte(options.serviceAccountSigningKey))
 
 	r := handler.NewRouting(
 		prov.datacenters,
@@ -278,8 +303,11 @@ func createAPIHandler(options serverRunOptions, prov providers, oidcIssuerVerifi
 		prometheusClient,
 		prov.projectMember,
 		prov.memberMapper,
-		nil,
-		nil,
+		serviceAccountTokenAuth,
+		serviceAccountTokenGenerator,
+		prov.eventRecorderProvider,
+		presetsManager,
+		options.exposeStrategy,
 	)
 
 	registerMetrics()

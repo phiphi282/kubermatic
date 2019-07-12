@@ -32,13 +32,12 @@ func getVSphereScenarios(versions []*semver.Semver) []testScenario {
 			},
 		})
 		// CentOS
-		//TODO: Fix
-		//scenarios = append(scenarios, &vSphereScenario{
-		//	version: v,
-		//	nodeOsSpec: kubermaticapiv1.OperatingSystemSpec{
-		//		CentOS: &kubermaticapiv1.CentOSSpec{},
-		//	},
-		//})
+		scenarios = append(scenarios, &vSphereScenario{
+			version: v,
+			nodeOsSpec: kubermaticapiv1.OperatingSystemSpec{
+				CentOS: &kubermaticapiv1.CentOSSpec{},
+			},
+		})
 	}
 
 	return scenarios
@@ -69,7 +68,7 @@ func (s *vSphereScenario) Cluster(secrets secrets) *kubermaticv1.Cluster {
 				DNSDomain: "cluster.local",
 			},
 			Cloud: kubermaticv1.CloudSpec{
-				DatacenterName: "vsphere-hetzner",
+				DatacenterName: "vsphere-ger",
 				VSphere: &kubermaticv1.VSphereCloudSpec{
 					Username: secrets.VSphere.Username,
 					Password: secrets.VSphere.Password,
@@ -83,7 +82,7 @@ func (s *vSphereScenario) Cluster(secrets secrets) *kubermaticv1.Cluster {
 	}
 }
 
-func (s *vSphereScenario) Nodes(num int) *kubermaticapiv1.NodeDeployment {
+func (s *vSphereScenario) Nodes(num int, _ secrets) *kubermaticapiv1.NodeDeployment {
 	osName := getOSNameFromSpec(s.nodeOsSpec)
 	return &kubermaticapiv1.NodeDeployment{
 		Spec: kubermaticapiv1.NodeDeploymentSpec{
@@ -91,7 +90,7 @@ func (s *vSphereScenario) Nodes(num int) *kubermaticapiv1.NodeDeployment {
 			Template: kubermaticapiv1.NodeSpec{
 				Cloud: kubermaticapiv1.NodeCloudSpec{
 					VSphere: &kubermaticapiv1.VSphereNodeSpec{
-						Template: fmt.Sprintf("%s-template", osName),
+						Template: fmt.Sprintf("machine-controller-e2e-%s", osName),
 						CPUs:     2,
 						Memory:   2048,
 					},

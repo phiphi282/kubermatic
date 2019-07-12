@@ -119,10 +119,9 @@ func DeploymentCreator(data openVPNDeploymentCreatorData) reconciling.NamedDeplo
 
 			dep.Spec.Template.Spec.InitContainers = []corev1.Container{
 				{
-					Name:            "iptables-init",
-					Image:           data.ImageRegistry(resources.RegistryQuay) + "/kubermatic/openvpn:v0.5",
-					ImagePullPolicy: corev1.PullIfNotPresent,
-					Command:         []string{"/bin/bash"},
+					Name:    "iptables-init",
+					Image:   data.ImageRegistry(resources.RegistryQuay) + "/kubermatic/openvpn:v0.5",
+					Command: []string{"/bin/bash"},
 					Args: []string{
 						"-c", `# do not give a 10.20.0.0/24 route to clients (nodes) but
 # masquerade to openvpn-server's IP instead:
@@ -146,9 +145,7 @@ iptables -A INPUT -i tun0 -j DROP
 						},
 						ProcMount: &procMountType,
 					},
-					TerminationMessagePath:   corev1.TerminationMessagePathDefault,
-					TerminationMessagePolicy: corev1.TerminationMessageReadFile,
-					Resources:                defaultResourceRequirements,
+					Resources: defaultResourceRequirements,
 				},
 			}
 
@@ -178,13 +175,10 @@ iptables -A INPUT -i tun0 -j DROP
 
 			dep.Spec.Template.Spec.Containers = []corev1.Container{
 				{
-					Name:                     name,
-					Image:                    data.ImageRegistry(resources.RegistryQuay) + "/kubermatic/openvpn:v0.5",
-					ImagePullPolicy:          corev1.PullIfNotPresent,
-					Command:                  []string{"/usr/sbin/openvpn"},
-					Args:                     vpnArgs,
-					TerminationMessagePath:   corev1.TerminationMessagePathDefault,
-					TerminationMessagePolicy: corev1.TerminationMessageReadFile,
+					Name:    name,
+					Image:   data.ImageRegistry(resources.RegistryQuay) + "/kubermatic/openvpn:v0.5",
+					Command: []string{"/usr/sbin/openvpn"},
+					Args:    vpnArgs,
 					Ports: []corev1.ContainerPort{
 						{
 							ContainerPort: 1194,
@@ -231,17 +225,19 @@ iptables -A INPUT -i tun0 -j DROP
 					},
 				},
 				{
-					Name:            "ip-forward",
-					Image:           data.ImageRegistry(resources.RegistryQuay) + "/kubermatic/openvpn:v0.5",
-					ImagePullPolicy: corev1.PullIfNotPresent,
-					Command:         []string{"/bin/bash"},
+					Name:    "ip-fixup",
+					Image:   data.ImageRegistry(resources.RegistryQuay) + "/kubermatic/openvpn:v0.5",
+					Command: []string{"/bin/bash"},
 					Args: []string{
 						"-c",
 						// Always set IP forwarding as a CNI plugin might reset this to 0 (Like Calico 3).
-						"while true; do sysctl -w net.ipv4.ip_forward=1; sleep 30; done",
+						`while true; do sysctl -w net.ipv4.ip_forward=1;
+  if ! iptables -t mangle -C INPUT -p tcp --tcp-flags SYN,RST SYN --dport 1194 -j TCPMSS --set-mss 1300 &>/dev/null; then
+   iptables -t mangle -A INPUT -p tcp --tcp-flags SYN,RST SYN --dport 1194 -j TCPMSS --set-mss 1300
+  fi
+  sleep 30;
+done`,
 					},
-					TerminationMessagePath:   corev1.TerminationMessagePathDefault,
-					TerminationMessagePolicy: corev1.TerminationMessageReadFile,
 					SecurityContext: &corev1.SecurityContext{
 						Privileged: resources.Bool(true),
 						ProcMount:  &procMountType,
