@@ -101,8 +101,8 @@ func DeploymentCreator(data *resources.TemplateData) reconciling.NamedDeployment
 					ReadinessProbe: &corev1.Probe{
 						Handler: corev1.Handler{
 							HTTPGet: &corev1.HTTPGetAction{
-								Path: "/healthz",
-								Port: intstr.FromInt(nginxPort),
+								Path:   "/healthz",
+								Port:   intstr.FromInt(nginxPort),
 								Scheme: corev1.URISchemeHTTP,
 							},
 						},
@@ -115,8 +115,8 @@ func DeploymentCreator(data *resources.TemplateData) reconciling.NamedDeployment
 					LivenessProbe: &corev1.Probe{
 						Handler: corev1.Handler{
 							HTTPGet: &corev1.HTTPGetAction{
-								Path: "/healthz",
-								Port: intstr.FromInt(nginxPort),
+								Path:   "/healthz",
+								Port:   intstr.FromInt(nginxPort),
 								Scheme: corev1.URISchemeHTTP,
 							},
 						},
