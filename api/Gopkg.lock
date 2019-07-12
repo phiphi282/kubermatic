@@ -619,7 +619,7 @@
 
 [[projects]]
   branch = "master"
-  digest = "1:2e935442f280bdda393b1915007aaf81e9e526978c6190482d1c7616823bc8ae"
+  digest = "1:8e38b0f7370b1b0cf5ab1233dbe6a44f23665ad804170aa221f19e7311ba012e"
   name = "github.com/gophercloud/gophercloud"
   packages = [
     ".",
@@ -628,6 +628,7 @@
     "openstack/compute/v2/extensions/availabilityzones",
     "openstack/compute/v2/extensions/bootfromvolume",
     "openstack/compute/v2/extensions/extendedstatus",
+    "openstack/compute/v2/extensions/limits",
     "openstack/compute/v2/flavors",
     "openstack/compute/v2/images",
     "openstack/compute/v2/servers",
