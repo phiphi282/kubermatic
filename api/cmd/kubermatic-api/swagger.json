@@ -632,7 +632,6 @@
         }
       }
     },
-<<<<<<< HEAD
     "/api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/addons": {
       "get": {
         "description": "Lists addons that belong to the given cluster",
@@ -809,17 +808,10 @@
       "delete": {
         "produces": [
           "application/json"
-=======
-    "/api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/events": {
-      "get": {
-        "produces": [
-          "application/yaml"
->>>>>>> v2.11.0
         ],
         "tags": [
           "project"
         ],
-<<<<<<< HEAD
         "summary": "Deletes the given addon that belongs to the cluster.",
         "operationId": "deleteAddon",
         "parameters": [
@@ -879,10 +871,6 @@
         ],
         "summary": "Patches an addon that is assigned to the given cluster.",
         "operationId": "patchAddon",
-=======
-        "summary": "Gets the events related to the specified cluster.",
-        "operationId": "getClusterEvents",
->>>>>>> v2.11.0
         "parameters": [
           {
             "type": "string",
@@ -907,7 +895,6 @@
           },
           {
             "type": "string",
-<<<<<<< HEAD
             "x-go-name": "AddonID",
             "name": "addon_id",
             "in": "path",
@@ -919,26 +906,73 @@
             "schema": {
               "$ref": "#/definitions/Addon"
             }
-=======
-            "name": "Type",
-            "in": "query"
->>>>>>> v2.11.0
           }
         ],
         "responses": {
           "200": {
-<<<<<<< HEAD
             "description": "Addon",
             "schema": {
               "$ref": "#/definitions/Addon"
-=======
+            }
+          },
+          "401": {
+            "$ref": "#/responses/empty"
+          },
+          "403": {
+            "$ref": "#/responses/empty"
+          },
+          "default": {
+            "$ref": "#/responses/errorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/events": {
+      "get": {
+        "produces": [
+          "application/yaml"
+        ],
+        "tags": [
+          "project"
+        ],
+        "summary": "Gets the events related to the specified cluster.",
+        "operationId": "getClusterEvents",
+        "parameters": [
+          {
+            "type": "string",
+            "x-go-name": "ProjectID",
+            "name": "project_id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "x-go-name": "DC",
+            "name": "dc",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "x-go-name": "ClusterID",
+            "name": "cluster_id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "name": "Type",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
             "description": "Event",
             "schema": {
               "type": "array",
               "items": {
                 "$ref": "#/definitions/Event"
               }
->>>>>>> v2.11.0
             }
           },
           "401": {
@@ -3811,15 +3845,13 @@
           "type": "string",
           "x-go-name": "InstanceProfileName"
         },
-<<<<<<< HEAD
         "openstackBillingTenant": {
           "type": "string",
           "x-go-name": "OpenstackBillingTenant"
-=======
+        },
         "roleARN": {
           "type": "string",
           "x-go-name": "RoleARN"
->>>>>>> v2.11.0
         },
         "roleName": {
           "type": "string",

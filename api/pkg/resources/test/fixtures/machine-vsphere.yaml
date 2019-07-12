@@ -14,12 +14,7 @@ spec:
         cpus: 2
         datacenter: vsphere-datacenter
         datastore: vsphere-datastore
-<<<<<<< HEAD
-        diskSizeGB: null
-        folder: vsphere-1a2b3c4d5e
-=======
         folder: ""
->>>>>>> v2.11.0
         memoryMB: 2048
         password: ""
         templateNetName: ""

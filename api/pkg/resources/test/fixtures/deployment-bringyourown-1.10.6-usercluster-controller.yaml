@@ -61,12 +61,7 @@ spec:
             fieldRef:
               apiVersion: v1
               fieldPath: metadata.namespace
-<<<<<<< HEAD
-        image: 'docker.io/syseleven/kubermatic:'
-        imagePullPolicy: IfNotPresent
-=======
         image: 'quay.io/kubermatic/api:'
->>>>>>> v2.11.0
         name: usercluster-controller
         readinessProbe:
           failureThreshold: 5

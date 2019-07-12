@@ -57,12 +57,7 @@ spec:
         - --logtostderr
         command:
         - /metrics-server
-<<<<<<< HEAD
         image: gcr.io/google_containers/metrics-server-amd64:v0.3.3
-        imagePullPolicy: IfNotPresent
-=======
-        image: gcr.io/google_containers/metrics-server-amd64:v0.3.2
->>>>>>> v2.11.0
         name: metrics-server
         resources:
           limits:
@@ -140,7 +135,7 @@ spec:
         - -logtostderr
         command:
         - /usr/local/bin/kubeletdnat-controller
-        image: 'docker.io/syseleven/kubermatic:'
+        image: 'quay.io/kubermatic/api:'
         imagePullPolicy: IfNotPresent
         name: dnat-controller
         resources:

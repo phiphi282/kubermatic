@@ -728,7 +728,7 @@ func TestCreateClusterEndpoint(t *testing.T) {
 		{
 			Name:                   "scenario 5: openShift cluster is created",
 			Body:                   `{"cluster":{"name":"keen-snyder","type":"openshift","spec":{"version":"1.9.7","cloud":{"fake":{"token":"dummy_token"},"dc":"us-central1"}}}}`,
-			ExpectedResponse:       `{"id":"%s","name":"keen-snyder","creationTimestamp":"0001-01-01T00:00:00Z","type":"openshift","spec":{"cloud":{"dc":"us-central1","fake":{}},"version":"1.9.7"},"status":{"version":"1.9.7","url":""}}`,
+			ExpectedResponse:       `{"id":"%s","name":"keen-snyder","creationTimestamp":"0001-01-01T00:00:00Z","type":"openshift","spec":{"cloud":{"dc":"us-central1","fake":{}},"version":"1.9.7","oidc":{}},"status":{"version":"1.9.7","url":""}}`,
 			RewriteClusterID:       true,
 			HTTPStatus:             http.StatusCreated,
 			ProjectToSync:          test.GenDefaultProject().Name,
@@ -739,7 +739,7 @@ func TestCreateClusterEndpoint(t *testing.T) {
 		{
 			Name:                   "scenario 6: openShift cluster is created with existing custom credential",
 			Body:                   `{"cluster":{"name":"keen-snyder","type":"openshift","credential":"pluton","spec":{"version":"1.9.7","cloud":{"fake":{},"dc":"us-central1"}}}}`,
-			ExpectedResponse:       `{"id":"%s","name":"keen-snyder","creationTimestamp":"0001-01-01T00:00:00Z","type":"openshift","spec":{"cloud":{"dc":"us-central1","fake":{}},"version":"1.9.7"},"status":{"version":"1.9.7","url":""}}`,
+			ExpectedResponse:       `{"id":"%s","name":"keen-snyder","creationTimestamp":"0001-01-01T00:00:00Z","type":"openshift","spec":{"cloud":{"dc":"us-central1","fake":{}},"version":"1.9.7","oidc":{}},"status":{"version":"1.9.7","url":""}}`,
 			RewriteClusterID:       true,
 			HTTPStatus:             http.StatusCreated,
 			ProjectToSync:          test.GenDefaultProject().Name,

@@ -119,7 +119,7 @@ func (r Routing) listOpenstackImagesNoCredentials() http.Handler {
 		endpoint.Chain(
 			middleware.TokenVerifier(r.tokenVerifiers),
 			middleware.UserSaver(r.userProvider),
-			middleware.Datacenter(r.clusterProviders, r.datacenters),
+			middleware.SetClusterProvider(r.clusterProviders, r.datacenters),
 			middleware.UserInfoExtractor(r.userProjectMapper),
 		)(provider.OpenstackImageNoCredentialsEndpoint(r.projectProvider, r.cloudProviders)),
 		provider.DecodeOpenstackNoCredentialsReq,
@@ -143,7 +143,7 @@ func (r Routing) listOpenstackQuotaLimitsNoCredentials() http.Handler {
 		endpoint.Chain(
 			middleware.TokenVerifier(r.tokenVerifiers),
 			middleware.UserSaver(r.userProvider),
-			middleware.Datacenter(r.clusterProviders, r.datacenters),
+			middleware.SetClusterProvider(r.clusterProviders, r.datacenters),
 			middleware.UserInfoExtractor(r.userProjectMapper),
 		)(provider.OpenstackQuotaLimitNoCredentialsEndpoint(r.projectProvider, r.cloudProviders)),
 		provider.DecodeOpenstackNoCredentialsReq,
@@ -174,7 +174,7 @@ func (r Routing) getOidcClusterKubeconfig() http.Handler {
 		endpoint.Chain(
 			middleware.TokenVerifier(r.tokenVerifiers),
 			middleware.UserSaver(r.userProvider),
-			middleware.Datacenter(r.clusterProviders, r.datacenters),
+			middleware.SetClusterProvider(r.clusterProviders, r.datacenters),
 			middleware.UserInfoExtractor(r.userProjectMapper),
 			middleware.PrivilegedUserGroupVerifier(r.userProjectMapper, privilegedUserGroups),
 		)(cluster.GetOidcKubeconfigEndpoint(r.projectProvider)),
@@ -204,7 +204,7 @@ func (r Routing) createAddon() http.Handler {
 		endpoint.Chain(
 			middleware.TokenVerifier(r.tokenVerifiers),
 			middleware.UserSaver(r.userProvider),
-			middleware.Datacenter(r.clusterProviders, r.datacenters),
+			middleware.SetClusterProvider(r.clusterProviders, r.datacenters),
 			middleware.Addons(r.addonProviders),
 			middleware.UserInfoExtractor(r.userProjectMapper),
 		)(addon.CreateAddonEndpoint(r.projectProvider)),
@@ -231,7 +231,7 @@ func (r Routing) listAddons() http.Handler {
 		endpoint.Chain(
 			middleware.TokenVerifier(r.tokenVerifiers),
 			middleware.UserSaver(r.userProvider),
-			middleware.Datacenter(r.clusterProviders, r.datacenters),
+			middleware.SetClusterProvider(r.clusterProviders, r.datacenters),
 			middleware.Addons(r.addonProviders),
 			middleware.UserInfoExtractor(r.userProjectMapper),
 		)(addon.ListAddonEndpoint(r.projectProvider)),
@@ -259,7 +259,7 @@ func (r Routing) getAddon() http.Handler {
 		endpoint.Chain(
 			middleware.TokenVerifier(r.tokenVerifiers),
 			middleware.UserSaver(r.userProvider),
-			middleware.Datacenter(r.clusterProviders, r.datacenters),
+			middleware.SetClusterProvider(r.clusterProviders, r.datacenters),
 			middleware.Addons(r.addonProviders),
 			middleware.UserInfoExtractor(r.userProjectMapper),
 		)(addon.GetAddonEndpoint(r.projectProvider)),
@@ -289,7 +289,7 @@ func (r Routing) patchAddon() http.Handler {
 		endpoint.Chain(
 			middleware.TokenVerifier(r.tokenVerifiers),
 			middleware.UserSaver(r.userProvider),
-			middleware.Datacenter(r.clusterProviders, r.datacenters),
+			middleware.SetClusterProvider(r.clusterProviders, r.datacenters),
 			middleware.Addons(r.addonProviders),
 			middleware.UserInfoExtractor(r.userProjectMapper),
 		)(addon.PatchAddonEndpoint(r.projectProvider)),
@@ -316,7 +316,7 @@ func (r Routing) deleteAddon() http.Handler {
 		endpoint.Chain(
 			middleware.TokenVerifier(r.tokenVerifiers),
 			middleware.UserSaver(r.userProvider),
-			middleware.Datacenter(r.clusterProviders, r.datacenters),
+			middleware.SetClusterProvider(r.clusterProviders, r.datacenters),
 			middleware.Addons(r.addonProviders),
 			middleware.UserInfoExtractor(r.userProjectMapper),
 		)(addon.DeleteAddonEndpoint(r.projectProvider)),

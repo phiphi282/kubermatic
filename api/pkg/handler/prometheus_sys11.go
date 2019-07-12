@@ -35,7 +35,7 @@ func (r Routing) prometheusProxyHandler() http.Handler {
 		endpoint.Chain(
 			middleware.TokenVerifier(r.tokenVerifiers),
 			middleware.UserSaver(r.userProvider),
-			middleware.Datacenter(r.clusterProviders, r.datacenters),
+			middleware.SetClusterProvider(r.clusterProviders, r.datacenters),
 			middleware.UserInfoExtractor(r.userProjectMapper),
 		)(getPrometheusProxyEndpoint(r.datacenters)),
 		decodePrometheusProxyReq,
