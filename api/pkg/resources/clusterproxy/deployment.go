@@ -2,6 +2,7 @@ package clusterproxy
 
 import (
 	"fmt"
+
 	"github.com/kubermatic/kubermatic/api/pkg/resources/vpnsidecar"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/util/intstr"
@@ -62,6 +63,17 @@ func DeploymentCreator(data *resources.TemplateData) reconciling.NamedDeployment
 			}
 			dep.Spec.Template.Spec.Volumes = volumes
 
+			dep.Spec.Strategy.Type = appsv1.RollingUpdateStatefulSetStrategyType
+			dep.Spec.Strategy.RollingUpdate = &appsv1.RollingUpdateDeployment{
+				MaxSurge: &intstr.IntOrString{
+					Type:   intstr.Int,
+					IntVal: 1,
+				},
+				MaxUnavailable: &intstr.IntOrString{
+					Type:   intstr.Int,
+					IntVal: 0,
+				},
+			}
 			dep.Spec.Template.Spec.ImagePullSecrets = []corev1.LocalObjectReference{{Name: resources.ImagePullSecretName}}
 
 			openvpnSidecar, err := vpnsidecar.OpenVPNSidecarContainer(data, "openvpn-client")
@@ -91,18 +103,27 @@ func DeploymentCreator(data *resources.TemplateData) reconciling.NamedDeployment
 							HTTPGet: &corev1.HTTPGetAction{
 								Path: "/healthz",
 								Port: intstr.FromInt(nginxPort),
+								Scheme: corev1.URISchemeHTTP,
 							},
 						},
-						TimeoutSeconds: 3,
+						FailureThreshold:    3,
+						InitialDelaySeconds: 3,
+						PeriodSeconds:       10,
+						SuccessThreshold:    1,
+						TimeoutSeconds:      3,
 					},
 					LivenessProbe: &corev1.Probe{
 						Handler: corev1.Handler{
 							HTTPGet: &corev1.HTTPGetAction{
 								Path: "/healthz",
 								Port: intstr.FromInt(nginxPort),
+								Scheme: corev1.URISchemeHTTP,
 							},
 						},
+						FailureThreshold:    3,
 						InitialDelaySeconds: 3,
+						PeriodSeconds:       10,
+						SuccessThreshold:    1,
 						TimeoutSeconds:      3,
 					},
 					VolumeMounts: getVolumeMounts(),

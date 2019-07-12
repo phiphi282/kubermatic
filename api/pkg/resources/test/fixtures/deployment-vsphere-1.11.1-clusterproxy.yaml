@@ -8,7 +8,11 @@ spec:
   selector:
     matchLabels:
       app: clusterproxy
-  strategy: {}
+  strategy:
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+    type: RollingUpdate
   template:
     metadata:
       creationTimestamp: null
@@ -93,19 +97,28 @@ spec:
       - image: docker.io/nginxinc/nginx-unprivileged:1.16-alpine
         imagePullPolicy: IfNotPresent
         livenessProbe:
+          failureThreshold: 3
           httpGet:
             path: /healthz
             port: 3000
+            scheme: HTTP
           initialDelaySeconds: 3
+          periodSeconds: 10
+          successThreshold: 1
           timeoutSeconds: 3
         name: clusterproxy
         ports:
         - containerPort: 3000
           protocol: TCP
         readinessProbe:
+          failureThreshold: 3
           httpGet:
             path: /healthz
             port: 3000
+            scheme: HTTP
+          initialDelaySeconds: 3
+          periodSeconds: 10
+          successThreshold: 1
           timeoutSeconds: 3
         resources:
           limits:
