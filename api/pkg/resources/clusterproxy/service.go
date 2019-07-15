@@ -16,7 +16,6 @@ func ServiceCreator(data *resources.TemplateData) reconciling.NamedServiceCreato
 			se.OwnerReferences = []metav1.OwnerReference{data.GetClusterRef()}
 			se.Labels = resources.BaseAppLabel(name, nil)
 
-			se.Spec.ClusterIP = "None"
 			se.Spec.Selector = map[string]string{
 				resources.AppLabelKey: name,
 				"cluster":             data.Cluster().Name,
