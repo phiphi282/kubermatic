@@ -1973,55 +1973,6 @@
         }
       }
     },
-    "/api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/providers/openstack/images": {
-      "get": {
-        "description": "Lists images from openstack",
-        "produces": [
-          "application/json"
-        ],
-        "tags": [
-          "openstack"
-        ],
-        "operationId": "listOpenstackImagesNoCredentials",
-        "parameters": [
-          {
-            "type": "string",
-            "x-go-name": "ProjectID",
-            "name": "project_id",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "string",
-            "x-go-name": "DC",
-            "name": "dc",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "string",
-            "x-go-name": "ClusterID",
-            "name": "cluster_id",
-            "in": "path",
-            "required": true
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Image",
-            "schema": {
-              "type": "array",
-              "items": {
-                "$ref": "#/definitions/Image"
-              }
-            }
-          },
-          "default": {
-            "$ref": "#/responses/errorResponse"
-          }
-        }
-      }
-    },
     "/api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/providers/gcp/disktypes": {
       "get": {
         "description": "Lists disk types from GCP",
@@ -2162,6 +2113,55 @@
             "description": "GCPZoneList",
             "schema": {
               "$ref": "#/definitions/GCPZoneList"
+            }
+          },
+          "default": {
+            "$ref": "#/responses/errorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/providers/openstack/images": {
+      "get": {
+        "description": "Lists images from openstack",
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "openstack"
+        ],
+        "operationId": "listOpenstackImagesNoCredentials",
+        "parameters": [
+          {
+            "type": "string",
+            "x-go-name": "ProjectID",
+            "name": "project_id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "x-go-name": "DC",
+            "name": "dc",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "x-go-name": "ClusterID",
+            "name": "cluster_id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Image",
+            "schema": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/Image"
+              }
             }
           },
           "default": {
