@@ -11,12 +11,11 @@ metadata:
     name: de-test-01
     uid: "1234567890"
 spec:
-  clusterIP: None
   ports:
   - name: http
     port: 80
     protocol: TCP
-    targetPort: http
+    targetPort: 3000
   selector:
     app: clusterproxy
     cluster: de-test-01
