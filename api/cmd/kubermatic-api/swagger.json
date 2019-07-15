@@ -3461,14 +3461,14 @@
         }
       }
     },
-    "/api/v1/providers/openstack/images": {
+    "/api/v1/providers/gcp/disktypes": {
       "get": {
-        "description": "Lists images from openstack",
+        "description": "Lists disk types from GCP",
         "produces": [
           "application/json"
         ],
         "tags": [
-          "openstack"
+          "gcp"
         ],
         "operationId": "listGCPDiskTypes",
         "parameters": [
@@ -3490,12 +3490,9 @@
         ],
         "responses": {
           "200": {
-            "description": "Image",
+            "description": "GCPDiskTypeList",
             "schema": {
-              "type": "array",
-              "items": {
-                "$ref": "#/definitions/Image"
-              }
+              "$ref": "#/definitions/GCPDiskTypeList"
             }
           },
           "default": {
@@ -3504,14 +3501,14 @@
         }
       }
     },
-    "/api/v1/providers/openstack/networks": {
+    "/api/v1/providers/gcp/sizes": {
       "get": {
-        "description": "Lists networks from openstack",
+        "description": "Lists machine types from GCP",
         "produces": [
           "application/json"
         ],
         "tags": [
-          "openstack"
+          "gcp"
         ],
         "operationId": "listGCPSizes",
         "parameters": [
@@ -3533,12 +3530,9 @@
         ],
         "responses": {
           "200": {
-            "description": "OpenstackNetwork",
+            "description": "GCPMachineSizeList",
             "schema": {
-              "type": "array",
-              "items": {
-                "$ref": "#/definitions/OpenstackNetwork"
-              }
+              "$ref": "#/definitions/GCPMachineSizeList"
             }
           },
           "default": {
@@ -3581,6 +3575,58 @@
             "description": "GCPZoneList",
             "schema": {
               "$ref": "#/definitions/GCPZoneList"
+            }
+          },
+          "default": {
+            "$ref": "#/responses/errorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/providers/openstack/images": {
+      "get": {
+        "description": "Lists images from openstack",
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "openstack"
+        ],
+        "operationId": "listOpenstackImages",
+        "responses": {
+          "200": {
+            "description": "Image",
+            "schema": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/Image"
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/responses/errorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/providers/openstack/networks": {
+      "get": {
+        "description": "Lists networks from openstack",
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "openstack"
+        ],
+        "operationId": "listOpenstackNetworks",
+        "responses": {
+          "200": {
+            "description": "OpenstackNetwork",
+            "schema": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/OpenstackNetwork"
+              }
             }
           },
           "default": {
@@ -5130,6 +5176,62 @@
           },
           "x-go-name": "ZoneSuffixes"
         }
+      },
+      "x-go-package": "github.com/kubermatic/kubermatic/api/pkg/api/v1"
+    },
+    "GCPDiskType": {
+      "type": "object",
+      "title": "GCPDiskType represents a object of GCP disk type.",
+      "properties": {
+        "description": {
+          "type": "string",
+          "x-go-name": "Description"
+        },
+        "name": {
+          "type": "string",
+          "x-go-name": "Name"
+        }
+      },
+      "x-go-package": "github.com/kubermatic/kubermatic/api/pkg/api/v1"
+    },
+    "GCPDiskTypeList": {
+      "type": "array",
+      "title": "GCPDiskTypeList represents an array of GCP disk types.",
+      "items": {
+        "$ref": "#/definitions/GCPDiskType"
+      },
+      "x-go-package": "github.com/kubermatic/kubermatic/api/pkg/api/v1"
+    },
+    "GCPMachineSize": {
+      "type": "object",
+      "title": "GCPMachineSize represents a object of GCP machine size.",
+      "properties": {
+        "description": {
+          "type": "string",
+          "x-go-name": "Description"
+        },
+        "memory": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "Memory"
+        },
+        "name": {
+          "type": "string",
+          "x-go-name": "Name"
+        },
+        "vcpus": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "VCPUs"
+        }
+      },
+      "x-go-package": "github.com/kubermatic/kubermatic/api/pkg/api/v1"
+    },
+    "GCPMachineSizeList": {
+      "type": "array",
+      "title": "GCPMachineSizeList represents an array of GCP machine sizes.",
+      "items": {
+        "$ref": "#/definitions/GCPMachineSize"
       },
       "x-go-package": "github.com/kubermatic/kubermatic/api/pkg/api/v1"
     },
