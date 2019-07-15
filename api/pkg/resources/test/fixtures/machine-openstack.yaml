@@ -16,7 +16,7 @@ spec:
         identityEndpoint: os-auth-url
         image: os-image
         network: os-network
-        nodeVolumeAttachLimit: null
+        nodeVolumeAttachLimit: 42
         password: ""
         region: os-region
         rootDiskSizeGB: null

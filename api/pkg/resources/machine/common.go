@@ -149,14 +149,15 @@ func getVSphereProviderSpec(c *kubermaticv1.Cluster, nodeSpec apiv1.NodeSpec, dc
 
 func getOpenstackProviderSpec(c *kubermaticv1.Cluster, nodeSpec apiv1.NodeSpec, dc provider.DatacenterMeta) (*runtime.RawExtension, error) {
 	config := openstack.RawConfig{
-		Image:            providerconfig.ConfigVarString{Value: nodeSpec.Cloud.Openstack.Image},
-		Flavor:           providerconfig.ConfigVarString{Value: nodeSpec.Cloud.Openstack.Flavor},
-		AvailabilityZone: providerconfig.ConfigVarString{Value: dc.Spec.Openstack.AvailabilityZone},
-		Region:           providerconfig.ConfigVarString{Value: dc.Spec.Openstack.Region},
-		IdentityEndpoint: providerconfig.ConfigVarString{Value: dc.Spec.Openstack.AuthURL},
-		Network:          providerconfig.ConfigVarString{Value: c.Spec.Cloud.Openstack.Network},
-		Subnet:           providerconfig.ConfigVarString{Value: c.Spec.Cloud.Openstack.SubnetID},
-		SecurityGroups:   []providerconfig.ConfigVarString{{Value: c.Spec.Cloud.Openstack.SecurityGroups}},
+		Image:                 providerconfig.ConfigVarString{Value: nodeSpec.Cloud.Openstack.Image},
+		Flavor:                providerconfig.ConfigVarString{Value: nodeSpec.Cloud.Openstack.Flavor},
+		AvailabilityZone:      providerconfig.ConfigVarString{Value: dc.Spec.Openstack.AvailabilityZone},
+		Region:                providerconfig.ConfigVarString{Value: dc.Spec.Openstack.Region},
+		IdentityEndpoint:      providerconfig.ConfigVarString{Value: dc.Spec.Openstack.AuthURL},
+		Network:               providerconfig.ConfigVarString{Value: c.Spec.Cloud.Openstack.Network},
+		Subnet:                providerconfig.ConfigVarString{Value: c.Spec.Cloud.Openstack.SubnetID},
+		SecurityGroups:        []providerconfig.ConfigVarString{{Value: c.Spec.Cloud.Openstack.SecurityGroups}},
+		NodeVolumeAttachLimit: dc.Spec.Openstack.NodeVolumeAttachLimit,
 	}
 
 	if nodeSpec.Cloud.Openstack.UseFloatingIP || dc.Spec.Openstack.EnforceFloatingIP {

@@ -429,6 +429,13 @@ func TestLoadFiles(t *testing.T) {
 							Namespace:       cluster.Status.NamespaceName,
 						},
 					},
+					&corev1.ConfigMap{
+						ObjectMeta: metav1.ObjectMeta{
+							ResourceVersion: "123456",
+							Name:            resources.SchedulerConfigMapName,
+							Namespace:       cluster.Status.NamespaceName,
+						},
+					},
 					&corev1.Service{
 						ObjectMeta: metav1.ObjectMeta{
 							Name:      resources.ApiserverExternalServiceName,
@@ -918,6 +925,9 @@ func TestExecute(t *testing.T) {
 							Region:           "os-region",
 							IgnoreVolumeAZ:   false,
 							DNSServers:       []string{},
+							NodeVolumeAttachLimit: func(i uint) *uint {
+								return &i
+							}(42),
 						},
 					},
 					IsSeed: false,

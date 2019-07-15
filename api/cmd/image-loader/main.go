@@ -255,8 +255,14 @@ func getTemplateData(version *kubermaticversion.MasterVersion) (*resources.Templ
 			Namespace: mockNamespaceName,
 		},
 	}
+	schedulerPolicyConfigMap := corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      resources.SchedulerConfigMapName,
+			Namespace: mockNamespaceName,
+		},
+	}
 	configMapList := &corev1.ConfigMapList{
-		Items: []corev1.ConfigMap{cloudConfigConfigMap, prometheusConfigMap, dnsResolverConfigMap, openvpnClientConfigsConfigMap, clusterProxyConfigMap},
+		Items: []corev1.ConfigMap{cloudConfigConfigMap, prometheusConfigMap, dnsResolverConfigMap, openvpnClientConfigsConfigMap, clusterProxyConfigMap, schedulerPolicyConfigMap},
 	}
 	apiServerExternalService := corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{

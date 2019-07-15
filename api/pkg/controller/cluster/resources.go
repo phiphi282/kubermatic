@@ -276,6 +276,7 @@ func GetConfigMapCreators(data *resources.TemplateData) []reconciling.NamedConfi
 		openvpn.ServerClientConfigsConfigMapCreator(data),
 		dns.ConfigMapCreator(data),
 		clusterproxy.ConfigMapCreator(data),
+		scheduler.ConfigMapCreator(data),
 	}
 }
 
