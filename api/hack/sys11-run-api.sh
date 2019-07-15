@@ -14,7 +14,7 @@ set -x
 : "${CONFIG_DIR:=${INSTALLER_DIR}/environments/${KUBERMATIC_ENV}/kubermatic}"
 KUBERMATIC_ENV=${KUBERMATIC_ENV} KUBERMATIC_CLUSTER=${KUBERMATIC_CLUSTER} make -C ${INSTALLER_DIR}/kubermatic values.yaml
 : "${DEBUG:="false"}"
-
+SERVICE_ACCOUNT_SIGNING_KEY="$(KUBERMATIC_ENV=${KUBERMATIC_ENV} KUBERMATIC_CLUSTER=${KUBERMATIC_CLUSTER} ${INSTALLER_DIR}/bin/run-vault kv get -field=serviceAccountKey secret/metakube-dev/clusters/dbl1/kubermatic/auth)"
 while true; do
     if [[ "${DEBUG}" == "true" ]]; then
         GOTOOLFLAGS="-v -gcflags='all=-N -l'" make -C ${SRC_DIR} kubermatic-api
@@ -42,6 +42,7 @@ while true; do
           -oidc-url=https://dev.metakube.de/dex \
           -oidc-authenticator-client-id=kubermatic \
           -oidc-skip-tls-verify=false \
+          -service-account-signing-key="${SERVICE_ACCOUNT_SIGNING_KEY}" \
           -logtostderr \
           -v=8 $@ &
 
@@ -60,6 +61,7 @@ while true; do
           -oidc-url=https://dev.metakube.de/dex \
           -oidc-authenticator-client-id=kubermatic \
           -oidc-skip-tls-verify=false \
+          -service-account-signing-key="${SERVICE_ACCOUNT_SIGNING_KEY}" \
           -logtostderr \
           -v=8 $@ &
 
