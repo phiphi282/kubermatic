@@ -43,6 +43,7 @@ while true; do
           -oidc-authenticator-client-id=kubermatic \
           -oidc-skip-tls-verify=false \
           -service-account-signing-key="${SERVICE_ACCOUNT_SIGNING_KEY}" \
+          -accessible-addons dashboard,metakube-ark,metakube-autoscaler,metakube-backups,metakube-helm,metakube-ingress,metakube-monitoring,metakube-weave-scope,metakube-webterminal \
           -logtostderr \
           -v=8 $@ &
 
@@ -62,6 +63,7 @@ while true; do
           -oidc-authenticator-client-id=kubermatic \
           -oidc-skip-tls-verify=false \
           -service-account-signing-key="${SERVICE_ACCOUNT_SIGNING_KEY}" \
+          -accessible-addons dashboard,metakube-ark,metakube-autoscaler,metakube-backups,metakube-helm,metakube-ingress,metakube-monitoring,metakube-weave-scope,metakube-webterminal \
           -logtostderr \
           -v=8 $@ &
 
