@@ -25,7 +25,7 @@ func ServiceCreator(data *resources.TemplateData) reconciling.NamedServiceCreato
 					Name:       "http",
 					Port:       80,
 					Protocol:   corev1.ProtocolTCP,
-					TargetPort: intstr.FromString("http"),
+					TargetPort: intstr.FromInt(nginxPort),
 				},
 			}
 
