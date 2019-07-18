@@ -217,7 +217,7 @@ func initTestEndpoint(user apiv1.User, dc map[string]provider.DatacenterMeta, ku
 
 	addonProvider := kubernetes.NewAddonProvider(
 		fakeKubermaticImpersonationClient,
-		kubermaticInformerFactory.Kubermatic().V1().Addons().Lister(),
+		map[string]bool{"addon1": true, "addon2": true},
 	)
 	addonProviders := map[string]provider.AddonProvider{"us-central1": addonProvider}
 

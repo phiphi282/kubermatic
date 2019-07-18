@@ -152,7 +152,7 @@ func createInitProviders(options serverRunOptions) (providers, error) {
 
 			addonProviders[ctx] = kubernetesprovider.NewAddonProvider(
 				defaultImpersonationClientForSeed.CreateImpersonatedKubermaticClientSet,
-				kubermaticSeedInformerFactory.Kubermatic().V1().Addons().Lister(),
+				options.accessibleAddons,
 			)
 
 			kubeInformerFactory.Start(wait.NeverStop)

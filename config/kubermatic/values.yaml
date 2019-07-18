@@ -128,6 +128,10 @@ kubermatic:
 
   api:
     replicas: 2
+    accessibleAddons:
+    - dashboard
+    - default-storage-class
+    - node-exporter
     image:
       repository: "quay.io/kubermatic/api"
       tag: "__KUBERMATIC_TAG__"

@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"strings"
 
 	"github.com/kubermatic/kubermatic/api/pkg/features"
 	kubermaticlog "github.com/kubermatic/kubermatic/api/pkg/log"
@@ -13,18 +14,19 @@ import (
 )
 
 type serverRunOptions struct {
-	listenAddress   string
-	kubeconfig      string
-	internalAddr    string
-	prometheusURL   string
-	masterResources string
-	dcFile          string
-	workerName      string
-	versionsFile    string
-	updatesFile     string
-	domain          string
-	exposeStrategy  corev1.ServiceType
-	log             kubermaticlog.Options
+	listenAddress    string
+	kubeconfig       string
+	internalAddr     string
+	prometheusURL    string
+	masterResources  string
+	dcFile           string
+	workerName       string
+	versionsFile     string
+	updatesFile      string
+	domain           string
+	exposeStrategy   corev1.ServiceType
+	log              kubermaticlog.Options
+	accessibleAddons map[string]bool
 
 	// OIDC configuration
 	oidcURL                        string
@@ -47,6 +49,7 @@ func newServerRunOptions() (serverRunOptions, error) {
 	s := serverRunOptions{}
 	var rawFeatureGates string
 	var rawExposeStrategy string
+	var rawAccessibleAddons string
 
 	flag.StringVar(&s.listenAddress, "address", ":8080", "The address to listen on")
 	flag.StringVar(&s.kubeconfig, "kubeconfig", "", "Path to the kubeconfig.")
@@ -57,6 +60,7 @@ func newServerRunOptions() (serverRunOptions, error) {
 	flag.StringVar(&s.workerName, "worker-name", "", "Create clusters only processed by worker-name cluster controller")
 	flag.StringVar(&s.versionsFile, "versions", "versions.yaml", "The versions.yaml file path")
 	flag.StringVar(&s.updatesFile, "updates", "updates.yaml", "The updates.yaml file path")
+	flag.StringVar(&rawAccessibleAddons, "accessible-addons", "dashboard,default-storage-class,node-exporter", "Comma-separated list of user cluster addons to expose via the API")
 	flag.StringVar(&s.oidcURL, "oidc-url", "", "URL of the OpenID token issuer. Example: http://auth.int.kubermatic.io")
 	flag.BoolVar(&s.oidcSkipTLSVerify, "oidc-skip-tls-verify", false, "Skip TLS verification for the token issuer")
 	flag.StringVar(&s.oidcAuthenticatorClientID, "oidc-authenticator-client-id", "", "Authenticator client ID")
@@ -88,6 +92,12 @@ func newServerRunOptions() (serverRunOptions, error) {
 	default:
 		return s, fmt.Errorf("--expose-strategy must be either `NodePort` or `LoadBalancer`, got %q", rawExposeStrategy)
 	}
+
+	s.accessibleAddons = map[string]bool{}
+	for _, addon := range strings.Split(rawAccessibleAddons, ",") {
+		s.accessibleAddons[addon] = true
+	}
+
 	return s, nil
 }
 
