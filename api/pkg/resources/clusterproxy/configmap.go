@@ -131,5 +131,17 @@ const nginxConfig = `map $http_upgrade $connection_upgrade {
 		  proxy_set_header Upgrade $http_upgrade;
 		  proxy_set_header Connection $connection_upgrade;
 	  }
+	  location = /kubernetes-dashboard {
+		  return 302 https://$server_name/kubernetes-dashboard/;
+	  }
+	  location /kubernetes-dashboard/ {
+		  set $upstream "kubernetes-dashboard.syseleven-kubernetes-dashboard.svc.cluster.local:80";
+		  rewrite ^/kubernetes-dashboard(/.*) $1 break;
+		  proxy_pass http://$upstream$uri$is_args$args;
+		  proxy_http_version 1.1;
+		  proxy_pass_request_headers on;
+		  proxy_set_header Upgrade $http_upgrade;
+		  proxy_set_header Connection $connection_upgrade;
+	  }
   }
 `
