@@ -14,7 +14,15 @@ set -x
 : "${CONFIG_DIR:=${INSTALLER_DIR}/environments/${KUBERMATIC_ENV}/kubermatic}"
 KUBERMATIC_ENV=${KUBERMATIC_ENV} KUBERMATIC_CLUSTER=${KUBERMATIC_CLUSTER} make -C ${INSTALLER_DIR}/kubermatic values.yaml
 : "${DEBUG:="false"}"
-SERVICE_ACCOUNT_SIGNING_KEY="$(KUBERMATIC_ENV=${KUBERMATIC_ENV} KUBERMATIC_CLUSTER=${KUBERMATIC_CLUSTER} ${INSTALLER_DIR}/bin/run-vault kv get -field=serviceAccountKey secret/metakube-dev/clusters/dbl1/kubermatic/auth)"
+: "${TAG_WORKER:="true"}"
+SERVICE_ACCOUNT_SIGNING_KEY="$(KUBERMATIC_ENV=${KUBERMATIC_ENV} KUBERMATIC_CLUSTER=${KUBERMATIC_CLUSTER} ${INSTALLER_DIR}/bin/run-vault kv get -field=serviceAccountKey secret/metakube-${KUBERMATIC_ENV}/clusters/dbl1/kubermatic/auth)"
+
+if [[ "${TAG_WORKER}" == "true" ]]; then
+    WORKER_OPTION="-worker-name=$(tr -cd '[:alnum:]' <<< ${KUBERMATIC_WORKERNAME} | tr '[:upper:]' '[:lower:]')"
+else
+    WORKER_OPTION=
+fi
+
 while true; do
     if [[ "${DEBUG}" == "true" ]]; then
         GOTOOLFLAGS="-v -gcflags='all=-N -l'" make -C ${SRC_DIR} kubermatic-api
@@ -35,7 +43,7 @@ while true; do
           -versions=${RESOURCES_DIR}/versions.yaml \
           -updates=${RESOURCES_DIR}/updates.yaml \
           -master-resources=${RESOURCES_DIR} \
-          -worker-name="$(tr -cd '[:alnum:]' <<< ${KUBERMATIC_WORKERNAME} | tr '[:upper:]' '[:lower:]')" \
+          ${WORKER_OPTION} \
           -internal-address=127.0.0.1:18085 \
           -prometheus-url=http://localhost:9090 \
           -address=127.0.0.1:8080 \
@@ -55,7 +63,7 @@ while true; do
           -versions=${RESOURCES_DIR}/versions.yaml \
           -updates=${RESOURCES_DIR}/updates.yaml \
           -master-resources=${RESOURCES_DIR} \
-          -worker-name="$(tr -cd '[:alnum:]' <<< ${KUBERMATIC_WORKERNAME} | tr '[:upper:]' '[:lower:]')" \
+          ${WORKER_OPTION} \
           -internal-address=127.0.0.1:18085 \
           -prometheus-url=http://localhost:9090 \
           -address=127.0.0.1:8080 \
