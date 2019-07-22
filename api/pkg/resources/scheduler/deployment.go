@@ -116,7 +116,7 @@ func DeploymentCreator(data *resources.TemplateData) reconciling.NamedDeployment
 					ReadOnly:  true,
 				},
 			}
-			if data.Cluster().Spec.Version.Semver().Minor() >= 12 {
+			if data.Cluster().Spec.Version.Semver().Minor() >= 14 {
 				volumeMounts = append(volumeMounts, corev1.VolumeMount{
 					Name:      resources.SchedulerConfigMapName,
 					MountPath: "/etc/kubernetes/scheduler",
@@ -199,7 +199,7 @@ func getVolumes(cluster *kubermaticv1.Cluster) []corev1.Volume {
 		},
 	}
 
-	if cluster.Spec.Version.Semver().Minor() >= 12 {
+	if cluster.Spec.Version.Semver().Minor() >= 14 {
 		volumes = append(volumes, corev1.Volume{
 			Name: resources.SchedulerConfigMapName,
 			VolumeSource: corev1.VolumeSource{
@@ -219,7 +219,7 @@ func getVolumes(cluster *kubermaticv1.Cluster) []corev1.Volume {
 func getFlags(cluster *kubermaticv1.Cluster) ([]string, error) {
 	flags := []string{}
 
-	if cluster.Spec.Version.Semver().Minor() < 12 {
+	if cluster.Spec.Version.Semver().Minor() < 14 {
 		flags = append(flags, "--kubeconfig", "/etc/kubernetes/kubeconfig/kubeconfig")
 	} else {
 		flags = append(flags, "--config", "/etc/kubernetes/scheduler/"+resources.SchedulerConfigFileName)
