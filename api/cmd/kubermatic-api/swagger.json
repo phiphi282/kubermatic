@@ -10,12 +10,11 @@
   ],
   "swagger": "2.0",
   "info": {
-    "description": "Kubermatic API\n\nThis describes possible operations which can be made against the Kubermatic API.",
-    "title": "Kubermatic API.",
-    "termsOfService": "there are no TOS at this moment, use at your own risk we take no responsibility",
-    "version": "2.8"
+    "description": "This describes possible operations which can be made against the MetaKube API.",
+    "title": "MetaKube API",
+    "version": "2.11"
   },
-  "host": "cloud.kubermatic.io",
+  "host": "metakube.syseleven.de",
   "paths": {
     "/api/v1/dc": {
       "get": {
@@ -4084,13 +4083,13 @@
         "tags": [
           "versions"
         ],
-        "summary": "Get versions of running Kubermatic components.",
-        "operationId": "getKubermaticVersion",
+        "summary": "Get versions of running MetaKube components.",
+        "operationId": "getMetaKubeVersions",
         "responses": {
           "200": {
-            "description": "KubermaticVersions",
+            "description": "MetaKubeVersions",
             "schema": {
-              "$ref": "#/definitions/KubermaticVersions"
+              "$ref": "#/definitions/MetaKubeVersions"
             }
           },
           "default": {
@@ -5604,18 +5603,6 @@
       },
       "x-go-package": "github.com/kubermatic/kubermatic/api/pkg/api/v1"
     },
-    "KubermaticVersions": {
-      "type": "object",
-      "title": "KubermaticVersions describes the versions of running Kubermatic components.",
-      "properties": {
-        "api": {
-          "description": "Version of the Kubermatic API server.",
-          "type": "string",
-          "x-go-name": "API"
-        }
-      },
-      "x-go-package": "github.com/kubermatic/kubermatic/api/pkg/api/v1"
-    },
     "LegacyObjectMeta": {
       "description": "Deprecated: LegacyObjectMeta is deprecated use ObjectMeta instead.",
       "type": "object",
@@ -5742,6 +5729,19 @@
           "$ref": "#/definitions/Version"
         }
       },
+      "x-go-package": "github.com/kubermatic/kubermatic/api/pkg/api/v1"
+    },
+    "MetaKubeVersions": {
+      "type": "object",
+      "title": "MetaKubeVersions describes the versions of running MetaKube components.",
+      "properties": {
+        "api": {
+          "description": "Version of the Kubermatic API server.",
+          "type": "string",
+          "x-go-name": "API"
+        }
+      },
+      "x-go-name": "KubermaticVersions",
       "x-go-package": "github.com/kubermatic/kubermatic/api/pkg/api/v1"
     },
     "NamedAuthInfo": {

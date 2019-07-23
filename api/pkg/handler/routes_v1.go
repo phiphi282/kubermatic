@@ -750,16 +750,16 @@ func (r Routing) getMasterVersions() http.Handler {
 	)
 }
 
-// swagger:route GET /api/v1/version versions getKubermaticVersion
+// swagger:route GET /api/v1/version versions getMetaKubeVersions
 //
-// Get versions of running Kubermatic components.
+// Get versions of running MetaKube components.
 //
 //     Produces:
 //     - application/json
 //
 //     Responses:
 //       default: errorResponse
-//       200: KubermaticVersions
+//       200: MetaKubeVersions
 func (r Routing) getKubermaticVersion() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(

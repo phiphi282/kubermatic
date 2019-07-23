@@ -1,16 +1,10 @@
-// Package classification Kubermatic API.
+// Package classification MetaKube API
 //
-// Kubermatic API
-//
-// This describes possible operations which can be made against the Kubermatic API.
-//
-// Terms Of Service:
-//
-// there are no TOS at this moment, use at your own risk we take no responsibility
+// This describes possible operations which can be made against the MetaKube API.
 //
 //     Schemes: https
-//     Host: cloud.kubermatic.io
-//     Version: 2.8
+//     Host: metakube.syseleven.de
+//     Version: 2.11
 //
 //     Consumes:
 //     - application/json
@@ -330,6 +324,12 @@ func createAPIHandler(options serverRunOptions, prov providers, oidcIssuerVerifi
 		mainRouter)
 	r.RegisterV1Alpha(v1AlphaRouter)
 	r.RegisterV1SysEleven(v1Router)
+
+	mainRouter.Methods(http.MethodGet).
+		Path("/api/swagger.json").
+		HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			http.ServeFile(w, r, "./cmd/kubermatic-api/swagger.json")
+		})
 
 	lookupRoute := func(r *http.Request) string {
 		var match mux.RouteMatch

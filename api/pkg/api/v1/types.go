@@ -887,8 +887,8 @@ type ObjectReference struct {
 	Name string `json:"name,omitempty"`
 }
 
-// KubermaticVersions describes the versions of running Kubermatic components.
-// swagger:model KubermaticVersions
+// MetaKubeVersions describes the versions of running MetaKube components.
+// swagger:model MetaKubeVersions
 type KubermaticVersions struct {
 	// Version of the Kubermatic API server.
 	API string `json:"api"`
