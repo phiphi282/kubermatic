@@ -3626,13 +3626,13 @@
           },
           {
             "type": "string",
-            "name": "Credential",
+            "name": "Zone",
             "in": "header"
           },
           {
             "type": "string",
-            "name": "Zone",
-            "in": "header"
+            "name": "Credential",
+            "in": "query"
           }
         ],
         "responses": {
@@ -3666,13 +3666,13 @@
           },
           {
             "type": "string",
-            "name": "Credential",
+            "name": "Zone",
             "in": "header"
           },
           {
             "type": "string",
-            "name": "Zone",
-            "in": "header"
+            "name": "Credential",
+            "in": "query"
           }
         ],
         "responses": {

@@ -34,7 +34,8 @@ type GCPTypesReq struct {
 	GCPCommonReq
 	// in: header
 	// name: Zone
-	Zone string
+	Zone       string
+	Credential string
 }
 
 // GCPCommonReq represent a request with common parameters for GCP.
@@ -65,6 +66,7 @@ func DecodeGCPTypesReq(c context.Context, r *http.Request) (interface{}, error) 
 	}
 	req.GCPCommonReq = commonReq.(GCPCommonReq)
 	req.Zone = r.Header.Get("Zone")
+	req.Credential = r.Header.Get("Credential")
 
 	return req, nil
 }
