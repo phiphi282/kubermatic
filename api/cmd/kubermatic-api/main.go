@@ -328,7 +328,7 @@ func createAPIHandler(options serverRunOptions, prov providers, oidcIssuerVerifi
 	mainRouter.Methods(http.MethodGet).
 		Path("/api/swagger.json").
 		HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			http.ServeFile(w, r, "./cmd/kubermatic-api/swagger.json")
+			http.ServeFile(w, r, options.swaggerFile)
 		})
 
 	lookupRoute := func(r *http.Request) string {

@@ -22,6 +22,7 @@ type serverRunOptions struct {
 	dcFile           string
 	workerName       string
 	versionsFile     string
+	swaggerFile      string
 	updatesFile      string
 	domain           string
 	exposeStrategy   corev1.ServiceType
@@ -76,6 +77,7 @@ func newServerRunOptions() (serverRunOptions, error) {
 	flag.StringVar(&rawExposeStrategy, "expose-strategy", "NodePort", "The strategy to expose the controlplane with, either \"NodePort\" which creates NodePorts with a \"nodeport-proxy.k8s.io/expose: true\" annotation or \"LoadBalancer\", which creates a LoadBalancer")
 	flag.BoolVar(&s.log.Debug, "log-debug", false, "Enables debug logging")
 	flag.StringVar(&s.log.Format, "log-format", string(kubermaticlog.FormatJSON), "Log format. Available are: "+kubermaticlog.AvailableFormats.String())
+	flag.StringVar(&s.swaggerFile, "swagger", "./cmd/kubermatic-api/swagger.json", "The swagger.json file path")
 	flag.Parse()
 
 	featureGates, err := features.NewFeatures(rawFeatureGates)

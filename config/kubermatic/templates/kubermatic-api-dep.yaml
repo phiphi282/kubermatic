@@ -33,6 +33,7 @@ spec:
         - -oidc-skip-tls-verify={{ default false .Values.kubermatic.auth.skipTokenIssuerTLSVerify }}
         - -versions=/opt/master-files/versions.yaml
         - -updates=/opt/master-files/updates.yaml
+        - -swagger=/opt/swagger.json
         - -internal-address=0.0.0.0:8085
         - -domain={{ .Values.kubermatic.domain }}
         - -kubeconfig=/opt/.kube/kubeconfig

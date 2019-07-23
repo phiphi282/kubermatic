@@ -12,6 +12,6 @@ RUN chmod +x /usr/local/bin/kubectl && \
 
 COPY ./_build/* /usr/local/bin/
 RUN mkdir -p /usr/local/bin/cmd/kubermatic-api
-COPY ./cmd/kubermatic-api/swagger.json /usr/local/bin/cmd/kubermatic-api/swagger.json
+COPY ./cmd/kubermatic-api/swagger.json /opt/swagger.json
 
 USER nobody
