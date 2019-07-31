@@ -101,6 +101,7 @@ kubermatic:
       limits:
         cpu: 500m
         memory: 1Gi
+    workerCount: 4
     affinity:
       nodeAffinity:
         preferredDuringSchedulingIgnoredDuringExecution:
@@ -230,6 +231,7 @@ kubermatic:
       limits:
         cpu: 100m
         memory: 256Mi
+    workerCount: 20
     affinity: {}
     nodeSelector: {}
     tolerations: []
