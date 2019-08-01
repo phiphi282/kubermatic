@@ -81,7 +81,7 @@ const nginxConfig = `map $http_upgrade $connection_upgrade {
 		  return 302 https://$server_name/prometheus/;
 	  }
 	  location /prometheus/ {
-		  set $upstream "syseleven-monitoring-prometheus-operator-prometheus.syseleven-monitoring.svc.cluster.local:9090";
+		  set $upstream "syseleven-monitoring-prome-prometheus.syseleven-monitoring.svc.cluster.local:9090";
 		  rewrite ^/prometheus(/.*) $1 break;
 		  proxy_pass http://$upstream$uri$is_args$args;
 		  proxy_http_version 1.1;
@@ -91,7 +91,7 @@ const nginxConfig = `map $http_upgrade $connection_upgrade {
 		  return 302 https://$server_name/grafana/;
 	  }
 	  location /grafana/ {
-		  set $upstream "syseleven-monitoring-prometheus-operator-grafana.syseleven-monitoring.svc.cluster.local:80";
+		  set $upstream "syseleven-monitoring-grafana.syseleven-monitoring.svc.cluster.local:80";
 		  rewrite ^/grafana(/.*) $1 break;
 		  proxy_pass http://$upstream$uri$is_args$args;
 		  proxy_http_version 1.1;
@@ -101,7 +101,7 @@ const nginxConfig = `map $http_upgrade $connection_upgrade {
 		  return 302 https://$server_name/alertmanager/;
 	  }
 	  location /alertmanager/ {
-		  set $upstream "syseleven-monitoring-prometheus-operator-alertmanager.syseleven-monitoring.svc.cluster.local:9093";
+		  set $upstream "syseleven-monitoring-prome-alertmanager.syseleven-monitoring.svc.cluster.local:9093";
 		  rewrite ^/alertmanager(/.*) $1 break;
 		  proxy_pass http://$upstream$uri$is_args$args;
 		  proxy_http_version 1.1;
