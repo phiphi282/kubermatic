@@ -70,16 +70,6 @@ lint:
   - small
   - multi
 
-verify-addons-up-to-date:
-  stage: check
-  image: docker:stable
-  script:
-  - ./api/hack/verify-addon-version.sh
-  tags:
-  - shared
-  - small
-  - multi
-
 verify-swagger-spec:
   stage: check
   image: golang:${GO_VERSION}
