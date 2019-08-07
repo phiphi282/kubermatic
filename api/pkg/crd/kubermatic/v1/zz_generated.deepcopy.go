@@ -350,6 +350,11 @@ func (in *ClusterSpec) DeepCopyInto(out *ClusterSpec) {
 	out.Version = in.Version.DeepCopy()
 	in.ComponentsOverride.DeepCopyInto(&out.ComponentsOverride)
 	out.OIDC = in.OIDC
+	if in.AdditionalAdmissionPlugins != nil {
+		in, out := &in.AdditionalAdmissionPlugins, &out.AdditionalAdmissionPlugins
+		*out = make([]string, len(*in))
+		copy(*out, *in)
+	}
 	return
 }
 

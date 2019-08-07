@@ -13,11 +13,12 @@ import (
 // Spec builds ClusterSpec kubermatic Custom Resource from API Cluster
 func Spec(apiCluster apiv1.Cluster, cloudProviders map[string]provider.CloudProvider, dcs map[string]provider.DatacenterMeta) (*kubermaticv1.ClusterSpec, error) {
 	spec := &kubermaticv1.ClusterSpec{
-		HumanReadableName: apiCluster.Name,
-		Cloud:             apiCluster.Spec.Cloud,
-		MachineNetworks:   apiCluster.Spec.MachineNetworks,
-		OIDC:              apiCluster.Spec.OIDC,
-		Version:           apiCluster.Spec.Version,
+		HumanReadableName:          apiCluster.Name,
+		Cloud:                      apiCluster.Spec.Cloud,
+		MachineNetworks:            apiCluster.Spec.MachineNetworks,
+		OIDC:                       apiCluster.Spec.OIDC,
+		Version:                    apiCluster.Spec.Version,
+		AdditionalAdmissionPlugins: apiCluster.Spec.AdditionalAdmissionPlugins,
 	}
 
 	if err := defaulting.DefaultCreateClusterSpec(spec, cloudProviders); err != nil {

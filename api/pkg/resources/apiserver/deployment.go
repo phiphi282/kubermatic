@@ -196,6 +196,21 @@ func getApiserverFlags(data *resources.TemplateData, etcdEndpoints []string, ena
 		nodePortRange = defaultNodePortRange
 	}
 
+	admissionPlugins := []string{
+		"NamespaceLifecycle",
+		"LimitRanger",
+		"ServiceAccount",
+		"DefaultStorageClass",
+		"DefaultTolerationSeconds",
+		"MutatingAdmissionWebhook",
+		"ValidatingAdmissionWebhook",
+		"Priority",
+		"ResourceQuota",
+	}
+	if len(data.Cluster().Spec.AdditionalAdmissionPlugins) > 0 {
+		admissionPlugins = append(admissionPlugins, data.Cluster().Spec.AdditionalAdmissionPlugins...)
+	}
+
 	flags := []string{
 		"--advertise-address", data.Cluster().Address.IP,
 		"--secure-port", fmt.Sprint(data.Cluster().Address.Port),
@@ -205,7 +220,7 @@ func getApiserverFlags(data *resources.TemplateData, etcdEndpoints []string, ena
 		"--etcd-certfile", "/etc/etcd/pki/client/apiserver-etcd-client.crt",
 		"--etcd-keyfile", "/etc/etcd/pki/client/apiserver-etcd-client.key",
 		"--storage-backend", "etcd3",
-		"--enable-admission-plugins", "NamespaceLifecycle,LimitRanger,ServiceAccount,DefaultStorageClass,DefaultTolerationSeconds,MutatingAdmissionWebhook,ValidatingAdmissionWebhook,Priority,ResourceQuota",
+		"--enable-admission-plugins", strings.Join(admissionPlugins, ","),
 		"--authorization-mode", "Node,RBAC",
 		"--external-hostname", data.Cluster().Address.ExternalName,
 		"--token-auth-file", "/etc/kubernetes/tokens/tokens.csv",

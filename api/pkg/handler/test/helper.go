@@ -38,7 +38,7 @@ import (
 	"github.com/kubermatic/kubermatic/api/pkg/serviceaccount"
 	"github.com/kubermatic/kubermatic/api/pkg/version"
 
-	"k8s.io/api/core/v1"
+	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -669,7 +669,7 @@ func GenDefaultSaToken(projectID, saID, name, id string) *v1.Secret {
 	secret.Data["token"] = []byte(TestFakeToken)
 	secret.Labels = map[string]string{
 		kubermaticapiv1.ProjectIDLabelKey: projectID,
-		"name":                         name,
+		"name":                            name,
 	}
 	secret.OwnerReferences = []metav1.OwnerReference{
 		{

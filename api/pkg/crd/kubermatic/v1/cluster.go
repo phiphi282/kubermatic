@@ -101,6 +101,8 @@ type ClusterSpec struct {
 	ComponentsOverride ComponentSettings `json:"componentsOverride"`
 
 	OIDC OIDCSettings `json:"oidc,omitempty"`
+
+	AdditionalAdmissionPlugins []string `json:"additionalAdmissionPlugins,omitempty"`
 }
 
 type OIDCSettings struct {
