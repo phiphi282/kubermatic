@@ -155,5 +155,17 @@ const nginxConfig = `map $http_upgrade $connection_upgrade {
 		  proxy_set_header Upgrade $http_upgrade;
 		  proxy_set_header Connection $connection_upgrade;
 	  }
+	  location = /vault {
+		  return 302 https://$server_name/vault/;
+	  }
+	  location /vault/ {
+		  set $upstream "syseleven-vault-vault-ui.syseleven-vault.svc.cluster.local:80";
+		  rewrite ^/vault(/.*) $1 break;
+		  proxy_pass http://$upstream$uri$is_args$args;
+		  proxy_http_version 1.1;
+		  proxy_pass_request_headers on;
+		  proxy_set_header Upgrade $http_upgrade;
+		  proxy_set_header Connection $connection_upgrade;
+	  }
   }
 `
