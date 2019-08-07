@@ -362,7 +362,7 @@ users:
     token: %s`, clusterID, clusterID, token)
 }
 
-// APIUserToKubermaticUser simply converts apiv1.User to kubermaticapiv1.User type
+// APIUserToKubermaticUser simply converts apiv1.User to kubermaticv1.User type
 func APIUserToKubermaticUser(user apiv1.User) *kubermaticapiv1.User {
 	return &kubermaticapiv1.User{
 		ObjectMeta: metav1.ObjectMeta{},
@@ -551,8 +551,8 @@ func GenDefaultKubermaticObjects(objs ...runtime.Object) []runtime.Object {
 	return append(defaultsObjs, objs...)
 }
 
-func GenCluster(id string, name string, projectID string, creationTime time.Time) *kubermaticapiv1.Cluster {
-	return &kubermaticapiv1.Cluster{
+func GenCluster(id string, name string, projectID string, creationTime time.Time, modifiers ...func(*kubermaticapiv1.Cluster)) *kubermaticapiv1.Cluster {
+	cluster := &kubermaticapiv1.Cluster{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:   id,
 			Labels: map[string]string{"project-id": projectID},
@@ -584,6 +584,11 @@ func GenCluster(id string, name string, projectID string, creationTime time.Time
 			},
 		},
 	}
+
+	for _, modifier := range modifiers {
+		modifier(cluster)
+	}
+	return cluster
 }
 
 func GenDefaultCluster() *kubermaticapiv1.Cluster {
@@ -664,7 +669,7 @@ func GenDefaultSaToken(projectID, saID, name, id string) *v1.Secret {
 	secret.Data["token"] = []byte(TestFakeToken)
 	secret.Labels = map[string]string{
 		kubermaticapiv1.ProjectIDLabelKey: projectID,
-		"name":                            name,
+		"name":                         name,
 	}
 	secret.OwnerReferences = []metav1.OwnerReference{
 		{
