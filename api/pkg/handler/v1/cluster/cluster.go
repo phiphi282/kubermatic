@@ -469,8 +469,17 @@ func AssignSSHKeyEndpoint(sshKeyProvider provider.SSHKeyProvider, projectProvide
 		if err != nil {
 			return nil, common.KubernetesErrorToHTTPError(err)
 		}
+
+		apiKey := apiv1.SSHKey{
+			ObjectMeta: apiv1.ObjectMeta{
+				ID:                sshKey.Name,
+				Name:              sshKey.Spec.Name,
+				CreationTimestamp: apiv1.NewTime(sshKey.CreationTimestamp.Time),
+			},
+		}
+
 		if sshKey.IsUsedByCluster(req.ClusterID) {
-			return nil, nil
+			return apiKey, nil
 		}
 		sshKey.AddToCluster(req.ClusterID)
 		_, err = sshKeyProvider.Update(userInfo, sshKey)
@@ -478,7 +487,7 @@ func AssignSSHKeyEndpoint(sshKeyProvider provider.SSHKeyProvider, projectProvide
 			return nil, common.KubernetesErrorToHTTPError(err)
 		}
 
-		return nil, nil
+		return apiKey, nil
 	}
 }
 
