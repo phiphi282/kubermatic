@@ -23,6 +23,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/types"
+	listerscorev1 "k8s.io/client-go/listers/core/v1"
 	"k8s.io/client-go/util/retry"
 	ctrlruntimeclient "sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -85,9 +86,8 @@ type MachineUpdater func(*clusterv1alpha1.Machine, ...MachineModifier) error
 
 // ProviderData is the struct the cloud providers get when creating or deleting an instance
 type ProviderData struct {
-	Ctx    context.Context
-	Update MachineUpdater
-	Client ctrlruntimeclient.Client
+	Update   MachineUpdater
+	PVLister listerscorev1.PersistentVolumeLister
 }
 
 // GetMachineUpdater returns an MachineUpdater based on the passed in context and ctrlruntimeclient.Client

@@ -18,7 +18,6 @@ package providerconfig
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -26,11 +25,11 @@ import (
 	"strconv"
 
 	"k8s.io/api/core/v1"
-	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/kubernetes"
+
 	clusterv1alpha1 "sigs.k8s.io/cluster-api/pkg/apis/cluster/v1alpha1"
-	ctrlruntimeclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 var (
@@ -89,15 +88,15 @@ type Config struct {
 	OverwriteCloudConfig *string `json:"overwriteCloudConfig,omitempty"`
 }
 
-// GlobalObjectKeySelector is needed as we can not use v1.SecretKeySelector
+// GlobaObjectKeySelector is needed as we can not use v1.SecretKeySelector
 // because it is not cross namespace
-type GlobalObjectKeySelector struct {
+type GlobaObjectKeySelector struct {
 	v1.ObjectReference `json:",inline"`
 	Key                string `json:"key"`
 }
 
-type GlobalSecretKeySelector GlobalObjectKeySelector
-type GlobalConfigMapKeySelector GlobalObjectKeySelector
+type GlobalSecretKeySelector GlobaObjectKeySelector
+type GlobalConfigMapKeySelector GlobaObjectKeySelector
 
 type ConfigVarString struct {
 	Value           string                     `json:"value,omitempty"`
@@ -258,16 +257,15 @@ func (configVarBool *ConfigVarBool) UnmarshalJSON(b []byte) error {
 }
 
 type ConfigVarResolver struct {
-	ctx    context.Context
-	client ctrlruntimeclient.Client
+	kubeClient kubernetes.Interface
 }
 
-func (cvr *ConfigVarResolver) GetConfigVarStringValue(configVar ConfigVarString) (string, error) {
+func (configVarResolver *ConfigVarResolver) GetConfigVarStringValue(configVar ConfigVarString) (string, error) {
 	// We need all three of these to fetch and use a secret
 	if configVar.SecretKeyRef.Name != "" && configVar.SecretKeyRef.Namespace != "" && configVar.SecretKeyRef.Key != "" {
-		secret := &corev1.Secret{}
-		name := types.NamespacedName{Namespace: configVar.SecretKeyRef.Namespace, Name: configVar.SecretKeyRef.Name}
-		if err := cvr.client.Get(cvr.ctx, name, secret); err != nil {
+		secret, err := configVarResolver.kubeClient.CoreV1().Secrets(
+			configVar.SecretKeyRef.Namespace).Get(configVar.SecretKeyRef.Name, metav1.GetOptions{})
+		if err != nil {
 			return "", fmt.Errorf("error retrieving secret '%s' from namespace '%s': '%v'", configVar.SecretKeyRef.Name, configVar.SecretKeyRef.Namespace, err)
 		}
 		if val, ok := secret.Data[configVar.SecretKeyRef.Key]; ok {
@@ -278,9 +276,8 @@ func (cvr *ConfigVarResolver) GetConfigVarStringValue(configVar ConfigVarString)
 
 	// We need all three of these to fetch and use a configmap
 	if configVar.ConfigMapKeyRef.Name != "" && configVar.ConfigMapKeyRef.Namespace != "" && configVar.ConfigMapKeyRef.Key != "" {
-		configMap := &corev1.ConfigMap{}
-		name := types.NamespacedName{Namespace: configVar.ConfigMapKeyRef.Namespace, Name: configVar.ConfigMapKeyRef.Name}
-		if err := cvr.client.Get(cvr.ctx, name, configMap); err != nil {
+		configMap, err := configVarResolver.kubeClient.CoreV1().ConfigMaps(configVar.ConfigMapKeyRef.Namespace).Get(configVar.ConfigMapKeyRef.Name, metav1.GetOptions{})
+		if err != nil {
 			return "", fmt.Errorf("error retrieving configmap '%s' from namespace '%s': '%v'", configVar.ConfigMapKeyRef.Name, configVar.ConfigMapKeyRef.Namespace, err)
 		}
 		if val, ok := configMap.Data[configVar.ConfigMapKeyRef.Key]; ok {
@@ -294,8 +291,8 @@ func (cvr *ConfigVarResolver) GetConfigVarStringValue(configVar ConfigVarString)
 
 // GetConfigVarStringValueOrEnv tries to get the value from ConfigVarString, when it fails, it falls back to
 // getting the value from an environment variable specified by envVarName parameter
-func (cvr *ConfigVarResolver) GetConfigVarStringValueOrEnv(configVar ConfigVarString, envVarName string) (string, error) {
-	cfgVar, err := cvr.GetConfigVarStringValue(configVar)
+func (configVarResolver *ConfigVarResolver) GetConfigVarStringValueOrEnv(configVar ConfigVarString, envVarName string) (string, error) {
+	cfgVar, err := configVarResolver.GetConfigVarStringValue(configVar)
 	if err == nil && len(cfgVar) > 0 {
 		return cfgVar, err
 	}
@@ -304,9 +301,9 @@ func (cvr *ConfigVarResolver) GetConfigVarStringValueOrEnv(configVar ConfigVarSt
 	return envVal, nil
 }
 
-func (cvr *ConfigVarResolver) GetConfigVarBoolValue(configVar ConfigVarBool) (bool, error) {
+func (configVarResolver *ConfigVarResolver) GetConfigVarBoolValue(configVar ConfigVarBool) (bool, error) {
 	cvs := ConfigVarString{Value: strconv.FormatBool(configVar.Value), SecretKeyRef: configVar.SecretKeyRef}
-	stringVal, err := cvr.GetConfigVarStringValue(cvs)
+	stringVal, err := configVarResolver.GetConfigVarStringValue(cvs)
 	if err != nil {
 		return false, err
 	}
@@ -317,9 +314,9 @@ func (cvr *ConfigVarResolver) GetConfigVarBoolValue(configVar ConfigVarBool) (bo
 	return boolVal, nil
 }
 
-func (cvr *ConfigVarResolver) GetConfigVarBoolValueOrEnv(configVar ConfigVarBool, envVarName string) (bool, error) {
+func (configVarResolver *ConfigVarResolver) GetConfigVarBoolValueOrEnv(configVar ConfigVarBool, envVarName string) (bool, error) {
 	cvs := ConfigVarString{Value: strconv.FormatBool(configVar.Value), SecretKeyRef: configVar.SecretKeyRef}
-	stringVal, err := cvr.GetConfigVarStringValue(cvs)
+	stringVal, err := configVarResolver.GetConfigVarStringValue(cvs)
 	if err != nil {
 		return false, err
 	}
@@ -337,11 +334,8 @@ func (cvr *ConfigVarResolver) GetConfigVarBoolValueOrEnv(configVar ConfigVarBool
 	return boolVal, nil
 }
 
-func NewConfigVarResolver(ctx context.Context, client ctrlruntimeclient.Client) *ConfigVarResolver {
-	return &ConfigVarResolver{
-		ctx:    ctx,
-		client: client,
-	}
+func NewConfigVarResolver(kubeClient kubernetes.Interface) *ConfigVarResolver {
+	return &ConfigVarResolver{kubeClient: kubeClient}
 }
 
 func GetConfig(r clusterv1alpha1.ProviderSpec) (*Config, error) {

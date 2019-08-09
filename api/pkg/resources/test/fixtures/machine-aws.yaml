@@ -11,7 +11,6 @@ spec:
       cloudProviderSpec:
         accessKeyId: ""
         ami: aws-ami
-        assignPublicIP: null
         availabilityZone: fra1aws-zone-character
         diskSize: 25
         diskType: standard
