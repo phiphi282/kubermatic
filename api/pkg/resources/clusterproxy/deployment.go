@@ -87,7 +87,7 @@ func DeploymentCreator(data *resources.TemplateData) reconciling.NamedDeployment
 				*openvpnSidecar,
 				{
 					Name:                     name,
-					Image:                    data.ImageRegistry(resources.RegistryDocker) + "/nginxinc/nginx-unprivileged:1.16-alpine",
+					Image:                    data.ImageRegistry(resources.RegistryDocker) + "/nginxinc/nginx-unprivileged:1.17.2-alpine",
 					ImagePullPolicy:          corev1.PullIfNotPresent,
 					TerminationMessagePath:   corev1.TerminationMessagePathDefault,
 					TerminationMessagePolicy: corev1.TerminationMessageReadFile,
