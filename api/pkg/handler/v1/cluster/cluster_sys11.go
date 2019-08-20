@@ -55,8 +55,12 @@ func GetOidcKubeconfigEndpoint(projectProvider provider.ProjectProvider) endpoin
 			if err != nil {
 				return nil, kcerrors.NewBadRequest("failed to replace default names in oidc kubeconfig: %v", err)
 			}
+			return &encodeKubeConifgResponse{
+				clientCfg:   oidcClientCfg,
+				filePrefix:  "oidc",
+				clusterName: fmt.Sprintf("%s-%s", project.Spec.Name, cluster.Spec.HumanReadableName),
+			}, nil
 		}
-
 		return &encodeKubeConifgResponse{clientCfg: oidcClientCfg, filePrefix: "oidc"}, nil
 	}
 }
