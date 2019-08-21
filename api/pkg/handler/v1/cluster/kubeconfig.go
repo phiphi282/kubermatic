@@ -55,6 +55,12 @@ func GetAdminKubeconfigEndpoint(projectProvider provider.ProjectProvider) endpoi
 			if err != nil {
 				return nil, kcerrors.NewBadRequest("failed to replace default names in admin kubeconfig: %v", err)
 			}
+
+			return &encodeKubeConifgResponse{
+				clientCfg:   adminClientCfg,
+				filePrefix:  "admin",
+				clusterName: fmt.Sprintf("%s-%s", project.Spec.Name, cluster.Spec.HumanReadableName),
+			}, nil
 		}
 		return &encodeKubeConifgResponse{clientCfg: adminClientCfg, filePrefix: "admin"}, nil
 	}
@@ -194,8 +200,9 @@ func CreateOIDCKubeconfigEndpoint(projectProvider provider.ProjectProvider, oidc
 }
 
 type encodeKubeConifgResponse struct {
-	clientCfg  *clientcmdapi.Config
-	filePrefix string
+	clientCfg   *clientcmdapi.Config
+	filePrefix  string
+	clusterName string
 }
 
 func EncodeKubeconfig(c context.Context, w http.ResponseWriter, response interface{}) (err error) {
@@ -207,7 +214,9 @@ func EncodeKubeconfig(c context.Context, w http.ResponseWriter, response interfa
 		filename = fmt.Sprintf("%s-%s", filename, rsp.filePrefix)
 	}
 
-	if len(cfg.Contexts) > 0 {
+	if len(rsp.clusterName) > 0 {
+		filename = fmt.Sprintf("%s-%s", filename, rsp.clusterName)
+	} else if len(cfg.Contexts) > 0 {
 		filename = fmt.Sprintf("%s-%s", filename, cfg.Contexts[cfg.CurrentContext].Cluster)
 	}
 
