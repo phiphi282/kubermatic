@@ -14,19 +14,19 @@ import (
 )
 
 type serverRunOptions struct {
-	listenAddress    string
-	kubeconfig       string
-	internalAddr     string
-	prometheusURL    string
-	masterResources  string
-	dcFile           string
-	workerName       string
-	versionsFile     string
-	swaggerFile      string
-	updatesFile      string
-	domain           string
-	exposeStrategy   corev1.ServiceType
-	log              kubermaticlog.Options
+	listenAddress   string
+	kubeconfig      string
+	internalAddr    string
+	prometheusURL   string
+	masterResources string
+	dcFile          string
+	workerName      string
+	versionsFile    string
+	updatesFile     string
+	swaggerFile     string
+	domain          string
+	exposeStrategy  corev1.ServiceType
+	log             kubermaticlog.Options
 	accessibleAddons map[string]bool
 
 	// OIDC configuration
@@ -62,6 +62,7 @@ func newServerRunOptions() (serverRunOptions, error) {
 	flag.StringVar(&s.versionsFile, "versions", "versions.yaml", "The versions.yaml file path")
 	flag.StringVar(&s.updatesFile, "updates", "updates.yaml", "The updates.yaml file path")
 	flag.StringVar(&rawAccessibleAddons, "accessible-addons", "dashboard,default-storage-class,node-exporter", "Comma-separated list of user cluster addons to expose via the API")
+	flag.StringVar(&s.swaggerFile, "swagger", "./cmd/kubermatic-api/swagger.json", "The swagger.json file path")
 	flag.StringVar(&s.oidcURL, "oidc-url", "", "URL of the OpenID token issuer. Example: http://auth.int.kubermatic.io")
 	flag.BoolVar(&s.oidcSkipTLSVerify, "oidc-skip-tls-verify", false, "Skip TLS verification for the token issuer")
 	flag.StringVar(&s.oidcAuthenticatorClientID, "oidc-authenticator-client-id", "", "Authenticator client ID")
@@ -77,7 +78,6 @@ func newServerRunOptions() (serverRunOptions, error) {
 	flag.StringVar(&rawExposeStrategy, "expose-strategy", "NodePort", "The strategy to expose the controlplane with, either \"NodePort\" which creates NodePorts with a \"nodeport-proxy.k8s.io/expose: true\" annotation or \"LoadBalancer\", which creates a LoadBalancer")
 	flag.BoolVar(&s.log.Debug, "log-debug", false, "Enables debug logging")
 	flag.StringVar(&s.log.Format, "log-format", string(kubermaticlog.FormatJSON), "Log format. Available are: "+kubermaticlog.AvailableFormats.String())
-	flag.StringVar(&s.swaggerFile, "swagger", "./cmd/kubermatic-api/swagger.json", "The swagger.json file path")
 	flag.Parse()
 
 	featureGates, err := features.NewFeatures(rawFeatureGates)

@@ -331,6 +331,12 @@ func createAPIHandler(options serverRunOptions, prov providers, oidcIssuerVerifi
 			http.ServeFile(w, r, options.swaggerFile)
 		})
 
+	mainRouter.Methods(http.MethodGet).
+		Path("/api/swagger.json").
+		HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			http.ServeFile(w, r, options.swaggerFile)
+		})
+
 	lookupRoute := func(r *http.Request) string {
 		var match mux.RouteMatch
 		ok := mainRouter.Match(r, &match)
