@@ -14,19 +14,19 @@ import (
 )
 
 type serverRunOptions struct {
-	listenAddress   string
-	kubeconfig      string
-	internalAddr    string
-	prometheusURL   string
-	masterResources string
-	dcFile          string
-	workerName      string
-	versionsFile    string
-	updatesFile     string
-	swaggerFile     string
-	domain          string
-	exposeStrategy  corev1.ServiceType
-	log             kubermaticlog.Options
+	listenAddress    string
+	kubeconfig       string
+	internalAddr     string
+	prometheusURL    string
+	masterResources  string
+	dcFile           string
+	workerName       string
+	versionsFile     string
+	updatesFile      string
+	swaggerFile      string
+	domain           string
+	exposeStrategy   corev1.ServiceType
+	log              kubermaticlog.Options
 	accessibleAddons map[string]bool
 
 	// OIDC configuration
