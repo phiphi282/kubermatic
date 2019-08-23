@@ -12,11 +12,11 @@ function cleanup() {
 }
 trap cleanup EXIT SIGINT SIGTERM
 
-SWAGGER_META="// Kubermatic API.
-// Kubermatic API. This describes possible operations which can be made against the Kubermatic API.
+SWAGGER_META="// MetaKube API.
+// MetaKube API. This describes possible operations which can be made against the MetaKube API.
 //
-//     Schemes: https, http
-//     Host: localhost
+//     Schemes: https
+//     Host: metakube.syseleven.de
 //
 //     Security:
 //     - api_key:
