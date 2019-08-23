@@ -408,19 +408,19 @@ type ClusterSpec struct {
 	// OIDC settings
 	OIDC kubermaticv1.OIDCSettings `json:"oidc,omitempty"`
 
-	// List of additional admission plugins for the apiserver
-	AdditionalAdmissionPlugins []string `json:"additionalAdmissionPlugins,omitempty"`
+	// If active the PodSecurityPolicy admission plugin is configured at the apiserver
+	UsePodSecurityPolicyAdmissionPlugin bool `json:"usePodSecurityPolicyAdmissionPlugin,omitempty"`
 }
 
 // MarshalJSON marshals ClusterSpec object into JSON. It is overwritten to control data
 // that will be returned in the API responses (see: PublicCloudSpec struct).
 func (cs *ClusterSpec) MarshalJSON() ([]byte, error) {
 	ret, err := json.Marshal(struct {
-		Cloud                      PublicCloudSpec                        `json:"cloud"`
-		MachineNetworks            []kubermaticv1.MachineNetworkingConfig `json:"machineNetworks,omitempty"`
-		Version                    ksemver.Semver                         `json:"version"`
-		OIDC                       kubermaticv1.OIDCSettings              `json:"oidc"`
-		AdditionalAdmissionPlugins []string                               `json:"additionalAdmissionPlugins,omitempty"`
+		Cloud                               PublicCloudSpec                        `json:"cloud"`
+		MachineNetworks                     []kubermaticv1.MachineNetworkingConfig `json:"machineNetworks,omitempty"`
+		Version                             ksemver.Semver                         `json:"version"`
+		OIDC                                kubermaticv1.OIDCSettings              `json:"oidc"`
+		UsePodSecurityPolicyAdmissionPlugin bool                                   `json:"usePodSecurityPolicyAdmissionPlugin,omitempty"`
 	}{
 		Cloud: PublicCloudSpec{
 			DatacenterName: cs.Cloud.DatacenterName,
@@ -435,10 +435,10 @@ func (cs *ClusterSpec) MarshalJSON() ([]byte, error) {
 			VSphere:        newPublicVSphereCloudSpec(cs.Cloud.VSphere),
 			GCP:            newPublicGCPCloudSpec(cs.Cloud.GCP),
 		},
-		Version:                    cs.Version,
-		MachineNetworks:            cs.MachineNetworks,
-		OIDC:                       cs.OIDC,
-		AdditionalAdmissionPlugins: cs.AdditionalAdmissionPlugins,
+		Version:                             cs.Version,
+		MachineNetworks:                     cs.MachineNetworks,
+		OIDC:                                cs.OIDC,
+		UsePodSecurityPolicyAdmissionPlugin: cs.UsePodSecurityPolicyAdmissionPlugin,
 	})
 
 	return ret, err

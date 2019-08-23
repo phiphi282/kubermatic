@@ -102,7 +102,14 @@ type ClusterSpec struct {
 
 	OIDC OIDCSettings `json:"oidc,omitempty"`
 
-	AdditionalAdmissionPlugins []string `json:"additionalAdmissionPlugins,omitempty"`
+	// Openshift holds all openshift-specific settings
+	Openshift *Openshift `json:"openshift,omitempty"`
+
+	UsePodSecurityPolicyAdmissionPlugin bool `json:"usePodSecurityPolicyAdmissionPlugin,omitempty"`
+}
+
+type Openshift struct {
+	ImagePullSecret string `json:"imagePullSecret,omitempty"`
 }
 
 type OIDCSettings struct {

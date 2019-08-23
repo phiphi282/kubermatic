@@ -207,8 +207,9 @@ func getApiserverFlags(data *resources.TemplateData, etcdEndpoints []string, ena
 		"Priority",
 		"ResourceQuota",
 	}
-	if len(data.Cluster().Spec.AdditionalAdmissionPlugins) > 0 {
-		admissionPlugins = append(admissionPlugins, data.Cluster().Spec.AdditionalAdmissionPlugins...)
+
+	if data.Cluster().Spec.UsePodSecurityPolicyAdmissionPlugin {
+		admissionPlugins = append(admissionPlugins, "PodSecurityPolicy")
 	}
 
 	flags := []string{

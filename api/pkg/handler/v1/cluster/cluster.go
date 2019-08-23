@@ -529,11 +529,11 @@ func convertInternalClusterToExternal(internalCluster *kubermaticapiv1.Cluster) 
 			}(),
 		},
 		Spec: apiv1.ClusterSpec{
-			Cloud:                      internalCluster.Spec.Cloud,
-			Version:                    internalCluster.Spec.Version,
-			MachineNetworks:            internalCluster.Spec.MachineNetworks,
-			OIDC:                       internalCluster.Spec.OIDC,
-			AdditionalAdmissionPlugins: internalCluster.Spec.AdditionalAdmissionPlugins,
+			Cloud:                               internalCluster.Spec.Cloud,
+			Version:                             internalCluster.Spec.Version,
+			MachineNetworks:                     internalCluster.Spec.MachineNetworks,
+			OIDC:                                internalCluster.Spec.OIDC,
+			UsePodSecurityPolicyAdmissionPlugin: internalCluster.Spec.UsePodSecurityPolicyAdmissionPlugin,
 		},
 		Status: apiv1.ClusterStatus{
 			Version: internalCluster.Spec.Version,
