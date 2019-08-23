@@ -36,7 +36,7 @@ const (
 )
 
 type APIRunner struct {
-	client      *apiclient.Kubermatic
+	client      *apiclient.MetaKube
 	bearerToken runtime.ClientAuthInfoWriter
 	test        *testing.T
 }

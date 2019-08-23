@@ -71,7 +71,7 @@ type Opts struct {
 	printGinkoLogs               bool
 	onlyTestCreation             bool
 	kubermatcProjectID           string
-	kubermaticClient             *apiclient.Kubermatic
+	kubermaticClient             *apiclient.MetaKube
 	kubermaticAuthenticator      runtime.ClientAuthInfoWriter
 
 	secrets secrets
