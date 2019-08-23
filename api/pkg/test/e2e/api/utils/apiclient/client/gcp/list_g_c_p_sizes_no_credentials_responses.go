@@ -80,12 +80,12 @@ func NewListGCPSizesNoCredentialsDefault(code int) *ListGCPSizesNoCredentialsDef
 
 /*ListGCPSizesNoCredentialsDefault handles this case with default header values.
 
-errorResponse
+ErrorResponse is the default representation of an error
 */
 type ListGCPSizesNoCredentialsDefault struct {
 	_statusCode int
 
-	Payload *models.ErrorResponse
+	Payload *models.ErrorDetails
 }
 
 // Code gets the status code for the list g c p sizes no credentials default response
@@ -99,7 +99,7 @@ func (o *ListGCPSizesNoCredentialsDefault) Error() string {
 
 func (o *ListGCPSizesNoCredentialsDefault) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
-	o.Payload = new(models.ErrorResponse)
+	o.Payload = new(models.ErrorDetails)
 
 	// response payload
 	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {

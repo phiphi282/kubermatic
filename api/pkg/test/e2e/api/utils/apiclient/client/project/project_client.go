@@ -204,6 +204,35 @@ func (a *Client) CreateSSHKey(params *CreateSSHKeyParams, authInfo runtime.Clien
 }
 
 /*
+DeleteAddon deletes the given addon that belongs to the cluster
+*/
+func (a *Client) DeleteAddon(params *DeleteAddonParams, authInfo runtime.ClientAuthInfoWriter) (*DeleteAddonOK, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewDeleteAddonParams()
+	}
+
+	result, err := a.transport.Submit(&runtime.ClientOperation{
+		ID:                 "deleteAddon",
+		Method:             "DELETE",
+		PathPattern:        "/api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/addons/{addon_id}",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json"},
+		Schemes:            []string{"http", "https"},
+		Params:             params,
+		Reader:             &DeleteAddonReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.(*DeleteAddonOK), nil
+
+}
+
+/*
 DeleteCluster Deletes the specified cluster
 */
 func (a *Client) DeleteCluster(params *DeleteClusterParams, authInfo runtime.ClientAuthInfoWriter) (*DeleteClusterOK, error) {
@@ -610,6 +639,35 @@ func (a *Client) GetNodeForClusterLegacy(params *GetNodeForClusterLegacyParams, 
 		return nil, err
 	}
 	return result.(*GetNodeForClusterLegacyOK), nil
+
+}
+
+/*
+GetOidcClusterKubeconfig gets the kubeconfig for the specified cluster with oidc authentication
+*/
+func (a *Client) GetOidcClusterKubeconfig(params *GetOidcClusterKubeconfigParams, authInfo runtime.ClientAuthInfoWriter) (*GetOidcClusterKubeconfigOK, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewGetOidcClusterKubeconfigParams()
+	}
+
+	result, err := a.transport.Submit(&runtime.ClientOperation{
+		ID:                 "getOidcClusterKubeconfig",
+		Method:             "GET",
+		PathPattern:        "/api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/oidckubeconfig",
+		ProducesMediaTypes: []string{"application/yaml"},
+		ConsumesMediaTypes: []string{"application/json"},
+		Schemes:            []string{"http", "https"},
+		Params:             params,
+		Reader:             &GetOidcClusterKubeconfigReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.(*GetOidcClusterKubeconfigOK), nil
 
 }
 

@@ -25,6 +25,64 @@ type Client struct {
 }
 
 /*
+ListOpenstackImages Lists images from openstack
+*/
+func (a *Client) ListOpenstackImages(params *ListOpenstackImagesParams, authInfo runtime.ClientAuthInfoWriter) (*ListOpenstackImagesOK, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewListOpenstackImagesParams()
+	}
+
+	result, err := a.transport.Submit(&runtime.ClientOperation{
+		ID:                 "listOpenstackImages",
+		Method:             "GET",
+		PathPattern:        "/api/v1/providers/openstack/images",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json"},
+		Schemes:            []string{"http", "https"},
+		Params:             params,
+		Reader:             &ListOpenstackImagesReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.(*ListOpenstackImagesOK), nil
+
+}
+
+/*
+ListOpenstackImagesNoCredentials Lists images from openstack
+*/
+func (a *Client) ListOpenstackImagesNoCredentials(params *ListOpenstackImagesNoCredentialsParams, authInfo runtime.ClientAuthInfoWriter) (*ListOpenstackImagesNoCredentialsOK, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewListOpenstackImagesNoCredentialsParams()
+	}
+
+	result, err := a.transport.Submit(&runtime.ClientOperation{
+		ID:                 "listOpenstackImagesNoCredentials",
+		Method:             "GET",
+		PathPattern:        "/api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/providers/openstack/images",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json"},
+		Schemes:            []string{"http", "https"},
+		Params:             params,
+		Reader:             &ListOpenstackImagesNoCredentialsReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.(*ListOpenstackImagesNoCredentialsOK), nil
+
+}
+
+/*
 ListOpenstackNetworks Lists networks from openstack
 */
 func (a *Client) ListOpenstackNetworks(params *ListOpenstackNetworksParams, authInfo runtime.ClientAuthInfoWriter) (*ListOpenstackNetworksOK, error) {
@@ -79,6 +137,64 @@ func (a *Client) ListOpenstackNetworksNoCredentials(params *ListOpenstackNetwork
 		return nil, err
 	}
 	return result.(*ListOpenstackNetworksNoCredentialsOK), nil
+
+}
+
+/*
+ListOpenstackQuotaLimits Lists quotalimits for tenant from openstack
+*/
+func (a *Client) ListOpenstackQuotaLimits(params *ListOpenstackQuotaLimitsParams, authInfo runtime.ClientAuthInfoWriter) (*ListOpenstackQuotaLimitsOK, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewListOpenstackQuotaLimitsParams()
+	}
+
+	result, err := a.transport.Submit(&runtime.ClientOperation{
+		ID:                 "listOpenstackQuotaLimits",
+		Method:             "GET",
+		PathPattern:        "/api/v1/providers/openstack/quotalimits",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json"},
+		Schemes:            []string{"http", "https"},
+		Params:             params,
+		Reader:             &ListOpenstackQuotaLimitsReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.(*ListOpenstackQuotaLimitsOK), nil
+
+}
+
+/*
+ListOpenstackQuotaLimitsNoCredentials Lists quotalimits for tenant from openstack
+*/
+func (a *Client) ListOpenstackQuotaLimitsNoCredentials(params *ListOpenstackQuotaLimitsNoCredentialsParams, authInfo runtime.ClientAuthInfoWriter) (*ListOpenstackQuotaLimitsNoCredentialsOK, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewListOpenstackQuotaLimitsNoCredentialsParams()
+	}
+
+	result, err := a.transport.Submit(&runtime.ClientOperation{
+		ID:                 "listOpenstackQuotaLimitsNoCredentials",
+		Method:             "GET",
+		PathPattern:        "/api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/providers/openstack/quotalimits",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json"},
+		Schemes:            []string{"http", "https"},
+		Params:             params,
+		Reader:             &ListOpenstackQuotaLimitsNoCredentialsReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.(*ListOpenstackQuotaLimitsNoCredentialsOK), nil
 
 }
 

@@ -80,12 +80,12 @@ func NewListGCPSizesDefault(code int) *ListGCPSizesDefault {
 
 /*ListGCPSizesDefault handles this case with default header values.
 
-errorResponse
+ErrorResponse is the default representation of an error
 */
 type ListGCPSizesDefault struct {
 	_statusCode int
 
-	Payload *models.ErrorResponse
+	Payload *models.ErrorDetails
 }
 
 // Code gets the status code for the list g c p sizes default response
@@ -99,7 +99,7 @@ func (o *ListGCPSizesDefault) Error() string {
 
 func (o *ListGCPSizesDefault) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
-	o.Payload = new(models.ErrorResponse)
+	o.Payload = new(models.ErrorDetails)
 
 	// response payload
 	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {

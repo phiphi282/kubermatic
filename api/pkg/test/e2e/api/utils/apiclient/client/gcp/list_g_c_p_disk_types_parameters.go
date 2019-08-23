@@ -149,9 +149,16 @@ func (o *ListGCPDiskTypesParams) WriteToRequest(r runtime.ClientRequest, reg str
 
 	if o.Credential != nil {
 
-		// header param Credential
-		if err := r.SetHeaderParam("Credential", *o.Credential); err != nil {
-			return err
+		// query param Credential
+		var qrCredential string
+		if o.Credential != nil {
+			qrCredential = *o.Credential
+		}
+		qCredential := qrCredential
+		if qCredential != "" {
+			if err := r.SetQueryParam("Credential", qCredential); err != nil {
+				return err
+			}
 		}
 
 	}

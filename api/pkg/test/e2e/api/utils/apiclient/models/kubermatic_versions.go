@@ -11,7 +11,7 @@ import (
 	"github.com/go-openapi/swag"
 )
 
-// KubermaticVersions KubermaticVersions describes the versions of running Kubermatic components.
+// KubermaticVersions MetaKubeVersions describes the versions of running MetaKube components.
 // swagger:model KubermaticVersions
 type KubermaticVersions struct {
 

@@ -2,7 +2,8 @@ FROM debian:buster
 
 LABEL maintainer="sebastian@loodse.com"
 
-RUN apt update && apt install -y curl iptables
+RUN apt-get update && apt-get install --no-install-recommends -y curl iptables \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 ADD https://storage.googleapis.com/kubernetes-release/release/v1.13.5/bin/linux/amd64/kubectl /usr/local/bin/kubectl
 RUN chmod +x /usr/local/bin/kubectl && \

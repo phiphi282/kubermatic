@@ -25,35 +25,6 @@ type Client struct {
 }
 
 /*
-GetKubermaticVersion gets versions of running kubermatic components
-*/
-func (a *Client) GetKubermaticVersion(params *GetKubermaticVersionParams, authInfo runtime.ClientAuthInfoWriter) (*GetKubermaticVersionOK, error) {
-	// TODO: Validate the params before sending
-	if params == nil {
-		params = NewGetKubermaticVersionParams()
-	}
-
-	result, err := a.transport.Submit(&runtime.ClientOperation{
-		ID:                 "getKubermaticVersion",
-		Method:             "GET",
-		PathPattern:        "/api/v1/version",
-		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json"},
-		Schemes:            []string{"http", "https"},
-		Params:             params,
-		Reader:             &GetKubermaticVersionReader{formats: a.formats},
-		AuthInfo:           authInfo,
-		Context:            params.Context,
-		Client:             params.HTTPClient,
-	})
-	if err != nil {
-		return nil, err
-	}
-	return result.(*GetKubermaticVersionOK), nil
-
-}
-
-/*
 GetMasterVersions Lists all versions which don't result in automatic updates
 */
 func (a *Client) GetMasterVersions(params *GetMasterVersionsParams, authInfo runtime.ClientAuthInfoWriter) (*GetMasterVersionsOK, error) {
@@ -79,6 +50,35 @@ func (a *Client) GetMasterVersions(params *GetMasterVersionsParams, authInfo run
 		return nil, err
 	}
 	return result.(*GetMasterVersionsOK), nil
+
+}
+
+/*
+GetMetaKubeVersions gets versions of running meta kube components
+*/
+func (a *Client) GetMetaKubeVersions(params *GetMetaKubeVersionsParams, authInfo runtime.ClientAuthInfoWriter) (*GetMetaKubeVersionsOK, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewGetMetaKubeVersionsParams()
+	}
+
+	result, err := a.transport.Submit(&runtime.ClientOperation{
+		ID:                 "getMetaKubeVersions",
+		Method:             "GET",
+		PathPattern:        "/api/v1/version",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json"},
+		Schemes:            []string{"http", "https"},
+		Params:             params,
+		Reader:             &GetMetaKubeVersionsReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.(*GetMetaKubeVersionsOK), nil
 
 }
 

@@ -37,6 +37,19 @@ gofmt:
   - small
   - multi
 
+lint-docker:
+  stage: check
+
+  image: hadolint/hadolint:latest-debian
+
+  script:
+    - hadolint api/Dockerfile
+
+  tags:
+    - shared
+    - small
+    - multi
+
 verify-codegen:
   stage: check
   image: golang:${GO_VERSION}
@@ -47,6 +60,17 @@ verify-codegen:
   - shared
   - small
   - multi
+
+verify-api-client:
+  stage: check
+  image: golang:${GO_VERSION}
+  script:
+    - cd api
+    - GO111MODULE=on ./hack/verify-api-client.sh
+  tags:
+    - shared
+    - small
+    - multi
 
 license-validation:
   stage: check

@@ -80,12 +80,12 @@ func NewListGCPDiskTypesNoCredentialsDefault(code int) *ListGCPDiskTypesNoCreden
 
 /*ListGCPDiskTypesNoCredentialsDefault handles this case with default header values.
 
-errorResponse
+ErrorResponse is the default representation of an error
 */
 type ListGCPDiskTypesNoCredentialsDefault struct {
 	_statusCode int
 
-	Payload *models.ErrorResponse
+	Payload *models.ErrorDetails
 }
 
 // Code gets the status code for the list g c p disk types no credentials default response
@@ -99,7 +99,7 @@ func (o *ListGCPDiskTypesNoCredentialsDefault) Error() string {
 
 func (o *ListGCPDiskTypesNoCredentialsDefault) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
-	o.Payload = new(models.ErrorResponse)
+	o.Payload = new(models.ErrorDetails)
 
 	// response payload
 	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {

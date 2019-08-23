@@ -24,6 +24,9 @@ type AWSCloudSpec struct {
 	// instance profile name
 	InstanceProfileName string `json:"instanceProfileName,omitempty"`
 
+	// openstack billing tenant
+	OpenstackBillingTenant string `json:"openstackBillingTenant,omitempty"`
+
 	// role a r n
 	RoleARN string `json:"roleARN,omitempty"`
 
