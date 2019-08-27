@@ -3,18 +3,12 @@ kind: Role
 metadata:
   name: kube-state-metrics-resizer
 rules:
-- apiGroups:
-  - ""
+- apiGroups: [""]
   resources:
   - pods
-  verbs:
-  - get
-- apiGroups:
-  - extensions
+  verbs: ["get"]
+- apiGroups: ["extensions"]
   resources:
   - deployments
-  resourceNames:
-  - kube-state-metrics
-  verbs:
-  - get
-  - update
+  resourceNames: ["kube-state-metrics"]
+  verbs: ["get", "update"]
