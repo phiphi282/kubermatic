@@ -89,11 +89,11 @@ func DaemonSetCreator(getRegistry GetImageRegistry) reconciling.NamedDaemonSetCr
 
 			ds.Spec.Template.Spec.Tolerations = []corev1.Toleration{
 				{
-					Effect: corev1.TaintEffectNoSchedule,
+					Effect:   corev1.TaintEffectNoSchedule,
 					Operator: corev1.TolerationOpExists,
 				},
 				{
-					Effect: corev1.TaintEffectNoExecute,
+					Effect:   corev1.TaintEffectNoExecute,
 					Operator: corev1.TolerationOpExists,
 				},
 			}
