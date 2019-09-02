@@ -63,8 +63,16 @@ function cleanup {
       exit 1
     fi
 
-    # Controller manager logs
-    kubectl logs -n $NAMESPACE  $(kubectl get pod -n $NAMESPACE -l role=controller-manager |tail -n 1|awk '{print $1}')
+    # Control plane logs
+    echodate "Dumping all conntrol plane logs"
+    local GOTEMPLATE='{{ range $pod := .items }}{{ range $container := .spec.containers }}{{ printf "%s,%s\n" $pod.metadata.name $container.name }}{{end}}{{end}}'
+    for i in $(kubectl get pods -n $NAMESPACE -o go-template="$GOTEMPLATE"); do
+      local POD="${i%,*}"
+      local CONTAINER="${i#*,}"
+
+      echo " [*] Pod $POD, container $CONTAINER:"
+      kubectl logs -n $NAMESPACE "$POD" "$CONTAINER"
+    done
 
     # Display machine events, we don't have to worry about secrets here as they are stored in the machine-controllers env
     # Except for vSphere
@@ -387,6 +395,26 @@ datacenters:
       packet:
         facilities:
         - ams1
+#==================================
+#============OpenStack=============
+#==================================
+  syseleven-dbl1:
+    location: Syseleven - dbl1
+    seed: europe-west3-c
+    country: DE
+    spec:
+      openstack:
+        auth_url: https://keystone.cloud.syseleven.net:5000/v3
+        availability_zone: dbl1
+        region: dbl
+        dns_servers:
+        - 37.123.105.116
+        - 37.123.105.117
+        images:
+          ubuntu: "kubermatic-e2e-ubuntu"
+          centos: "kubermatic-e2e-centos"
+          coreos: "kubermatic-e2e-coreos"
+        enforce_floating_ip: true
 EOF
 retry 5 vault kv get -field=kubeconfig \
   dev/seed-clusters/ci.kubermatic.io > $KUBECONFIG
