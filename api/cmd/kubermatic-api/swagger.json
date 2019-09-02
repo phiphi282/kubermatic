@@ -4832,14 +4832,6 @@
       "description": "ClusterSpec defines the cluster specification",
       "type": "object",
       "properties": {
-        "additionalAdmissionPlugins": {
-          "description": "List of additional admission plugins for the apiserver",
-          "type": "array",
-          "items": {
-            "type": "string"
-          },
-          "x-go-name": "AdditionalAdmissionPlugins"
-        },
         "cloud": {
           "$ref": "#/definitions/CloudSpec"
         },
