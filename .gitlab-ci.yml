@@ -50,16 +50,16 @@ lint-docker:
     - small
     - multi
 
-verify-codegen:
-  stage: check
-  image: golang:${GO_VERSION}
-  script:
-  - cd api
-  - GO111MODULE=on ./hack/verify-codegen.sh
-  tags:
-  - shared
-  - small
-  - multi
+#verify-codegen:
+#  stage: check
+#  image: golang:${GO_VERSION}
+#  script:
+#  - cd api
+#  - GO111MODULE=on ./hack/verify-codegen.sh
+#  tags:
+#  - shared
+#  - small
+#  - multi
 
 #verify-api-client:
 #  stage: check
