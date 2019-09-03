@@ -78,6 +78,8 @@ spec:
         volumeMounts:
         - mountPath: /http-prober-bin
           name: http-prober-bin
+      securityContext:
+        fsGroup: 1000
       volumes:
       - name: kube-state-metrics-kubeconfig
         secret:

@@ -63,6 +63,11 @@ func DeploymentCreator(data *resources.TemplateData) reconciling.NamedDeployment
 
 			dep.Spec.Template.Spec.Volumes = volumes
 
+			var uid1000 int64 = 1000
+			dep.Spec.Template.Spec.SecurityContext = &corev1.PodSecurityContext{
+				FSGroup: &uid1000,
+			}
+
 			dep.Spec.Template.Spec.Containers = []corev1.Container{
 				{
 					Name:    name,
