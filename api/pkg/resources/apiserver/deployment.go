@@ -2,6 +2,7 @@ package apiserver
 
 import (
 	"fmt"
+	"github.com/kubermatic/kubermatic/api/pkg/keycloak"
 	"strings"
 
 	kubermaticv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
@@ -126,7 +127,7 @@ func DeploymentCreator(data *resources.TemplateData, enableDexCA bool) reconcili
 				return nil, fmt.Errorf("failed to get dnat-controller sidecar: %v", err)
 			}
 
-			flags, err := getApiserverFlags(data, etcdEndpoints, enableDexCA)
+			flags, err := getApiserverFlags(data, etcdEndpoints, enableDexCA, data.KeycloakFacade)
 			if err != nil {
 				return nil, err
 			}
@@ -190,7 +191,7 @@ func DeploymentCreator(data *resources.TemplateData, enableDexCA bool) reconcili
 	}
 }
 
-func getApiserverFlags(data *resources.TemplateData, etcdEndpoints []string, enableDexCA bool) ([]string, error) {
+func getApiserverFlags(data *resources.TemplateData, etcdEndpoints []string, enableDexCA bool, keycloakFacade keycloak.Facade) ([]string, error) {
 	nodePortRange := data.NodePortRange()
 	if nodePortRange == "" {
 		nodePortRange = defaultNodePortRange
@@ -271,17 +272,29 @@ func getApiserverFlags(data *resources.TemplateData, etcdEndpoints []string, ena
 		flags = append(flags, "--cloud-config", "/etc/kubernetes/cloud/config")
 	}
 
+	var oidcSettings *kubermaticv1.OIDCSettings
+
 	if data.Cluster().Spec.OIDC.IssuerURL != "" && data.Cluster().Spec.OIDC.ClientID != "" {
-		flags = append(flags, "--oidc-issuer-url", data.Cluster().Spec.OIDC.IssuerURL)
-		flags = append(flags, "--oidc-client-id", data.Cluster().Spec.OIDC.ClientID)
-		if data.Cluster().Spec.OIDC.UsernameClaim != "" {
-			flags = append(flags, "--oidc-username-claim", data.Cluster().Spec.OIDC.UsernameClaim)
+		oidcSettings = &data.Cluster().Spec.OIDC
+	} else if data.Cluster().Spec.Sys11Auth.Realm != "" {
+		settings, err := sys11AuthToOidcSettings(data.Cluster().Spec.Sys11Auth, keycloakFacade)
+		if err != nil {
+			return nil, err
 		}
-		if data.Cluster().Spec.OIDC.GroupsClaim != "" {
-			flags = append(flags, "--oidc-groups-claim", data.Cluster().Spec.OIDC.GroupsClaim)
+		oidcSettings = settings
+	}
+
+	if oidcSettings != nil {
+		flags = append(flags, "--oidc-issuer-url", oidcSettings.IssuerURL)
+		flags = append(flags, "--oidc-client-id", oidcSettings.ClientID)
+		if oidcSettings.UsernameClaim != "" {
+			flags = append(flags, "--oidc-username-claim", oidcSettings.UsernameClaim)
 		}
-		if data.Cluster().Spec.OIDC.RequiredClaim != "" {
-			flags = append(flags, "--oidc-required-claim", data.Cluster().Spec.OIDC.RequiredClaim)
+		if oidcSettings.GroupsClaim != "" {
+			flags = append(flags, "--oidc-groups-claim", oidcSettings.GroupsClaim)
+		}
+		if oidcSettings.RequiredClaim != "" {
+			flags = append(flags, "--oidc-required-claim", oidcSettings.RequiredClaim)
 		}
 	} else if enableDexCA {
 		flags = append(flags, "--oidc-issuer-url", data.OIDCIssuerURL())
@@ -293,6 +306,22 @@ func getApiserverFlags(data *resources.TemplateData, etcdEndpoints []string, ena
 	}
 
 	return flags, nil
+}
+
+func sys11AuthToOidcSettings(sys11Settings kubermaticv1.Sys11AuthSettings, keycloakFacade keycloak.Facade) (*kubermaticv1.OIDCSettings, error) {
+	result := &kubermaticv1.OIDCSettings{}
+
+	clientData, err := keycloakFacade.GetClientData(sys11Settings.Realm, "metakube-cluster")
+	if err != nil {
+		return nil, err
+	}
+
+	result.IssuerURL = clientData.IssuerURL
+	result.ClientID = clientData.ClientID
+	result.ClientSecret = clientData.ClientSecret
+	result.UsernameClaim = "email"
+
+	return result, nil
 }
 
 func GetKubernetesCloudProviderName(cluster *kubermaticv1.Cluster) string {

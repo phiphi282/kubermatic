@@ -542,6 +542,7 @@ func TestLoadFiles(t *testing.T) {
 					false,
 					tmpFilePath,
 					"foo.bar",
+					nil,
 					"test",
 					"https://dev.kubermatic.io/dex",
 					"kubermaticIssuer",

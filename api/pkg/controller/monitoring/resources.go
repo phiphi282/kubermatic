@@ -38,6 +38,7 @@ func (r *Reconciler) getClusterTemplateData(ctx context.Context, client ctrlrunt
 		r.inClusterPrometheusDisableDefaultScrapingConfigs,
 		r.inClusterPrometheusScrapingConfigsFile,
 		"",
+		nil,
 		"",
 		"",
 		"",

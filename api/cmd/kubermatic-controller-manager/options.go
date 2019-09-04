@@ -4,6 +4,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"github.com/kubermatic/kubermatic/api/pkg/keycloak"
 	"io/ioutil"
 	"net/url"
 	"path"
@@ -228,4 +229,5 @@ type controllerContext struct {
 	dcs                  map[string]provider.DatacenterMeta
 	dockerPullConfigJSON []byte
 	log                  *zap.SugaredLogger
+	keycloakFacade       keycloak.Facade
 }

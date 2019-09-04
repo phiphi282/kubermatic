@@ -3,7 +3,9 @@ package main
 import (
 	"context"
 	"fmt"
+	"github.com/kubermatic/kubermatic/api/pkg/keycloak"
 	"io/ioutil"
+	"log"
 	"os"
 
 	"github.com/go-logr/zapr"
@@ -236,5 +238,20 @@ func newControllerContext(
 	}
 	ctrlCtx.clientProvider = clientProvider
 
+	kcInternal := keycloak.NewClient(requireEnv("KC_INTERNAL_URL"), requireEnv("KC_INTERNAL_ADMIN_USER"), requireEnv("KC_INTERNAL_ADMIN_PASSWORD"))
+	kcExternal := keycloak.NewClient(requireEnv("KC_EXTERNAL_URL"), requireEnv("KC_EXTERNAL_ADMIN_USER"), requireEnv("KC_EXTERNAL_ADMIN_PASSWORD"))
+	keycloakFacade := keycloak.NewGroup()
+	keycloakFacade.RegisterKeycloak(kcExternal)
+	keycloakFacade.RegisterKeycloak(kcInternal)
+	ctrlCtx.keycloakFacade = keycloakFacade
+
 	return ctrlCtx, nil
+}
+
+func requireEnv(key string) string {
+	value, ok := os.LookupEnv(key)
+	if !ok {
+		log.Fatalf("Required environment variable not set: %s", key)
+	}
+	return value
 }

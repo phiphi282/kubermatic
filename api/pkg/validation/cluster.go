@@ -59,6 +59,10 @@ func ValidateCreateClusterSpec(spec *kubermaticv1.ClusterSpec, cloudProviders ma
 		return fmt.Errorf("machine network validation failed, see: %v", err)
 	}
 
+	if err = validateAuthSettings(spec); err != nil {
+		return fmt.Errorf("auth settings validation failed: %v", err)
+	}
+
 	return nil
 }
 
@@ -198,6 +202,10 @@ func ValidateUpdateCluster(newCluster, oldCluster *kubermaticv1.Cluster, cloudPr
 		return fmt.Errorf("invalid cloud spec modification: %v", err)
 	}
 
+	if err = validateAuthSettings(&newCluster.Spec); err != nil {
+		return fmt.Errorf("auth settings validation failed: %v", err)
+	}
+
 	return nil
 }
 
@@ -306,4 +314,11 @@ func ValidateCloudSpec(spec kubermaticv1.CloudSpec, dc provider.DatacenterMeta) 
 	}
 
 	return errors.New("no cloud provider specified")
+}
+
+func validateAuthSettings(spec *kubermaticv1.ClusterSpec) error {
+	if spec.OIDC != (kubermaticv1.OIDCSettings{}) && spec.Sys11Auth != (kubermaticv1.Sys11AuthSettings{}) {
+		return errors.New("oidc and sys11auth cannot both be set")
+	}
+	return nil
 }
