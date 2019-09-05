@@ -3,6 +3,7 @@ package validation
 import (
 	"errors"
 	"fmt"
+	"github.com/kubermatic/kubermatic/api/pkg/keycloak"
 	"net"
 	"regexp"
 
@@ -319,6 +320,16 @@ func ValidateCloudSpec(spec kubermaticv1.CloudSpec, dc provider.DatacenterMeta) 
 func validateAuthSettings(spec *kubermaticv1.ClusterSpec) error {
 	if spec.OIDC != (kubermaticv1.OIDCSettings{}) && spec.Sys11Auth != (kubermaticv1.Sys11AuthSettings{}) {
 		return errors.New("oidc and sys11auth cannot both be set")
+	}
+	return nil
+}
+
+func ValidateSys11AuthSettings(spec *kubermaticv1.ClusterSpec, keycloakFacade keycloak.Facade) error {
+	if spec.Sys11Auth != (kubermaticv1.Sys11AuthSettings{}) {
+		_, err := keycloakFacade.GetClientData(spec.Sys11Auth.Realm, "metakube-cluster")
+		if err != nil {
+			return err
+		}
 	}
 	return nil
 }

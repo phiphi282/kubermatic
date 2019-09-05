@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/kubermatic/kubermatic/api/pkg/keycloak"
 	"io/ioutil"
 	"net/http"
 	"strconv"
@@ -64,6 +65,7 @@ func CreateEndpoint(sshKeyProvider provider.SSHKeyProvider, cloudProviders map[s
 		clusterProvider := ctx.Value(middleware.ClusterProviderContextKey).(provider.ClusterProvider)
 		privilegedClusterProvider := ctx.Value(middleware.PrivilegedClusterProviderContextKey).(provider.PrivilegedClusterProvider)
 		userInfo := ctx.Value(middleware.UserInfoContextKey).(*provider.UserInfo)
+		keycloakFacade := ctx.Value(middleware.KeycloakFacadeContextKey).(keycloak.Facade)
 		project, err := projectProvider.Get(userInfo, req.ProjectID, &provider.ProjectGetOptions{})
 		k8sClient := privilegedClusterProvider.GetSeedClusterAdminClient()
 		if err != nil {
@@ -93,6 +95,10 @@ func CreateEndpoint(sshKeyProvider provider.SSHKeyProvider, cloudProviders map[s
 
 		if len(existingClusters) > 0 {
 			return nil, errors.NewAlreadyExists("cluster", spec.HumanReadableName)
+		}
+
+		if err = validation.ValidateSys11AuthSettings(spec, keycloakFacade); err != nil {
+			return nil, common.KubernetesErrorToHTTPError(err)
 		}
 
 		partialCluster := &kubermaticapiv1.Cluster{}
@@ -230,6 +236,7 @@ func PatchEndpoint(cloudProviders map[string]provider.CloudProvider, projectProv
 		req := request.(PatchReq)
 		clusterProvider := ctx.Value(middleware.ClusterProviderContextKey).(provider.ClusterProvider)
 		userInfo := ctx.Value(middleware.UserInfoContextKey).(*provider.UserInfo)
+		keycloakFacade := ctx.Value(middleware.KeycloakFacadeContextKey).(keycloak.Facade)
 		_, err := projectProvider.Get(userInfo, req.ProjectID, &provider.ProjectGetOptions{})
 		if err != nil {
 			return nil, common.KubernetesErrorToHTTPError(err)
@@ -271,6 +278,10 @@ func PatchEndpoint(cloudProviders map[string]provider.CloudProvider, projectProv
 
 		if err = validation.ValidateUpdateCluster(patchedCluster, existingCluster, cloudProviders, dc); err != nil {
 			return nil, errors.NewBadRequest("invalid cluster: %v", err)
+		}
+
+		if err = validation.ValidateSys11AuthSettings(&patchedCluster.Spec, keycloakFacade); err != nil {
+			return nil, common.KubernetesErrorToHTTPError(err)
 		}
 
 		updatedCluster, err := clusterProvider.Update(userInfo, patchedCluster)
