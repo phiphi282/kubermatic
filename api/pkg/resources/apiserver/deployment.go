@@ -2,6 +2,7 @@ package apiserver
 
 import (
 	"fmt"
+	"github.com/golang/glog"
 	"github.com/kubermatic/kubermatic/api/pkg/keycloak"
 	"strings"
 
@@ -277,7 +278,15 @@ func getApiserverFlags(data *resources.TemplateData, etcdEndpoints []string, ena
 	if data.Cluster().Spec.Sys11Auth.Realm != "" {
 		settings, err := keycloak.Sys11AuthToOidcSettings(data.Cluster().Spec.Sys11Auth, keycloakFacade)
 		if err != nil {
-			return nil, err
+			if _, ok := err.(*keycloak.RealmNotFoundError); ok {
+				// TODO create event?
+				glog.Errorf("Cluster %s sys11 auth: realm not found: %s", data.Cluster().Name, data.Cluster().Spec.Sys11Auth.Realm)
+			} else if _, ok := err.(*keycloak.ClientNotFoundError); ok {
+				// TODO create event?
+				glog.Errorf("Cluster %s sys11 auth: metakube-cluster client not found in realm", data.Cluster().Name)
+			} else {
+				return nil, err
+			}
 		}
 		oidcSettings = settings
 	} else if data.Cluster().Spec.OIDC.IssuerURL != "" && data.Cluster().Spec.OIDC.ClientID != "" {
