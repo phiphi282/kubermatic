@@ -176,6 +176,7 @@ func (r Routing) getOidcClusterKubeconfig() http.Handler {
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviders, r.datacenters),
 			middleware.UserInfoExtractor(r.userProjectMapper),
+			middleware.Keycloak(r.keycloakFacade),
 			middleware.PrivilegedUserGroupVerifier(r.userProjectMapper, privilegedUserGroups),
 		)(cluster.GetOidcKubeconfigEndpoint(r.projectProvider)),
 		cluster.DecodeGetAdminKubeconfig,

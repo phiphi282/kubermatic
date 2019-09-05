@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"crypto/sha512"
 	"fmt"
+	"github.com/kubermatic/kubermatic/api/pkg/keycloak"
 	"io"
 	"io/ioutil"
 	"net/http"
@@ -131,6 +132,7 @@ type newRoutingFunc func(
 	saTokenAuthenticator serviceaccount.TokenAuthenticator,
 	saTokenGenerator serviceaccount.TokenGenerator,
 	eventRecorderProvider provider.EventRecorderProvider,
+	keycloakFacade keycloak.Facade,
 	credentialManager common.PresetsManager) http.Handler
 
 func initTestEndpoint(user apiv1.User, dc map[string]provider.DatacenterMeta, kubeObjects, machineObjects, kubermaticObjects []runtime.Object, versions []*version.MasterVersion, updates []*version.MasterUpdate, credentialsManager common.PresetsManager, routingFunc newRoutingFunc) (http.Handler, *ClientsSets, error) {
@@ -228,6 +230,9 @@ func initTestEndpoint(user apiv1.User, dc map[string]provider.DatacenterMeta, ku
 
 	eventRecorderProvider := kubernetes.NewEventRecorder()
 
+	// not using this in any tests currently
+	var keycloakFacade keycloak.Facade
+
 	// Disable the metrics endpoint in tests
 	var prometheusClient prometheusapi.Client
 
@@ -252,6 +257,7 @@ func initTestEndpoint(user apiv1.User, dc map[string]provider.DatacenterMeta, ku
 		tokenAuth,
 		tokenGenerator,
 		eventRecorderProvider,
+		keycloakFacade,
 		credentialsManager,
 	)
 

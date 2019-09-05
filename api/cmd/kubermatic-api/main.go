@@ -17,6 +17,8 @@ package main
 
 import (
 	"fmt"
+	"github.com/kubermatic/kubermatic/api/pkg/keycloak"
+	"log"
 	"net/http"
 	"os"
 
@@ -87,7 +89,12 @@ func main() {
 	if err != nil {
 		log.Fatalw("failed to create presets manager", "error", err)
 	}
-	apiHandler, err := createAPIHandler(options, providers, oidcIssuerVerifier, tokenVerifiers, tokenExtractors, updateManager, presetsManager)
+	kcInternal := keycloak.NewClient(requireEnv("KC_INTERNAL_URL"), requireEnv("KC_INTERNAL_ADMIN_USER"), requireEnv("KC_INTERNAL_ADMIN_PASSWORD"))
+	kcExternal := keycloak.NewClient(requireEnv("KC_EXTERNAL_URL"), requireEnv("KC_EXTERNAL_ADMIN_USER"), requireEnv("KC_EXTERNAL_ADMIN_PASSWORD"))
+	keycloakFacade := keycloak.NewGroup()
+	keycloakFacade.RegisterKeycloak(kcExternal)
+	keycloakFacade.RegisterKeycloak(kcInternal)
+	apiHandler, err := createAPIHandler(options, providers, oidcIssuerVerifier, tokenVerifiers, tokenExtractors, updateManager, presetsManager, keycloakFacade)
 	if err != nil {
 		log.Fatalw("failed to create API Handler", "error", err)
 	}
@@ -95,6 +102,14 @@ func main() {
 	go metricspkg.ServeForever(options.internalAddr, "/metrics")
 	log.Infow("the API server listening", "listenAddress", options.listenAddress)
 	log.Fatalw("failed to start API server", "error", http.ListenAndServe(options.listenAddress, handlers.CombinedLoggingHandler(os.Stdout, apiHandler)))
+}
+
+func requireEnv(key string) string {
+	value, ok := os.LookupEnv(key)
+	if !ok {
+		log.Fatalf("Required environment variable not set: %s", key)
+	}
+	return value
 }
 
 func createInitProviders(options serverRunOptions) (providers, error) {
@@ -262,7 +277,7 @@ func createAuthClients(options serverRunOptions, prov providers) (auth.TokenVeri
 	return tokenVerifiers, tokenExtractors, nil
 }
 
-func createAPIHandler(options serverRunOptions, prov providers, oidcIssuerVerifier auth.OIDCIssuerVerifier, tokenVerifiers auth.TokenVerifier, tokenExtractors auth.TokenExtractor, updateManager common.UpdateManager, presetsManager common.PresetsManager) (http.HandlerFunc, error) {
+func createAPIHandler(options serverRunOptions, prov providers, oidcIssuerVerifier auth.OIDCIssuerVerifier, tokenVerifiers auth.TokenVerifier, tokenExtractors auth.TokenExtractor, updateManager common.UpdateManager, presetsManager common.PresetsManager, keycloakFacade keycloak.Facade) (http.HandlerFunc, error) {
 	var prometheusClient prometheusapi.Client
 	if options.featureGates.Enabled(PrometheusEndpoint) {
 		var err error
@@ -301,6 +316,7 @@ func createAPIHandler(options serverRunOptions, prov providers, oidcIssuerVerifi
 		serviceAccountTokenGenerator,
 		prov.eventRecorderProvider,
 		presetsManager,
+		keycloakFacade,
 		options.exposeStrategy,
 	)
 

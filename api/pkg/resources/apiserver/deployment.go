@@ -274,14 +274,14 @@ func getApiserverFlags(data *resources.TemplateData, etcdEndpoints []string, ena
 
 	var oidcSettings *kubermaticv1.OIDCSettings
 
-	if data.Cluster().Spec.OIDC.IssuerURL != "" && data.Cluster().Spec.OIDC.ClientID != "" {
-		oidcSettings = &data.Cluster().Spec.OIDC
-	} else if data.Cluster().Spec.Sys11Auth.Realm != "" {
-		settings, err := sys11AuthToOidcSettings(data.Cluster().Spec.Sys11Auth, keycloakFacade)
+	if data.Cluster().Spec.Sys11Auth.Realm != "" {
+		settings, err := keycloak.Sys11AuthToOidcSettings(data.Cluster().Spec.Sys11Auth, keycloakFacade)
 		if err != nil {
 			return nil, err
 		}
 		oidcSettings = settings
+	} else if data.Cluster().Spec.OIDC.IssuerURL != "" && data.Cluster().Spec.OIDC.ClientID != "" {
+		oidcSettings = &data.Cluster().Spec.OIDC
 	}
 
 	if oidcSettings != nil {
@@ -306,22 +306,6 @@ func getApiserverFlags(data *resources.TemplateData, etcdEndpoints []string, ena
 	}
 
 	return flags, nil
-}
-
-func sys11AuthToOidcSettings(sys11Settings kubermaticv1.Sys11AuthSettings, keycloakFacade keycloak.Facade) (*kubermaticv1.OIDCSettings, error) {
-	result := &kubermaticv1.OIDCSettings{}
-
-	clientData, err := keycloakFacade.GetClientData(sys11Settings.Realm, "metakube-cluster")
-	if err != nil {
-		return nil, err
-	}
-
-	result.IssuerURL = clientData.IssuerURL
-	result.ClientID = clientData.ClientID
-	result.ClientSecret = clientData.ClientSecret
-	result.UsernameClaim = "email"
-
-	return result, nil
 }
 
 func GetKubernetesCloudProviderName(cluster *kubermaticv1.Cluster) string {
