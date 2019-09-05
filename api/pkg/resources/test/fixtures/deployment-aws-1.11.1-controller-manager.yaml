@@ -124,7 +124,7 @@ spec:
           value: aws-vpn-id
         - name: AWS_AVAILABILITY_ZONE
           value: aws-availability-zone
-        image: gcr.io/google_containers/hyperkube-amd64:v1.11.1
+        image: docker.io/syseleven/hyperkube-amd64:v1.11.1-sys11-1
         livenessProbe:
           failureThreshold: 8
           httpGet:

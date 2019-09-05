@@ -155,7 +155,9 @@ func DeploymentCreator(data *resources.TemplateData) reconciling.NamedDeployment
 				*openvpnSidecar,
 				{
 					Name:      name,
-					Image:     data.ImageRegistry(resources.RegistryGCR) + "/google_containers/hyperkube-amd64:v" + data.Cluster().Spec.Version.String(),
+					// TODO Revert when upstream Bug is fixed: https://github.com/kubernetes/kubernetes/pull/82264
+					// Image:     data.ImageRegistry(resources.RegistryGCR) + "/google_containers/hyperkube-amd64:v" + data.Cluster().Spec.Version.String(),
+					Image:     data.ImageRegistry(resources.RegistryDocker) + "/syseleven/hyperkube-amd64:v" + data.Cluster().Spec.Version.String() + "-sys11-1",
 					Command:   []string{"/hyperkube", "kube-controller-manager"},
 					Args:      flags,
 					Env:       getEnvVars(data.Cluster()),
