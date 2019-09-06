@@ -144,6 +144,13 @@ spec:
           mountPath: "/opt/incluster-prometheus-scraping-configs/"
           readOnly: true
         {{- end }}
+        {{- if .Values.kubermatic.controller.envSecrets }}
+        envFrom:
+        {{- range .Values.kubermatic.controller.envSecrets }}
+        - secretRef:
+            name: {{.}}
+        {{- end }}
+        {{- end }}
         resources:
 {{ toYaml .Values.kubermatic.controller.resources | indent 10 }}
       imagePullSecrets:

@@ -89,6 +89,13 @@ spec:
           mountPath: "/opt/credentials/"
           readOnly: true
         {{- end }}
+        {{- if .Values.kubermatic.api.envSecrets }}
+        envFrom:
+        {{- range .Values.kubermatic.api.envSecrets }}
+        - secretRef:
+            name: {{.}}
+        {{- end }}
+        {{- end }}
         resources:
 {{ toYaml .Values.kubermatic.api.resources | indent 10 }}
       imagePullSecrets:
