@@ -230,8 +230,7 @@ func initTestEndpoint(user apiv1.User, dc map[string]provider.DatacenterMeta, ku
 
 	eventRecorderProvider := kubernetes.NewEventRecorder()
 
-	// not using this in any tests currently
-	var keycloakFacade keycloak.Facade
+	keycloakFacade := &testKeycloak{}
 
 	// Disable the metrics endpoint in tests
 	var prometheusClient prometheusapi.Client
@@ -262,6 +261,17 @@ func initTestEndpoint(user apiv1.User, dc map[string]provider.DatacenterMeta, ku
 	)
 
 	return mainRouter, &ClientsSets{kubermaticClient, fakeClient, kubernetesClient, tokenAuth, tokenGenerator}, nil
+}
+
+type testKeycloak struct {
+}
+
+func (kc *testKeycloak) GetClientData(realmName string, clientID string) (*keycloak.ClientData, error) {
+	return &keycloak.ClientData{
+		IssuerURL:    "https://some.issuer",
+		ClientID:     "someClient",
+		ClientSecret: "someSecret",
+	}, nil
 }
 
 // CreateTestEndpointAndGetClients is a convenience function that instantiates fake providers and sets up routes  for the tests
