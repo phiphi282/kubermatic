@@ -241,8 +241,8 @@ func newControllerContext(
 	kcInternal := keycloak.NewClient(requireEnv("KC_INTERNAL_URL"), requireEnv("KC_INTERNAL_ADMIN_USER"), requireEnv("KC_INTERNAL_ADMIN_PASSWORD"))
 	kcExternal := keycloak.NewClient(requireEnv("KC_EXTERNAL_URL"), requireEnv("KC_EXTERNAL_ADMIN_USER"), requireEnv("KC_EXTERNAL_ADMIN_PASSWORD"))
 	keycloakFacade := keycloak.NewGroup()
-	keycloakFacade.RegisterKeycloak(kcExternal)
-	keycloakFacade.RegisterKeycloak(kcInternal)
+	keycloakFacade.RegisterKeycloak(keycloak.NewCache(kcExternal, runOp.keycloakCacheExpiry))
+	keycloakFacade.RegisterKeycloak(keycloak.NewCache(kcInternal, runOp.keycloakCacheExpiry))
 	ctrlCtx.keycloakFacade = keycloakFacade
 
 	return ctrlCtx, nil

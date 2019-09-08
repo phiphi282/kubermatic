@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"testing"
+	"time"
 )
 
 func requireEnv(key string, t *testing.T) string {
@@ -64,8 +65,8 @@ func TestClientGroup(t *testing.T) {
 	kc2 := NewClient(requireEnv("KC_INTERNAL_URL", t), requireEnv("KC_INTERNAL_ADMIN_USER", t), requireEnv("KC_INTERNAL_ADMIN_PASSWORD", t))
 
 	kg := NewGroup()
-	kg.RegisterKeycloak(kc1)
-	kg.RegisterKeycloak(kc2)
+	kg.RegisterKeycloak(NewCache(kc1, 1*time.Second))
+	kg.RegisterKeycloak(NewCache(kc2, 1*time.Second))
 
 	cd, err := kg.GetClientData("testkunde", "metakube-cluster")
 	if err != nil {
@@ -74,7 +75,7 @@ func TestClientGroup(t *testing.T) {
 
 	fmt.Printf("issuerUrl: %v, client ID: %s, client secret: %v\n", cd.IssuerURL, cd.ClientID, cd.ClientSecret)
 
-	cd, err = kg.GetClientData("syseleven", "kubernetes")
+	cd, err = kg.GetClientData("syseleven", "metakube-cluster")
 	if err != nil {
 		t.Fatalf("gcd Error: %v\n", err)
 	}
@@ -87,8 +88,8 @@ func TestGroupGetClientDataNotFound(t *testing.T) {
 	kc2 := NewClient(requireEnv("KC_INTERNAL_URL", t), requireEnv("KC_INTERNAL_ADMIN_USER", t), requireEnv("KC_INTERNAL_ADMIN_PASSWORD", t))
 
 	kg := NewGroup()
-	kg.RegisterKeycloak(kc1)
-	kg.RegisterKeycloak(kc2)
+	kg.RegisterKeycloak(NewCache(kc1, 1*time.Second))
+	kg.RegisterKeycloak(NewCache(kc2, 1*time.Second))
 
 	doTestGetClientDataNotFound(kg, t)
 }

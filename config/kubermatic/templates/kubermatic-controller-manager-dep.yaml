@@ -74,6 +74,7 @@ spec:
         - -cleanup-container=/opt/backup/cleanup-container.yaml
         - -nodeport-range={{ .Values.kubermatic.controller.nodeportRange }}
         - -docker-pull-config-json-file=/opt/docker/.dockerconfigjson
+        - -keycloak-cache-expiry={{ .Values.kubermatic.controller.keycloakCacheExpiry }}
         {{- if regexMatch ".*OpenIDAuthPlugin=true.*" (default "" .Values.kubermatic.controller.featureGates) }}
         # the following flags enable oidc auth plugin on kube-API servers
         - -oidc-ca-file=/opt/dex-ca/caBundle.pem
