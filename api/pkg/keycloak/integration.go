@@ -14,6 +14,7 @@ func Sys11AuthToOidcSettings(sys11Settings kubermaticv1.Sys11AuthSettings, keycl
 	result.ClientID = clientData.ClientID
 	result.ClientSecret = clientData.ClientSecret
 	result.UsernameClaim = "email"
+	result.GroupsClaim = "groups"
 
 	return result, nil
 }
