@@ -18,7 +18,7 @@ func requireEnv(key string, t *testing.T) string {
 }
 
 func TestAuth(t *testing.T) {
-	kc := NewClient(requireEnv("KC_EXTERNAL_URL", t), requireEnv("KC_EXTERNAL_ADMIN_USER", t), requireEnv("KC_EXTERNAL_ADMIN_PASSWORD", t))
+	kc := NewClient(requireEnv("KEYCLOAK_EXTERNAL_URL", t), requireEnv("KEYCLOAK_EXTERNAL_ADMIN_USER", t), requireEnv("KEYCLOAK_EXTERNAL_ADMIN_PASSWORD", t))
 	token, err := kc.getAdminToken()
 	if err != nil {
 		t.Fatalf("Error: %v\n", err)
@@ -27,7 +27,7 @@ func TestAuth(t *testing.T) {
 }
 
 func TestGetClientData(t *testing.T) {
-	kc := NewClient(requireEnv("KC_EXTERNAL_URL", t), requireEnv("KC_EXTERNAL_ADMIN_USER", t), requireEnv("KC_EXTERNAL_ADMIN_PASSWORD", t))
+	kc := NewClient(requireEnv("KEYCLOAK_EXTERNAL_URL", t), requireEnv("KEYCLOAK_EXTERNAL_ADMIN_USER", t), requireEnv("KEYCLOAK_EXTERNAL_ADMIN_PASSWORD", t))
 
 	cd, err := kc.GetClientData("testkunde", "metakube-cluster")
 	if err != nil {
@@ -38,7 +38,7 @@ func TestGetClientData(t *testing.T) {
 }
 
 func TestGetClientDataNotFound(t *testing.T) {
-	kc := NewClient(requireEnv("KC_EXTERNAL_URL", t), requireEnv("KC_EXTERNAL_ADMIN_USER", t), requireEnv("KC_EXTERNAL_ADMIN_PASSWORD", t))
+	kc := NewClient(requireEnv("KEYCLOAK_EXTERNAL_URL", t), requireEnv("KEYCLOAK_EXTERNAL_ADMIN_USER", t), requireEnv("KEYCLOAK_EXTERNAL_ADMIN_PASSWORD", t))
 	doTestGetClientDataNotFound(kc, t)
 }
 
@@ -61,8 +61,8 @@ func doTestGetClientDataNotFound(kc Facade, t *testing.T) {
 }
 
 func TestClientGroup(t *testing.T) {
-	kc1 := NewClient(requireEnv("KC_EXTERNAL_URL", t), requireEnv("KC_EXTERNAL_ADMIN_USER", t), requireEnv("KC_EXTERNAL_ADMIN_PASSWORD", t))
-	kc2 := NewClient(requireEnv("KC_INTERNAL_URL", t), requireEnv("KC_INTERNAL_ADMIN_USER", t), requireEnv("KC_INTERNAL_ADMIN_PASSWORD", t))
+	kc1 := NewClient(requireEnv("KEYCLOAK_EXTERNAL_URL", t), requireEnv("KEYCLOAK_EXTERNAL_ADMIN_USER", t), requireEnv("KEYCLOAK_EXTERNAL_ADMIN_PASSWORD", t))
+	kc2 := NewClient(requireEnv("KEYCLOAK_INTERNAL_URL", t), requireEnv("KEYCLOAK_INTERNAL_ADMIN_USER", t), requireEnv("KEYCLOAK_INTERNAL_ADMIN_PASSWORD", t))
 
 	kg := NewGroup()
 	kg.RegisterKeycloak(NewCache(kc1, 1*time.Second))
@@ -84,8 +84,8 @@ func TestClientGroup(t *testing.T) {
 }
 
 func TestGroupGetClientDataNotFound(t *testing.T) {
-	kc1 := NewClient(requireEnv("KC_EXTERNAL_URL", t), requireEnv("KC_EXTERNAL_ADMIN_USER", t), requireEnv("KC_EXTERNAL_ADMIN_PASSWORD", t))
-	kc2 := NewClient(requireEnv("KC_INTERNAL_URL", t), requireEnv("KC_INTERNAL_ADMIN_USER", t), requireEnv("KC_INTERNAL_ADMIN_PASSWORD", t))
+	kc1 := NewClient(requireEnv("KEYCLOAK_EXTERNAL_URL", t), requireEnv("KEYCLOAK_EXTERNAL_ADMIN_USER", t), requireEnv("KEYCLOAK_EXTERNAL_ADMIN_PASSWORD", t))
+	kc2 := NewClient(requireEnv("KEYCLOAK_INTERNAL_URL", t), requireEnv("KEYCLOAK_INTERNAL_ADMIN_USER", t), requireEnv("KEYCLOAK_INTERNAL_ADMIN_PASSWORD", t))
 
 	kg := NewGroup()
 	kg.RegisterKeycloak(NewCache(kc1, 1*time.Second))
