@@ -1,6 +1,7 @@
 package hack
 
 import (
+	"github.com/kubermatic/kubermatic/api/pkg/keycloak"
 	"net/http"
 
 	"github.com/gorilla/mux"
@@ -42,6 +43,7 @@ func NewTestRouting(
 	saTokenAuthenticator serviceaccount.TokenAuthenticator,
 	saTokenGenerator serviceaccount.TokenGenerator,
 	eventRecorderProvider provider.EventRecorderProvider,
+	keycloakFacade keycloak.Facade,
 	credentialManager common.PresetsManager) http.Handler {
 
 	updateManager := version.New(versions, updates)
@@ -67,6 +69,7 @@ func NewTestRouting(
 		saTokenGenerator,
 		eventRecorderProvider,
 		credentialManager,
+		keycloakFacade,
 		corev1.ServiceTypeNodePort,
 	)
 

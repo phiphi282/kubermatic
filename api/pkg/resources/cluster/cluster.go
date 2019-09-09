@@ -17,6 +17,7 @@ func Spec(apiCluster apiv1.Cluster, cloudProviders map[string]provider.CloudProv
 		Cloud:                               apiCluster.Spec.Cloud,
 		MachineNetworks:                     apiCluster.Spec.MachineNetworks,
 		OIDC:                                apiCluster.Spec.OIDC,
+		Sys11Auth:                           apiCluster.Spec.Sys11Auth,
 		Version:                             apiCluster.Spec.Version,
 		UsePodSecurityPolicyAdmissionPlugin: apiCluster.Spec.UsePodSecurityPolicyAdmissionPlugin,
 	}

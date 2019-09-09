@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"github.com/kubermatic/kubermatic/api/pkg/keycloak"
 	"os"
 
 	"github.com/go-kit/kit/log"
@@ -50,6 +51,7 @@ type Routing struct {
 	saTokenGenerator            serviceaccount.TokenGenerator
 	eventRecorderProvider       provider.EventRecorderProvider
 	presetsManager              common.PresetsManager
+	keycloakFacade              keycloak.Facade
 	exposeStrategy              corev1.ServiceType
 }
 
@@ -76,6 +78,7 @@ func NewRouting(
 	saTokenGenerator serviceaccount.TokenGenerator,
 	eventRecorderProvider provider.EventRecorderProvider,
 	presetsManager common.PresetsManager,
+	keycloakFacade keycloak.Facade,
 	exposeStrategy corev1.ServiceType,
 ) Routing {
 	return Routing{
@@ -101,6 +104,7 @@ func NewRouting(
 		saTokenGenerator:            saTokenGenerator,
 		eventRecorderProvider:       eventRecorderProvider,
 		presetsManager:              presetsManager,
+		keycloakFacade:              keycloakFacade,
 		exposeStrategy:              exposeStrategy,
 	}
 }

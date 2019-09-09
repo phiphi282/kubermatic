@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/x509"
 	"fmt"
+	"github.com/kubermatic/kubermatic/api/pkg/keycloak"
 	"net"
 	"strings"
 
@@ -41,6 +42,7 @@ type TemplateData struct {
 	oidcIssuerURL                                    string
 	oidcIssuerClientID                               string
 	ExternalURL                                      string
+	KeycloakFacade                                   keycloak.Facade
 	nodeLocalDNSCacheEnabled                         bool
 	kubermaticImage                                  string
 	apiserverExposeStrategy                          corev1.ServiceType
@@ -64,6 +66,7 @@ func NewTemplateData(
 	inClusterPrometheusDisableDefaultScrapingConfigs bool,
 	inClusterPrometheusScrapingConfigsFile string,
 	externalURL string,
+	keycloakFacade keycloak.Facade,
 	oidcCAFile string,
 	oidcURL string,
 	oidcIssuerClientID string,
@@ -89,6 +92,7 @@ func NewTemplateData(
 		oidcIssuerURL:                                    oidcURL,
 		oidcIssuerClientID:                               oidcIssuerClientID,
 		ExternalURL:                                      externalURL,
+		KeycloakFacade:                                   keycloakFacade,
 		nodeLocalDNSCacheEnabled:                         nodeLocalDNSCacheEnabled,
 		kubermaticImage:                                  kubermaticImage,
 	}

@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"context"
+	"github.com/kubermatic/kubermatic/api/pkg/keycloak"
 	"github.com/kubermatic/kubermatic/api/pkg/util/errors"
 	"net/http"
 
@@ -16,6 +17,8 @@ import (
 const (
 	// AddonProviderContextKey key under which the current AddonProvider is kept in the ctx
 	AddonProviderContextKey contextKey = "addon-provider"
+	// KeycloakFacadeContextKey key under which the current keycloak.Facade is kept in the ctx
+	KeycloakFacadeContextKey contextKey = "keycloak-facade"
 )
 
 func PrivilegedUserGroupVerifier(userProjectMapper provider.ProjectMemberMapper, privilegedUserGroups map[string]bool) endpoint.Middleware {
@@ -59,6 +62,16 @@ func Addons(addonProviders map[string]provider.AddonProvider) endpoint.Middlewar
 				return nil, errors.NewNotFound("addon-provider", getter.GetDC())
 			}
 			ctx = context.WithValue(ctx, AddonProviderContextKey, addonProvider)
+			return next(ctx, request)
+		}
+	}
+}
+
+// Keycloak is a middleware that injects the Keycloak client facade into the ctx
+func Keycloak(keycloakFacade keycloak.Facade) endpoint.Middleware {
+	return func(next endpoint.Endpoint) endpoint.Endpoint {
+		return func(ctx context.Context, request interface{}) (response interface{}, err error) {
+			ctx = context.WithValue(ctx, KeycloakFacadeContextKey, keycloakFacade)
 			return next(ctx, request)
 		}
 	}

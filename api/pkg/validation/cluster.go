@@ -3,6 +3,7 @@ package validation
 import (
 	"errors"
 	"fmt"
+	"github.com/kubermatic/kubermatic/api/pkg/keycloak"
 	"net"
 	"regexp"
 
@@ -57,6 +58,10 @@ func ValidateCreateClusterSpec(spec *kubermaticv1.ClusterSpec, cloudProviders ma
 
 	if err = validateMachineNetworksFromClusterSpec(spec); err != nil {
 		return fmt.Errorf("machine network validation failed, see: %v", err)
+	}
+
+	if err = validateAuthSettings(spec); err != nil {
+		return fmt.Errorf("auth settings validation failed: %v", err)
 	}
 
 	return nil
@@ -198,6 +203,10 @@ func ValidateUpdateCluster(newCluster, oldCluster *kubermaticv1.Cluster, cloudPr
 		return fmt.Errorf("invalid cloud spec modification: %v", err)
 	}
 
+	if err = validateAuthSettings(&newCluster.Spec); err != nil {
+		return fmt.Errorf("auth settings validation failed: %v", err)
+	}
+
 	return nil
 }
 
@@ -306,4 +315,21 @@ func ValidateCloudSpec(spec kubermaticv1.CloudSpec, dc provider.DatacenterMeta) 
 	}
 
 	return errors.New("no cloud provider specified")
+}
+
+func validateAuthSettings(spec *kubermaticv1.ClusterSpec) error {
+	if spec.OIDC != (kubermaticv1.OIDCSettings{}) && spec.Sys11Auth != (kubermaticv1.Sys11AuthSettings{}) {
+		return errors.New("oidc and sys11auth cannot both be set")
+	}
+	return nil
+}
+
+func ValidateSys11AuthSettings(spec *kubermaticv1.ClusterSpec, keycloakFacade keycloak.Facade) error {
+	if spec.Sys11Auth != (kubermaticv1.Sys11AuthSettings{}) {
+		_, err := keycloakFacade.GetClientData(spec.Sys11Auth.Realm, "metakube-cluster")
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }

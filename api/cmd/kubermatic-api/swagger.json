@@ -4846,6 +4846,9 @@
         "oidc": {
           "$ref": "#/definitions/OIDCSettings"
         },
+        "sys11auth": {
+          "$ref": "#/definitions/Sys11AuthSettings"
+        },
         "usePodSecurityPolicyAdmissionPlugin": {
           "description": "If active the PodSecurityPolicy admission plugin is configured at the apiserver",
           "type": "boolean",
@@ -6848,6 +6851,16 @@
         }
       },
       "x-go-package": "github.com/kubermatic/kubermatic/api/pkg/api/v1"
+    },
+    "Sys11AuthSettings": {
+      "type": "object",
+      "properties": {
+        "realm": {
+          "type": "string",
+          "x-go-name": "Realm"
+        }
+      },
+      "x-go-package": "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
     },
     "TaintSpec": {
       "description": "TaintSpec defines a node taint",

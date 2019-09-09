@@ -3,6 +3,7 @@ package cluster
 import (
 	"context"
 	"fmt"
+	"github.com/kubermatic/kubermatic/api/pkg/keycloak"
 
 	"github.com/golang/glog"
 
@@ -79,6 +80,8 @@ type Reconciler struct {
 	oidcIssuerURL      string
 	oidcIssuerClientID string
 
+	keycloakFacade keycloak.Facade
+
 	features Features
 }
 
@@ -108,6 +111,7 @@ func Add(
 	oidcIssuerURL string,
 	oidcIssuerClientID string,
 	kubermaticImage string,
+	keycloakFacade keycloak.Facade,
 	features Features) error {
 
 	if err := kubermaticscheme.AddToScheme(scheme.Scheme); err != nil {
@@ -142,6 +146,8 @@ func Add(
 		oidcCAFile:         oidcCAFile,
 		oidcIssuerURL:      oidcIssuerURL,
 		oidcIssuerClientID: oidcIssuerClientID,
+
+		keycloakFacade: keycloakFacade,
 
 		features: features,
 	}

@@ -3,6 +3,7 @@ package cluster
 import (
 	"context"
 	"fmt"
+	"github.com/kubermatic/kubermatic/api/pkg/keycloak"
 
 	"github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
 	"github.com/kubermatic/kubermatic/api/pkg/handler/middleware"
@@ -34,16 +35,32 @@ func GetOidcKubeconfigEndpoint(projectProvider provider.ProjectProvider) endpoin
 			return nil, common.KubernetesErrorToHTTPError(err)
 		}
 
+		keycloakFacade := ctx.Value(middleware.KeycloakFacadeContextKey).(keycloak.Facade)
+
+		var oidcSettings *v1.OIDCSettings
+
+		if cluster.Spec.Sys11Auth.Realm != "" {
+			settings, err := keycloak.Sys11AuthToOidcSettings(cluster.Spec.Sys11Auth, keycloakFacade)
+			if err != nil {
+				return nil, common.KubernetesErrorToHTTPError(err)
+			}
+			oidcSettings = settings
+		} else if cluster.Spec.OIDC.IssuerURL != "" && cluster.Spec.OIDC.ClientID != "" {
+			oidcSettings = &cluster.Spec.OIDC
+		} else {
+			return nil, kcerrors.NewNotFound("OIDC settings for", req.ClusterID)
+		}
+
 		clientCmdAuth := clientcmdapi.NewAuthInfo()
 		clientCmdAuthProvider := &clientcmdapi.AuthProviderConfig{Config: map[string]string{}}
 		clientCmdAuthProvider.Name = "oidc"
-		clientCmdAuthProvider.Config["idp-issuer-url"] = cluster.Spec.OIDC.IssuerURL
-		clientCmdAuthProvider.Config["client-id"] = cluster.Spec.OIDC.ClientID
-		if cluster.Spec.OIDC.ClientSecret != "" {
-			clientCmdAuthProvider.Config["client-secret"] = cluster.Spec.OIDC.ClientSecret
+		clientCmdAuthProvider.Config["idp-issuer-url"] = oidcSettings.IssuerURL
+		clientCmdAuthProvider.Config["client-id"] = oidcSettings.ClientID
+		if oidcSettings.ClientSecret != "" {
+			clientCmdAuthProvider.Config["client-secret"] = oidcSettings.ClientSecret
 		}
-		if cluster.Spec.OIDC.ExtraScopes != "" {
-			clientCmdAuthProvider.Config["extra-scopes"] = cluster.Spec.OIDC.ExtraScopes
+		if oidcSettings.ExtraScopes != "" {
+			clientCmdAuthProvider.Config["extra-scopes"] = oidcSettings.ExtraScopes
 		}
 		clientCmdAuth.AuthProvider = clientCmdAuthProvider
 

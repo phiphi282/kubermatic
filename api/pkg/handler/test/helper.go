@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"crypto/sha512"
 	"fmt"
+	"github.com/kubermatic/kubermatic/api/pkg/keycloak"
 	"io"
 	"io/ioutil"
 	"net/http"
@@ -131,6 +132,7 @@ type newRoutingFunc func(
 	saTokenAuthenticator serviceaccount.TokenAuthenticator,
 	saTokenGenerator serviceaccount.TokenGenerator,
 	eventRecorderProvider provider.EventRecorderProvider,
+	keycloakFacade keycloak.Facade,
 	credentialManager common.PresetsManager) http.Handler
 
 func initTestEndpoint(user apiv1.User, dc map[string]provider.DatacenterMeta, kubeObjects, machineObjects, kubermaticObjects []runtime.Object, versions []*version.MasterVersion, updates []*version.MasterUpdate, credentialsManager common.PresetsManager, routingFunc newRoutingFunc) (http.Handler, *ClientsSets, error) {
@@ -228,6 +230,8 @@ func initTestEndpoint(user apiv1.User, dc map[string]provider.DatacenterMeta, ku
 
 	eventRecorderProvider := kubernetes.NewEventRecorder()
 
+	keycloakFacade := &testKeycloak{}
+
 	// Disable the metrics endpoint in tests
 	var prometheusClient prometheusapi.Client
 
@@ -252,10 +256,22 @@ func initTestEndpoint(user apiv1.User, dc map[string]provider.DatacenterMeta, ku
 		tokenAuth,
 		tokenGenerator,
 		eventRecorderProvider,
+		keycloakFacade,
 		credentialsManager,
 	)
 
 	return mainRouter, &ClientsSets{kubermaticClient, fakeClient, kubernetesClient, tokenAuth, tokenGenerator}, nil
+}
+
+type testKeycloak struct {
+}
+
+func (kc *testKeycloak) GetClientData(realmName string, clientID string) (*keycloak.ClientData, error) {
+	return &keycloak.ClientData{
+		IssuerURL:    "https://some.issuer",
+		ClientID:     "someClient",
+		ClientSecret: "someSecret",
+	}, nil
 }
 
 // CreateTestEndpointAndGetClients is a convenience function that instantiates fake providers and sets up routes  for the tests

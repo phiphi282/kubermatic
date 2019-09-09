@@ -3,7 +3,6 @@ package cluster
 import (
 	"context"
 	"fmt"
-
 	kubermaticv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
 	"github.com/kubermatic/kubermatic/api/pkg/resources"
 	"github.com/kubermatic/kubermatic/api/pkg/resources/apiserver"
@@ -126,6 +125,7 @@ func (r *Reconciler) getClusterTemplateData(ctx context.Context, cluster *kuberm
 		r.inClusterPrometheusDisableDefaultScrapingConfigs,
 		r.inClusterPrometheusScrapingConfigsFile,
 		r.externalURL,
+		r.keycloakFacade,
 		r.oidcCAFile,
 		r.oidcIssuerURL,
 		r.oidcIssuerClientID,

@@ -4,10 +4,12 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"github.com/kubermatic/kubermatic/api/pkg/keycloak"
 	"io/ioutil"
 	"net/url"
 	"path"
 	"strings"
+	"time"
 
 	"go.uber.org/zap"
 
@@ -58,6 +60,7 @@ type controllerRunOptions struct {
 	dockerPullConfigJSONFile                         string
 	log                                              kubermaticlog.Options
 	kubermaticImage                                  string
+	keycloakCacheExpiry                              time.Duration
 
 	// OIDC configuration
 	oidcCAFile             string
@@ -111,6 +114,7 @@ func newControllerRunOptions() (controllerRunOptions, error) {
 	flag.BoolVar(&c.log.Debug, "log-debug", false, "Enables debug logging")
 	flag.StringVar(&c.log.Format, "log-format", string(kubermaticlog.FormatJSON), "Log format. Available are: "+kubermaticlog.AvailableFormats.String())
 	flag.StringVar(&c.kubermaticImage, "kubermatic-image", resources.DefaultKubermaticImage, "The location from which to pull the Kubermatic image")
+	flag.DurationVar(&c.keycloakCacheExpiry, "keycloak-cache-expiry", 2*time.Hour, "Time duration after which items in the Keycloak client cache expire.")
 	flag.Parse()
 
 	featureGates, err := features.NewFeatures(rawFeatureGates)
@@ -228,4 +232,5 @@ type controllerContext struct {
 	dcs                  map[string]provider.DatacenterMeta
 	dockerPullConfigJSON []byte
 	log                  *zap.SugaredLogger
+	keycloakFacade       keycloak.Facade
 }

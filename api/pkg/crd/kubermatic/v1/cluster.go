@@ -102,6 +102,8 @@ type ClusterSpec struct {
 
 	OIDC OIDCSettings `json:"oidc,omitempty"`
 
+	Sys11Auth Sys11AuthSettings `json:"sys11auth,omitempty"`
+
 	// Openshift holds all openshift-specific settings
 	Openshift *Openshift `json:"openshift,omitempty"`
 
@@ -120,6 +122,10 @@ type OIDCSettings struct {
 	GroupsClaim   string `json:"groupsClaim,omitempty"`
 	RequiredClaim string `json:"requiredClaim,omitempty"`
 	ExtraScopes   string `json:"extraScopes,omitempty"`
+}
+
+type Sys11AuthSettings struct {
+	Realm string `json:"realm,omitempty"`
 }
 
 type ComponentSettings struct {
