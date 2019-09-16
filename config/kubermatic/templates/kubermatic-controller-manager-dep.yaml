@@ -26,6 +26,9 @@ spec:
         {{- if .Values.kubermatic.clusterNamespacePrometheus.scrapingConfigs }}
         checksum/prometheus-scraping-configs: {{ include (print $.Template.BasePath "/clusterns-prometheus-scraping-configs-configmap.yaml") . | sha256sum }}
         {{- end }}
+        {{- if (contains .Values 'keycloak') }}
+        checksum/keycloak-credentials: {{ include (print $.Template.BasePath "/keycloak-credentials-yaml-secret.yaml") . | sha256sum }}
+        {{- end }}
         fluentbit.io/parser: glog
     spec:
       serviceAccountName: kubermatic
