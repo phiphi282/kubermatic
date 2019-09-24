@@ -58,6 +58,10 @@ func (r Routing) RegisterV1SysEleven(mux *mux.Router) {
 		Path("/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/addons/{addon_id}").
 		Handler(r.deleteAddon())
 
+	// Metakube Vault Unsealing
+	mux.Methods(http.MethodPost).
+		Path("/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/addons/metakube-vault/unseal").
+		Handler(r.unsealVaultAddon())
 }
 
 // swagger:route GET /api/v1/providers/openstack/images openstack listOpenstackImages
@@ -322,6 +326,33 @@ func (r Routing) deleteAddon() http.Handler {
 			middleware.UserInfoExtractor(r.userProjectMapper),
 		)(addon.DeleteAddonEndpoint(r.projectProvider)),
 		addon.DecodeGetAddon,
+		encodeJSON,
+		r.defaultServerOptions()...,
+	)
+}
+
+// swagger:route POST /projects/{project_id}/dc/{dc}/clusters/{cluster_id}/addons/metakube-vault/unseal
+//
+//    Unseals the vault addon in the cluster.
+//
+//     Produces:
+//     - application/json
+//
+//     Responses:
+//       default: errorResponse
+//       200: empty
+//       401: empty
+//       403: empty
+func (r Routing) unsealVaultAddon() http.Handler {
+	return httptransport.NewServer(
+		endpoint.Chain(
+			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.UserSaver(r.userProvider),
+			middleware.SetClusterProvider(r.clusterProviders, r.datacenters),
+			middleware.Addons(r.addonProviders),
+			middleware.UserInfoExtractor(r.userProjectMapper),
+		)(addon.UnsealVaultAddonEndpoint(r.datacenters)),
+		addon.DecodeUnsealVaultAddon,
 		encodeJSON,
 		r.defaultServerOptions()...,
 	)
