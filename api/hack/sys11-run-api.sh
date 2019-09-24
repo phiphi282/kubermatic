@@ -17,6 +17,13 @@ KUBERMATIC_ENV=${KUBERMATIC_ENV} KUBERMATIC_CLUSTER=${KUBERMATIC_CLUSTER} make -
 : "${TAG_WORKER:="true"}"
 SERVICE_ACCOUNT_SIGNING_KEY="$(KUBERMATIC_ENV=${KUBERMATIC_ENV} KUBERMATIC_CLUSTER=${KUBERMATIC_CLUSTER} ${INSTALLER_DIR}/bin/run-vault kv get -field=serviceAccountKey secret/metakube-${KUBERMATIC_ENV}/clusters/dbl1/kubermatic/auth)"
 
+export KEYCLOAK_INTERNAL_URL="$(cat ${INSTALLER_DIR}/kubermatic/values.yaml | yq .keycloak.internal.url)"
+export KEYCLOAK_INTERNAL_ADMIN_USER="$(cat ${INSTALLER_DIR}/kubermatic/values.yaml | yq .keycloak.internal.adminUser)"
+export KEYCLOAK_INTERNAL_ADMIN_PASSWORD="$(cat ${INSTALLER_DIR}/kubermatic/values.yaml | yq .keycloak.internal.adminPassword)"
+export KEYCLOAK_EXTERNAL_URL="$(cat ${INSTALLER_DIR}/kubermatic/values.yaml | yq .keycloak.external.url)"
+export KEYCLOAK_EXTERNAL_ADMIN_USER="$(cat ${INSTALLER_DIR}/kubermatic/values.yaml | yq .keycloak.external.adminUser)"
+export KEYCLOAK_EXTERNAL_ADMIN_PASSWORD="$(cat ${INSTALLER_DIR}/kubermatic/values.yaml | yq .keycloak.external.adminPassword)"
+
 if [[ "${TAG_WORKER}" == "true" ]]; then
     WORKER_OPTION="-worker-name=$(tr -cd '[:alnum:]' <<< ${KUBERMATIC_WORKERNAME} | tr '[:upper:]' '[:lower:]')"
 else
@@ -47,8 +54,8 @@ while true; do
           -internal-address=127.0.0.1:18085 \
           -prometheus-url=http://localhost:9090 \
           -address=127.0.0.1:8080 \
-          -oidc-url=https://dev.metakube.de/dex \
-          -oidc-authenticator-client-id=kubermatic \
+          -oidc-url=https://keystone-oidc.app.syseleven-dbl1-1.dev.metakube.de \
+          -oidc-authenticator-client-id=metakube-dashboard \
           -oidc-skip-tls-verify=false \
           -service-account-signing-key="${SERVICE_ACCOUNT_SIGNING_KEY}" \
           -accessible-addons dashboard,metakube-ark,metakube-autoscaler,metakube-backups,metakube-helm,metakube-ingress,metakube-monitoring,metakube-weave-scope,metakube-webterminal \
@@ -67,8 +74,8 @@ while true; do
           -internal-address=127.0.0.1:18085 \
           -prometheus-url=http://localhost:9090 \
           -address=127.0.0.1:8080 \
-          -oidc-url=https://dev.metakube.de/dex \
-          -oidc-authenticator-client-id=kubermatic \
+          -oidc-url=https://keystone-oidc.app.syseleven-dbl1-1.dev.metakube.de \
+          -oidc-authenticator-client-id=metakube-dashboard \
           -oidc-skip-tls-verify=false \
           -service-account-signing-key="${SERVICE_ACCOUNT_SIGNING_KEY}" \
           -accessible-addons dashboard,metakube-ark,metakube-autoscaler,metakube-backups,metakube-helm,metakube-ingress,metakube-monitoring,metakube-weave-scope,metakube-webterminal \
