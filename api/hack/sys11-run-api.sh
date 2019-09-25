@@ -58,7 +58,7 @@ while true; do
           -oidc-authenticator-client-id=metakube-dashboard \
           -oidc-skip-tls-verify=false \
           -service-account-signing-key="${SERVICE_ACCOUNT_SIGNING_KEY}" \
-          -accessible-addons dashboard,metakube-ark,metakube-autoscaler,metakube-backups,metakube-helm,metakube-ingress,metakube-monitoring,metakube-weave-scope,metakube-webterminal \
+          -accessible-addons dashboard,metakube-ark,metakube-autoscaler,metakube-backups,metakube-helm,metakube-ingress,metakube-monitoring,metakube-weave-scope,metakube-webterminal,metakube-vault \
           -logtostderr \
           -v=8 $@ &
 
@@ -78,7 +78,7 @@ while true; do
           -oidc-authenticator-client-id=metakube-dashboard \
           -oidc-skip-tls-verify=false \
           -service-account-signing-key="${SERVICE_ACCOUNT_SIGNING_KEY}" \
-          -accessible-addons dashboard,metakube-ark,metakube-autoscaler,metakube-backups,metakube-helm,metakube-ingress,metakube-monitoring,metakube-weave-scope,metakube-webterminal \
+          -accessible-addons dashboard,metakube-ark,metakube-autoscaler,metakube-backups,metakube-helm,metakube-ingress,metakube-monitoring,metakube-weave-scope,metakube-webterminal,metakube-vault \
           -logtostderr \
           -v=8 $@ &
 

@@ -2,8 +2,8 @@ package addon
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
-	"github.com/gorilla/mux"
 	"github.com/kubermatic/kubermatic/api/pkg/resources"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/selection"
@@ -25,7 +25,10 @@ import (
 // swagger:parameters unsealVaultAddon
 type unsealVaultReq struct {
 	common.GetClusterReq
+	Body unsealKeys
+}
 
+type unsealKeys struct {
 	Keys []string `json:"keys"`
 }
 
@@ -44,9 +47,8 @@ func DecodeUnsealVaultAddon(c context.Context, r *http.Request) (interface{}, er
 
 	req.GetClusterReq = cr.(common.GetClusterReq)
 
-	keys := mux.Vars(r)["keys"]
-	if len(keys) == 0 {
-		return "", fmt.Errorf("'keys' parameter is required but was not provided")
+	if err := json.NewDecoder(r.Body).Decode(&req.Body); err != nil {
+		return nil, err
 	}
 
 	return req, nil
@@ -127,7 +129,7 @@ func UnsealVaultAddonEndpoint(datacenters map[string]provider.DatacenterMeta) en
 		}
 
 		for _, pod := range endpoints.Items {
-			for _, key := range req.Keys {
+			for _, key := range req.Body.Keys {
 				proxyRequest := clusterKubeClient.CoreV1().RESTClient().Put().
 					Namespace(pod.Namespace).
 					Resource("pods").
@@ -135,10 +137,11 @@ func UnsealVaultAddonEndpoint(datacenters map[string]provider.DatacenterMeta) en
 					SubResource("proxy").
 					Suffix("sys/unseal").
 					Body(fmt.Sprintf(`{ "key": "%s" }`, key))
-				_, err := proxyRequest.DoRaw()
+				body, err := proxyRequest.DoRaw()
 				if err != nil {
 					return nil, err
 				}
+				// TODO why body null?
 			}
 		}
 
