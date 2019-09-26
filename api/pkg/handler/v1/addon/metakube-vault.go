@@ -137,7 +137,7 @@ func UnsealVaultAddonEndpoint(datacenters map[string]provider.DatacenterMeta) en
 					Resource("pods").
 					Name(fmt.Sprintf("%s:8200", pod.Name)).
 					SubResource("proxy").
-					Suffix("sys/unseal").
+					Suffix("v1/sys/unseal").
 					Body(fmt.Sprintf(`{ "key": "%s" }`, key))
 				_, err := proxyRequest.DoRaw()
 				if err != nil {
