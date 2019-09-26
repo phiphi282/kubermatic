@@ -25,9 +25,11 @@ import (
 // swagger:parameters unsealVaultAddon
 type unsealVaultReq struct {
 	common.GetClusterReq
+	// in: body
 	Body unsealKeys
 }
 
+// swagger:model UnsealKeys
 type unsealKeys struct {
 	Keys []string `json:"keys"`
 }
@@ -137,7 +139,7 @@ func UnsealVaultAddonEndpoint(datacenters map[string]provider.DatacenterMeta) en
 					SubResource("proxy").
 					Suffix("sys/unseal").
 					Body(fmt.Sprintf(`{ "key": "%s" }`, key))
-				body, err := proxyRequest.DoRaw()
+				_, err := proxyRequest.DoRaw()
 				if err != nil {
 					return nil, err
 				}
