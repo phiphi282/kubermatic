@@ -5454,6 +5454,18 @@
       },
       "x-go-package": "github.com/kubermatic/kubermatic/api/pkg/api/v1"
     },
+    "Header": {
+      "description": "The keys should be in canonical form, as returned by\nCanonicalHeaderKey.",
+      "type": "object",
+      "title": "A Header represents the key-value pairs in an HTTP header.",
+      "additionalProperties": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "x-go-package": "net/http"
+    },
     "HealthStatus": {
       "type": "integer",
       "format": "int64",
@@ -6721,6 +6733,22 @@
       },
       "x-go-package": "github.com/kubermatic/kubermatic/api/vendor/k8s.io/apimachinery/pkg/runtime"
     },
+    "RawResponse": {
+      "type": "object",
+      "properties": {
+        "Body": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "format": "uint8"
+          }
+        },
+        "Header": {
+          "$ref": "#/definitions/Header"
+        }
+      },
+      "x-go-package": "github.com/kubermatic/kubermatic/api/pkg/handler/v1/addon"
+    },
     "SSHKey": {
       "description": "SSHKey represents a ssh key",
       "type": "object",
@@ -6898,6 +6926,20 @@
       },
       "x-go-package": "github.com/kubermatic/kubermatic/api/pkg/api/v1"
     },
+    "UnsealKeys": {
+      "type": "object",
+      "properties": {
+        "keys": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "x-go-name": "Keys"
+        }
+      },
+      "x-go-name": "unsealKeys",
+      "x-go-package": "github.com/kubermatic/kubermatic/api/pkg/handler/v1/addon"
+    },
     "User": {
       "description": "User represent an API user",
       "type": "object",
@@ -7053,6 +7095,36 @@
       "type": "object",
       "title": "Version represents a single semantic version.",
       "x-go-package": "github.com/kubermatic/kubermatic/api/vendor/github.com/Masterminds/semver"
+    },
+    "unsealVaultReq": {
+      "description": "unsealVaultReq defines HTTP request for unsealVaultAddon",
+      "type": "object",
+      "required": [
+        "project_id",
+        "dc",
+        "cluster_id"
+      ],
+      "properties": {
+        "Body": {
+          "$ref": "#/definitions/UnsealKeys"
+        },
+        "cluster_id": {
+          "description": "in: path",
+          "type": "string",
+          "x-go-name": "ClusterID"
+        },
+        "dc": {
+          "description": "in: path",
+          "type": "string",
+          "x-go-name": "DC"
+        },
+        "project_id": {
+          "description": "in: path",
+          "type": "string",
+          "x-go-name": "ProjectID"
+        }
+      },
+      "x-go-package": "github.com/kubermatic/kubermatic/api/pkg/handler/v1/addon"
     }
   },
   "responses": {

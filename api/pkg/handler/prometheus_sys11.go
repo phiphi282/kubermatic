@@ -79,7 +79,6 @@ func decodePrometheusProxyReq(c context.Context, r *http.Request) (interface{}, 
 }
 
 func getPrometheusProxyEndpoint(datacenters map[string]provider.DatacenterMeta) endpoint.Endpoint {
-
 	return func(ctx context.Context, request interface{}) (interface{}, error) {
 		userInfo := ctx.Value(middleware.UserInfoContextKey).(*provider.UserInfo)
 		clusterProvider := ctx.Value(middleware.ClusterProviderContextKey).(provider.ClusterProvider)
