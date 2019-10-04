@@ -94,7 +94,7 @@ spec:
         - mountPath: /etc/openvpn/pki/client
           name: openvpn-client-certificates
           readOnly: true
-      - image: docker.io/nginxinc/nginx-unprivileged:1.17.3-alpine
+      - image: docker.io/nginxinc/nginx-unprivileged:1.17.2-alpine
         imagePullPolicy: IfNotPresent
         livenessProbe:
           failureThreshold: 3
