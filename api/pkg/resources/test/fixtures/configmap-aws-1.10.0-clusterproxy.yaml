@@ -39,6 +39,11 @@ data:
     \ location /ui/ {\n\t\t  set $upstream \"syseleven-vault-ui.syseleven-vault.svc.cluster.local:8200\";\n\t\t
     \ proxy_pass http://$upstream$uri$is_args$args;\n\t\t  proxy_http_version 1.1;\n\t\t
     \ proxy_pass_request_headers on;\n\t\t  proxy_set_header Upgrade $http_upgrade;\n\t\t
+    \ proxy_set_header Connection $connection_upgrade;\n\t  }\n\t  location = /v1
+    {\n\t\t  return 302 https://$server_name/v1/;\n\t  }\n\t  location /v1/ {\n\t\t
+    \ set $upstream \"syseleven-vault-ui.syseleven-vault.svc.cluster.local:8200\";\n\t\t
+    \ proxy_pass http://$upstream$uri$is_args$args;\n\t\t  proxy_http_version 1.1;\n\t\t
+    \ proxy_pass_request_headers on;\n\t\t  proxy_set_header Upgrade $http_upgrade;\n\t\t
     \ proxy_set_header Connection $connection_upgrade;\n\t  }\n  }\n"
 metadata:
   creationTimestamp: null
