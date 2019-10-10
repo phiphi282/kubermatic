@@ -6940,6 +6940,27 @@
       "x-go-name": "unsealKeys",
       "x-go-package": "github.com/kubermatic/kubermatic/api/pkg/handler/v1/addon"
     },
+    "UnsealRequest": {
+      "type": "object",
+      "properties": {
+        "key": {
+          "type": "string",
+          "x-go-name": "Key"
+        }
+      },
+      "x-go-package": "github.com/kubermatic/kubermatic/api/pkg/handler/v1/addon"
+    },
+    "UnsealResponse": {
+      "type": "object",
+      "properties": {
+        "unseals": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "Unseals"
+        }
+      },
+      "x-go-package": "github.com/kubermatic/kubermatic/api/pkg/handler/v1/addon"
+    },
     "User": {
       "description": "User represent an API user",
       "type": "object",

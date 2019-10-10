@@ -4,14 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"time"
+
 	"github.com/kubermatic/kubermatic/api/pkg/resources"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
-	"net/http"
-	"time"
 
 	"github.com/go-kit/kit/endpoint"
 
@@ -57,7 +58,7 @@ func DecodeUnsealVaultAddon(c context.Context, r *http.Request) (interface{}, er
 }
 
 type UnsealResponse struct {
-	Unseals   int      `json:"unseals"`
+	Unseals int `json:"unseals"`
 }
 
 type UnsealRequest struct {
