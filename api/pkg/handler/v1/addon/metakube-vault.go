@@ -56,6 +56,14 @@ func DecodeUnsealVaultAddon(c context.Context, r *http.Request) (interface{}, er
 	return req, nil
 }
 
+type UnsealResponse struct {
+	Unseals   int      `json:"unseals"`
+}
+
+type UnsealRequest struct {
+	Key string `json:"key"`
+}
+
 func UnsealVaultAddonEndpoint(datacenters map[string]provider.DatacenterMeta) endpoint.Endpoint {
 	return func(ctx context.Context, request interface{}) (interface{}, error) {
 		userInfo := ctx.Value(middleware.UserInfoContextKey).(*provider.UserInfo)
@@ -125,33 +133,41 @@ func UnsealVaultAddonEndpoint(datacenters map[string]provider.DatacenterMeta) en
 		options := metaV1.ListOptions{
 			LabelSelector: requirement.String(),
 		}
-		endpoints, err := clusterKubeClient.CoreV1().Pods("metakube-vault").List(options)
+		endpoints, err := clusterKubeClient.CoreV1().Pods("syseleven-vault").List(options)
 		if err != nil {
 			return nil, fmt.Errorf("failed to fetch vault pods: %v", err)
 		}
 
+		unsealResponse := &UnsealResponse{
+			Unseals: 0,
+		}
+
 		for _, pod := range endpoints.Items {
 			for _, key := range req.Body.Keys {
+				requestBody, _ := json.Marshal(UnsealRequest{
+					Key: key,
+				})
 				proxyRequest := clusterKubeClient.CoreV1().RESTClient().Put().
 					Namespace(pod.Namespace).
 					Resource("pods").
-					Name(fmt.Sprintf("%s:8200", pod.Name)).
+					Name(pod.Name).
 					SubResource("proxy").
 					Suffix("v1/sys/unseal").
-					Body(fmt.Sprintf(`{ "key": "%s" }`, key))
+					Body(requestBody)
 				_, err := proxyRequest.DoRaw()
 				if err != nil {
 					return nil, err
 				}
-				// TODO why body null?
+				unsealResponse.Unseals++
 			}
 		}
 
+		body, _ := json.Marshal(unsealResponse)
 		resp := RawResponse{
 			Header: http.Header{
 				"Content-Type": []string{"application/json"},
 			},
-			Body: nil,
+			Body: body,
 		}
 
 		return resp, nil
