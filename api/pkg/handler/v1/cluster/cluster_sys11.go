@@ -3,6 +3,7 @@ package cluster
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/kubermatic/kubermatic/api/pkg/keycloak"
 
@@ -133,7 +134,9 @@ func GetKubeLoginKubeconfigEndpoint(projectProvider provider.ProjectProvider) en
 			execConfig.Args = append(execConfig.Args, fmt.Sprintf("--oidc-client-secret=%s", oidcSettings.ClientSecret))
 		}
 		if oidcSettings.ExtraScopes != "" {
-			execConfig.Args = append(execConfig.Args, fmt.Sprintf(`--oidc-extra-scope="%s""`, oidcSettings.ExtraScopes))
+			for _, scope := range strings.Split(oidcSettings.ExtraScopes, " ") {
+				execConfig.Args = append(execConfig.Args, fmt.Sprintf("--oidc-extra-scope=%s", scope))
+			}
 		}
 		clientCmdAuth.Exec = execConfig
 
