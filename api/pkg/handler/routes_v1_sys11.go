@@ -38,6 +38,10 @@ func (r Routing) RegisterV1SysEleven(mux *mux.Router) {
 		Path("/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/oidckubeconfig").
 		Handler(r.getOidcClusterKubeconfig())
 
+	mux.Methods(http.MethodGet).
+		Path("/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/kubeloginkubeconfig").
+		Handler(r.getKubeLoginClusterKubeconfig())
+
 	mux.Methods(http.MethodPost).
 		Path("/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/addons").
 		Handler(r.createAddon())
@@ -183,6 +187,39 @@ func (r Routing) getOidcClusterKubeconfig() http.Handler {
 			middleware.Keycloak(r.keycloakFacade),
 			middleware.PrivilegedUserGroupVerifier(r.userProjectMapper, privilegedUserGroups),
 		)(cluster.GetOidcKubeconfigEndpoint(r.projectProvider)),
+		cluster.DecodeGetAdminKubeconfig,
+		cluster.EncodeKubeconfig,
+		r.defaultServerOptions()...,
+	)
+}
+
+// swagger:route GET /api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/kubeloginkubeconfig project getKubeLoginClusterKubeconfig
+//
+//     Gets the kubeconfig for the specified cluster with oidc authentication that works nicely with kube-login.
+//
+//     Produces:
+//     - application/yaml
+//
+//     Responses:
+//       default: errorResponse
+//       200: Kubeconfig
+//       401: empty
+//       403: empty
+func (r Routing) getKubeLoginClusterKubeconfig() http.Handler {
+	privilegedUserGroups := map[string]bool{
+		"owners":  true,
+		"editors": true,
+		"viewers": false,
+	}
+	return httptransport.NewServer(
+		endpoint.Chain(
+			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.UserSaver(r.userProvider),
+			middleware.SetClusterProvider(r.clusterProviders, r.datacenters),
+			middleware.UserInfoExtractor(r.userProjectMapper),
+			middleware.Keycloak(r.keycloakFacade),
+			middleware.PrivilegedUserGroupVerifier(r.userProjectMapper, privilegedUserGroups),
+		)(cluster.GetKubeLoginKubeconfigEndpoint(r.projectProvider)),
 		cluster.DecodeGetAdminKubeconfig,
 		cluster.EncodeKubeconfig,
 		r.defaultServerOptions()...,
