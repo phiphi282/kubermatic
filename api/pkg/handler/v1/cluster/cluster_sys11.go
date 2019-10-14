@@ -37,20 +37,9 @@ func GetOidcKubeconfigEndpoint(projectProvider provider.ProjectProvider) endpoin
 			return nil, common.KubernetesErrorToHTTPError(err)
 		}
 
-		keycloakFacade := ctx.Value(middleware.KeycloakFacadeContextKey).(keycloak.Facade)
-
-		var oidcSettings *v1.OIDCSettings
-
-		if cluster.Spec.Sys11Auth.Realm != "" {
-			settings, err := keycloak.Sys11AuthToOidcSettings(cluster.Spec.Sys11Auth, keycloakFacade)
-			if err != nil {
-				return nil, common.KubernetesErrorToHTTPError(err)
-			}
-			oidcSettings = settings
-		} else if cluster.Spec.OIDC.IssuerURL != "" && cluster.Spec.OIDC.ClientID != "" {
-			oidcSettings = &cluster.Spec.OIDC
-		} else {
-			return nil, kcerrors.NewNotFound("OIDC settings for", req.ClusterID)
+		oidcSettings, err := getOidcSettings(ctx, cluster)
+		if err != nil {
+			return nil, common.KubernetesErrorToHTTPError(err)
 		}
 
 		clientCmdAuth := clientcmdapi.NewAuthInfo()
@@ -70,15 +59,7 @@ func GetOidcKubeconfigEndpoint(projectProvider provider.ProjectProvider) endpoin
 		oidcClientCfg.AuthInfos[resources.KubeconfigDefaultContextKey] = clientCmdAuth
 
 		if req.UseUniqueNames {
-			oidcClientCfg, err = NoDefaultsKubeconfig(oidcClientCfg, "oidc", cluster, project)
-			if err != nil {
-				return nil, kcerrors.NewBadRequest("failed to replace default names in oidc kubeconfig: %v", err)
-			}
-			return &encodeKubeConifgResponse{
-				clientCfg:   oidcClientCfg,
-				filePrefix:  "oidc",
-				clusterName: fmt.Sprintf("%s-%s", project.Spec.Name, cluster.Spec.HumanReadableName),
-			}, nil
+			return getKubeconfigWithUniqueName(project, cluster, oidcClientCfg)
 		}
 		return &encodeKubeConifgResponse{clientCfg: oidcClientCfg, filePrefix: "oidc"}, nil
 	}
@@ -103,20 +84,9 @@ func GetKubeLoginKubeconfigEndpoint(projectProvider provider.ProjectProvider) en
 			return nil, common.KubernetesErrorToHTTPError(err)
 		}
 
-		keycloakFacade := ctx.Value(middleware.KeycloakFacadeContextKey).(keycloak.Facade)
-
-		var oidcSettings *v1.OIDCSettings
-
-		if cluster.Spec.Sys11Auth.Realm != "" {
-			settings, err := keycloak.Sys11AuthToOidcSettings(cluster.Spec.Sys11Auth, keycloakFacade)
-			if err != nil {
-				return nil, common.KubernetesErrorToHTTPError(err)
-			}
-			oidcSettings = settings
-		} else if cluster.Spec.OIDC.IssuerURL != "" && cluster.Spec.OIDC.ClientID != "" {
-			oidcSettings = &cluster.Spec.OIDC
-		} else {
-			return nil, kcerrors.NewNotFound("OIDC settings for", req.ClusterID)
+		oidcSettings, err := getOidcSettings(ctx, cluster)
+		if err != nil {
+			return nil, common.KubernetesErrorToHTTPError(err)
 		}
 
 		clientCmdAuth := clientcmdapi.NewAuthInfo()
@@ -144,17 +114,37 @@ func GetKubeLoginKubeconfigEndpoint(projectProvider provider.ProjectProvider) en
 		kubeloginClientCfg.AuthInfos[resources.KubeconfigDefaultContextKey] = clientCmdAuth
 
 		if req.UseUniqueNames {
-			kubeloginClientCfg, err = NoDefaultsKubeconfig(kubeloginClientCfg, "oidc", cluster, project)
-			if err != nil {
-				return nil, kcerrors.NewBadRequest("failed to replace default names in kubelogin kubeconfig: %v", err)
-			}
-			return &encodeKubeConifgResponse{
-				clientCfg:   kubeloginClientCfg,
-				filePrefix:  "kubelogin",
-				clusterName: fmt.Sprintf("%s-%s", project.Spec.Name, cluster.Spec.HumanReadableName),
-			}, nil
+			return getKubeconfigWithUniqueName(project, cluster, kubeloginClientCfg)
 		}
 		return &encodeKubeConifgResponse{clientCfg: kubeloginClientCfg, filePrefix: "kubelogin"}, nil
+	}
+}
+
+func getKubeconfigWithUniqueName(project *v1.Project, cluster *v1.Cluster, clientConfig *clientcmdapi.Config) (interface{}, error) {
+	kubeloginClientCfg, err := NoDefaultsKubeconfig(clientConfig, "oidc", cluster, project)
+	if err != nil {
+		return nil, kcerrors.NewBadRequest("failed to replace default names in kubelogin kubeconfig: %v", err)
+	}
+	return &encodeKubeConifgResponse{
+		clientCfg:   kubeloginClientCfg,
+		filePrefix:  "kubelogin",
+		clusterName: fmt.Sprintf("%s-%s", project.Spec.Name, cluster.Spec.HumanReadableName),
+	}, nil
+}
+
+func getOidcSettings(ctx context.Context, cluster *v1.Cluster) (*v1.OIDCSettings, error) {
+	keycloakFacade := ctx.Value(middleware.KeycloakFacadeContextKey).(keycloak.Facade)
+
+	if cluster.Spec.Sys11Auth.Realm != "" {
+		settings, err := keycloak.Sys11AuthToOidcSettings(cluster.Spec.Sys11Auth, keycloakFacade)
+		if err != nil {
+			return nil, common.KubernetesErrorToHTTPError(err)
+		}
+		return settings, nil
+	} else if cluster.Spec.OIDC.IssuerURL != "" && cluster.Spec.OIDC.ClientID != "" {
+		return &cluster.Spec.OIDC, nil
+	} else {
+		return nil, kcerrors.NewNotFound("OIDC settings for", cluster.Name)
 	}
 }
 
