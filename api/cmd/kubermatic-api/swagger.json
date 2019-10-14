@@ -1090,6 +1090,58 @@
         }
       }
     },
+    "/api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/kubeloginkubeconfig": {
+      "get": {
+        "produces": [
+          "application/yaml"
+        ],
+        "tags": [
+          "project"
+        ],
+        "summary": "Gets the kubeconfig for the specified cluster with oidc authentication that works nicely with kube-login.",
+        "operationId": "getKubeLoginClusterKubeconfig",
+        "parameters": [
+          {
+            "type": "string",
+            "x-go-name": "ProjectID",
+            "name": "project_id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "x-go-name": "DC",
+            "name": "dc",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "x-go-name": "ClusterID",
+            "name": "cluster_id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Kubeconfig",
+            "schema": {
+              "$ref": "#/definitions/Kubeconfig"
+            }
+          },
+          "401": {
+            "$ref": "#/responses/empty"
+          },
+          "403": {
+            "$ref": "#/responses/empty"
+          },
+          "default": {
+            "$ref": "#/responses/errorResponse"
+          }
+        }
+      }
+    },
     "/api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/nodedeployments": {
       "get": {
         "description": "Lists node deployments that belong to the given cluster",
