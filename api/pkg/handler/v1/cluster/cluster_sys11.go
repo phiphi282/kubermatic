@@ -59,7 +59,7 @@ func GetOidcKubeconfigEndpoint(projectProvider provider.ProjectProvider) endpoin
 		oidcClientCfg.AuthInfos[resources.KubeconfigDefaultContextKey] = clientCmdAuth
 
 		if req.UseUniqueNames {
-			return getKubeconfigWithUniqueName(project, cluster, oidcClientCfg)
+			return getKubeconfigWithUniqueName(project, cluster, oidcClientCfg, "oidc")
 		}
 		return &encodeKubeConifgResponse{clientCfg: oidcClientCfg, filePrefix: "oidc"}, nil
 	}
@@ -114,20 +114,20 @@ func GetKubeLoginKubeconfigEndpoint(projectProvider provider.ProjectProvider) en
 		kubeloginClientCfg.AuthInfos[resources.KubeconfigDefaultContextKey] = clientCmdAuth
 
 		if req.UseUniqueNames {
-			return getKubeconfigWithUniqueName(project, cluster, kubeloginClientCfg)
+			return getKubeconfigWithUniqueName(project, cluster, kubeloginClientCfg, "kubelogin")
 		}
 		return &encodeKubeConifgResponse{clientCfg: kubeloginClientCfg, filePrefix: "kubelogin"}, nil
 	}
 }
 
-func getKubeconfigWithUniqueName(project *v1.Project, cluster *v1.Cluster, clientConfig *clientcmdapi.Config) (interface{}, error) {
+func getKubeconfigWithUniqueName(project *v1.Project, cluster *v1.Cluster, clientConfig *clientcmdapi.Config, filePrefix string) (interface{}, error) {
 	kubeloginClientCfg, err := NoDefaultsKubeconfig(clientConfig, "oidc", cluster, project)
 	if err != nil {
 		return nil, kcerrors.NewBadRequest("failed to replace default names in kubelogin kubeconfig: %v", err)
 	}
 	return &encodeKubeConifgResponse{
 		clientCfg:   kubeloginClientCfg,
-		filePrefix:  "kubelogin",
+		filePrefix:  filePrefix,
 		clusterName: fmt.Sprintf("%s-%s", project.Spec.Name, cluster.Spec.HumanReadableName),
 	}, nil
 }
