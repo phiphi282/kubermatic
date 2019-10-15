@@ -28,7 +28,7 @@ func ServiceCreator(data *resources.TemplateData) reconciling.NamedServiceCreato
 					TargetPort: intstr.FromInt(nginxPort),
 				},
 				{
-					Name:       "linkerdHttp",
+					Name:       "linkerdhttp",
 					Port:       linkerdNginxPort,
 					Protocol:   corev1.ProtocolTCP,
 					TargetPort: intstr.FromInt(linkerdNginxPort),

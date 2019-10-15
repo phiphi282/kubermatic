@@ -16,7 +16,7 @@ spec:
     port: 80
     protocol: TCP
     targetPort: 3000
-  - name: linkerdHttp
+  - name: linkerdhttp
     port: 3001
     protocol: TCP
     targetPort: 3001
