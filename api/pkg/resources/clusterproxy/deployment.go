@@ -15,8 +15,9 @@ import (
 )
 
 const (
-	name      = "clusterproxy"
-	nginxPort = 3000
+	name             = "clusterproxy"
+	nginxPort        = 3000
+	linkerdNginxPort = 3001
 )
 
 var (
@@ -95,6 +96,10 @@ func DeploymentCreator(data *resources.TemplateData) reconciling.NamedDeployment
 					Ports: []corev1.ContainerPort{
 						{
 							ContainerPort: nginxPort,
+							Protocol:      corev1.ProtocolTCP,
+						},
+						{
+							ContainerPort: linkerdNginxPort,
 							Protocol:      corev1.ProtocolTCP,
 						},
 					},

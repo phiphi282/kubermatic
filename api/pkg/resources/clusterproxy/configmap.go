@@ -15,6 +15,7 @@ import (
 
 type nginxTplModel struct {
 	NginxPort           int
+	LinkerdNginxPort    int
 	DNSConfigResolverIP string
 	ServerName          string
 }
@@ -42,6 +43,7 @@ func ConfigMapCreator(data *resources.TemplateData) reconciling.NamedConfigMapCr
 
 			model := &nginxTplModel{
 				NginxPort:           nginxPort,
+				LinkerdNginxPort:    linkerdNginxPort,
 				DNSConfigResolverIP: dnsConfigResolverIP,
 				ServerName:          fmt.Sprintf("clusterproxy-%s.app.%s.%s", data.Cluster().Name, seedDC, data.ExternalURL),
 			}
@@ -66,6 +68,26 @@ func ConfigMapCreator(data *resources.TemplateData) reconciling.NamedConfigMapCr
 const nginxConfig = `map $http_upgrade $connection_upgrade {
 	  default upgrade;
 	  '' close;
+  }
+
+  server {
+      listen {{ .LinkerdNginxPort }};
+	  server_name {{ .ServerName }};
+	  resolver {{ .DNSConfigResolverIP }} valid=30s;
+
+      location /healthz {
+          access_log off;
+          return 200 "healthy\n";
+      }
+
+	  location / {
+		  set $upstream "linkerd-web.linkerd.svc.cluster.local:8084";
+		  proxy_pass http://$upstream$uri$is_args$args;
+		  proxy_http_version 1.1;
+		  proxy_pass_request_headers on;
+		  proxy_set_header Upgrade $http_upgrade;
+		  proxy_set_header Connection $connection_upgrade;
+	  }
   }
 
   server {
@@ -171,18 +193,6 @@ const nginxConfig = `map $http_upgrade $connection_upgrade {
 	  }
 	  location /v1/ {
 		  set $upstream "syseleven-vault-ui.syseleven-vault.svc.cluster.local:8200";
-		  proxy_pass http://$upstream$uri$is_args$args;
-		  proxy_http_version 1.1;
-		  proxy_pass_request_headers on;
-		  proxy_set_header Upgrade $http_upgrade;
-		  proxy_set_header Connection $connection_upgrade;
-	  }
-	  location = /linkerd {
-		  return 302 https://$server_name/linkerd/;
-	  }
-	  location /linkerd/ {
-		  set $upstream "linkerd-web.linkerd.svc.cluster.local:8084";
-		  rewrite ^/linkerd(/.*) $1 break;
 		  proxy_pass http://$upstream$uri$is_args$args;
 		  proxy_http_version 1.1;
 		  proxy_pass_request_headers on;

@@ -110,6 +110,8 @@ spec:
         ports:
         - containerPort: 3000
           protocol: TCP
+        - containerPort: 3001
+          protocol: TCP
         readinessProbe:
           failureThreshold: 3
           httpGet:
