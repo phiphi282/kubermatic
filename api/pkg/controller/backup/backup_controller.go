@@ -3,7 +3,6 @@ package backup
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/robfig/cron"
@@ -382,7 +381,7 @@ func (r *Reconciler) cronjob(cluster *kubermaticv1.Cluster) (string, reconciling
 				},
 				Command: []string{
 					"/usr/local/bin/etcdctl",
-					"--endpoints", strings.Join(endpoints, ","),
+					"--endpoints", endpoints[0],
 					"--cacert", "/etc/etcd/client/ca.crt",
 					"--cert", "/etc/etcd/client/backup-etcd-client.crt",
 					"--key", "/etc/etcd/client/backup-etcd-client.key",
