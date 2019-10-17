@@ -381,7 +381,6 @@ func (r *Reconciler) cronjob(cluster *kubermaticv1.Cluster) (string, reconciling
 					},
 				},
 				Command: []string{
-					"/usr/bin/time",
 					"/usr/local/bin/etcdctl",
 					"--endpoints", strings.Join(endpoints, ","),
 					"--cacert", "/etc/etcd/client/ca.crt",
