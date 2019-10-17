@@ -348,4 +348,21 @@ groups:
     for: 30m
     labels:
       severity: warning
+
+- name: kubernetes-cluster
+  rules:
+  - alert: PodUnreadyWithAllContainersReady
+    annotations:
+      message: 'Pod {{ $labels.exported_namespace }}/{{ $labels.exported_pod }} is unready even though all its containers are ready.'
+    expr: >
+        (count by (exported_namespace, exported_pod) (kube_pod_status_ready{condition="true"} == 0))
+        and
+        (
+            (count by (exported_namespace, exported_pod) (kube_pod_container_status_ready==1))
+            unless
+            (count by (exported_namespace, exported_pod) (kube_pod_container_status_ready==0))
+        )
+    for: 15m
+    labels:
+      severity: warning
 `
