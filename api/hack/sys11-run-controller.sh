@@ -16,6 +16,16 @@ KUBERMATIC_ENV=${KUBERMATIC_ENV} KUBERMATIC_CLUSTER=${KUBERMATIC_CLUSTER} make -
 : "${EXTERNAL_URL:=dev.metakube.de}"
 : "${DEBUG:="false"}"
 
+export KEYCLOAK_EXTERNAL_ADMIN_PASSWORD="$(cat ${INSTALLER_DIR}/values.yaml | yq .keycloak.external.adminPassword -r)"
+export KEYCLOAK_EXTERNAL_ADMIN_USER="$(cat ${INSTALLER_DIR}/values.yaml | yq .keycloak.external.adminUser -r)"
+export KEYCLOAK_EXTERNAL_URL="$(cat ${INSTALLER_DIR}/values.yaml | yq .keycloak.external.url -r)"
+export KEYCLOAK_INTERNAL_ADMIN_PASSWORD="$(cat ${INSTALLER_DIR}/values.yaml | yq .keycloak.internal.adminPassword -r)"
+export KEYCLOAK_INTERNAL_ADMIN_USER="$(cat ${INSTALLER_DIR}/values.yaml | yq .keycloak.internal.adminUser -r)"
+export KEYCLOAK_INTERNAL_URL="$(cat ${INSTALLER_DIR}/values.yaml | yq .keycloak.internal.url -r)"
+
+# TODO needs ${INSTALLER_DIR}/kubermatic/dockerconfigjson (must be created manually for now)
+# TODO extract hack/sys11-store-container.yaml / hack/sys11-cleanup-container.yaml from the installer
+
 while true; do
     if [[ "${DEBUG}" == "true" ]]; then
         GOTOOLFLAGS="-v -gcflags='all=-N -l'" make -C ${SRC_DIR} kubermatic-controller-manager
@@ -25,7 +35,7 @@ while true; do
 
     cd ${SRC_DIR}
     if [[ "${DEBUG}" == "true" ]]; then
-        dlv --listen=:2345 --headless=true --api-version=2 --accept-multiclient exec ./_build/kubermatic-controller-manager \
+        dlv --listen=:2345 --headless=true --api-version=2 --accept-multiclient exec ./_build/kubermatic-controller-manager -- \
           -datacenters=${CONFIG_DIR}/datacenters.yaml \
           -datacenter-name=${KUBERMATIC_CLUSTER} \
           -kubeconfig=${CONFIG_DIR}/kubeconfig \
@@ -39,6 +49,8 @@ while true; do
           -docker-pull-config-json-file=${INSTALLER_DIR}/kubermatic/dockerconfigjson \
           -monitoring-scrape-annotation-prefix=${KUBERMATIC_ENV} \
           -logtostderr=1 \
+          -backup-container=./hack/sys11-store-container.yaml \
+          -cleanup-container=./hack/sys11-cleanup-container.yaml \
           -v=8 $@ &
 
         PID=$!
@@ -57,6 +69,8 @@ while true; do
           -docker-pull-config-json-file=${INSTALLER_DIR}/kubermatic/dockerconfigjson \
           -monitoring-scrape-annotation-prefix=${KUBERMATIC_ENV} \
           -logtostderr=1 \
+          -backup-container=./hack/sys11-store-container.yaml \
+          -cleanup-container=./hack/sys11-cleanup-container.yaml \
           -v=6 $@ &
 
           # TODO
