@@ -23,6 +23,12 @@ export KEYCLOAK_INTERNAL_ADMIN_PASSWORD="$(cat ${INSTALLER_DIR}/values.yaml | yq
 export KEYCLOAK_INTERNAL_ADMIN_USER="$(cat ${INSTALLER_DIR}/values.yaml | yq .keycloak.internal.adminUser -r)"
 export KEYCLOAK_INTERNAL_URL="$(cat ${INSTALLER_DIR}/values.yaml | yq .keycloak.internal.url -r)"
 
+if [[ "${TAG_WORKER}" == "true" ]]; then
+    WORKER_OPTION="-worker-name=$(tr -cd '[:alnum:]' <<< ${KUBERMATIC_WORKERNAME} | tr '[:upper:]' '[:lower:]')"
+else
+    WORKER_OPTION=
+fi
+
 # TODO needs ${INSTALLER_DIR}/kubermatic/dockerconfigjson (must be created manually for now)
 # TODO extract hack/sys11-store-container.yaml / hack/sys11-cleanup-container.yaml from the installer
 
@@ -44,13 +50,14 @@ while true; do
           -master-resources=${RESOURCES_DIR} \
           -kubernetes-addons-path=${INSTALLER_DIR}/kubermatic/cluster-addons/addons \
           -openshift-addons-path=../openshift_addons \
-          -worker-name="$(tr -cd '[:alnum:]' <<< $KUBERMATIC_WORKERNAME | tr '[:upper:]' '[:lower:]')" \
+          ${WORKER_OPTION} \
           -external-url=${EXTERNAL_URL} \
           -docker-pull-config-json-file=${INSTALLER_DIR}/kubermatic/dockerconfigjson \
           -monitoring-scrape-annotation-prefix=${KUBERMATIC_ENV} \
           -logtostderr=1 \
           -backup-container=./hack/sys11-store-container.yaml \
           -cleanup-container=./hack/sys11-cleanup-container.yaml \
+          -worker-count=1 \
           -v=8 $@ &
 
         PID=$!
@@ -64,13 +71,14 @@ while true; do
           -master-resources=${RESOURCES_DIR} \
           -kubernetes-addons-path=${INSTALLER_DIR}/kubermatic/cluster-addons/addons \
           -openshift-addons-path=../openshift_addons \
-          -worker-name="$(tr -cd '[:alnum:]' <<< $KUBERMATIC_WORKERNAME | tr '[:upper:]' '[:lower:]')" \
+          ${WORKER_OPTION} \
           -external-url=${EXTERNAL_URL} \
           -docker-pull-config-json-file=${INSTALLER_DIR}/kubermatic/dockerconfigjson \
           -monitoring-scrape-annotation-prefix=${KUBERMATIC_ENV} \
           -logtostderr=1 \
           -backup-container=./hack/sys11-store-container.yaml \
           -cleanup-container=./hack/sys11-cleanup-container.yaml \
+          -worker-count=1 \
           -v=6 $@ &
 
           # TODO
