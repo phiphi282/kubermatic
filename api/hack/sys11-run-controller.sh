@@ -16,6 +16,7 @@ KUBERMATIC_ENV=${KUBERMATIC_ENV} KUBERMATIC_CLUSTER=${KUBERMATIC_CLUSTER} make -
 : "${EXTERNAL_URL:=dev.metakube.de}"
 : "${DEBUG:="false"}"
 
+export KUBERMATICCOMMIT="${KUBERMATICCOMMIT:-$(git rev-parse origin/master)}"
 export KEYCLOAK_EXTERNAL_ADMIN_PASSWORD="$(cat ${INSTALLER_DIR}/values.yaml | yq .keycloak.external.adminPassword -r)"
 export KEYCLOAK_EXTERNAL_ADMIN_USER="$(cat ${INSTALLER_DIR}/values.yaml | yq .keycloak.external.adminUser -r)"
 export KEYCLOAK_EXTERNAL_URL="$(cat ${INSTALLER_DIR}/values.yaml | yq .keycloak.external.url -r)"
@@ -55,9 +56,10 @@ while true; do
           -docker-pull-config-json-file=${INSTALLER_DIR}/kubermatic/dockerconfigjson \
           -monitoring-scrape-annotation-prefix=${KUBERMATIC_ENV} \
           -logtostderr=1 \
-          -backup-container=./hack/sys11-store-container.yaml \
-          -cleanup-container=./hack/sys11-cleanup-container.yaml \
+          -backup-container=${INSTALLER_DIR}/kubermatic/sys11-store-container.yaml \
+          -cleanup-container=${INSTALLER_DIR}/kubermatic/sys11-cleanup-container.yaml \
           -worker-count=1 \
+          -kubermatic-image=docker.io/syseleven/kubermatic
           -v=8 $@ &
 
         PID=$!
@@ -76,9 +78,10 @@ while true; do
           -docker-pull-config-json-file=${INSTALLER_DIR}/kubermatic/dockerconfigjson \
           -monitoring-scrape-annotation-prefix=${KUBERMATIC_ENV} \
           -logtostderr=1 \
-          -backup-container=./hack/sys11-store-container.yaml \
-          -cleanup-container=./hack/sys11-cleanup-container.yaml \
+          -backup-container=${INSTALLER_DIR}/kubermatic/sys11-store-container.yaml \
+          -cleanup-container=${INSTALLER_DIR}/kubermatic/sys11-cleanup-container.yaml \
           -worker-count=1 \
+          -kubermatic-image=docker.io/syseleven/kubermatic
           -v=6 $@ &
 
           # TODO
