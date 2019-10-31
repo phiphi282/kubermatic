@@ -380,12 +380,12 @@ func (r *Reconciler) cronjob(cluster *kubermaticv1.Cluster) (string, reconciling
 					},
 				},
 				Command: []string{
-					"/usr/local/bin/etcdctl",
-					"--endpoints", endpoints[0],
-					"--cacert", "/etc/etcd/client/ca.crt",
-					"--cert", "/etc/etcd/client/backup-etcd-client.crt",
-					"--key", "/etc/etcd/client/backup-etcd-client.key",
-					"snapshot", "save", "/backup/snapshot.db",
+					"/bin/sh",
+					"-ec",
+					fmt.Sprintf("/usr/local/bin/etcdctl --endpoints %s --cacert /etc/etcd/client/ca.crt --cert /etc/etcd/client/backup-etcd-client.crt --key /etc/etcd/client/backup-etcd-client.key snapshot save /backup/snapshot.db || "+
+						"/usr/local/bin/etcdctl --endpoints %s --cacert /etc/etcd/client/ca.crt --cert /etc/etcd/client/backup-etcd-client.crt --key /etc/etcd/client/backup-etcd-client.key snapshot save /backup/snapshot.db || "+
+						"/usr/local/bin/etcdctl --endpoints %s --cacert /etc/etcd/client/ca.crt --cert /etc/etcd/client/backup-etcd-client.crt --key /etc/etcd/client/backup-etcd-client.key snapshot save /backup/snapshot.db",
+						endpoints[0], endpoints[1], endpoints[2]),
 				},
 				ImagePullPolicy:          corev1.PullIfNotPresent,
 				TerminationMessagePath:   corev1.TerminationMessagePathDefault,
