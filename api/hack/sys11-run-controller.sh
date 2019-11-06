@@ -24,13 +24,16 @@ export KEYCLOAK_INTERNAL_ADMIN_PASSWORD="$(cat ${INSTALLER_DIR}/values.yaml | yq
 export KEYCLOAK_INTERNAL_ADMIN_USER="$(cat ${INSTALLER_DIR}/values.yaml | yq .keycloak.internal.adminUser -r)"
 export KEYCLOAK_INTERNAL_URL="$(cat ${INSTALLER_DIR}/values.yaml | yq .keycloak.internal.url -r)"
 
+dockercfgjson="$(mktemp)"
+trap "rm -f $dockercfgjson" EXIT
+cat "${INSTALLER_DIR}/kubermatic/values.yaml" | yq .kubermatic.imagePullSecretData -r | base64 --decode | jq . >"$dockercfgjson"
+
 if [[ "${TAG_WORKER}" == "true" ]]; then
     WORKER_OPTION="-worker-name=$(tr -cd '[:alnum:]' <<< ${KUBERMATIC_WORKERNAME} | tr '[:upper:]' '[:lower:]')"
 else
     WORKER_OPTION=
 fi
 
-# TODO needs ${INSTALLER_DIR}/kubermatic/dockerconfigjson (must be created manually for now)
 # TODO extract hack/sys11-store-container.yaml / hack/sys11-cleanup-container.yaml from the installer
 
 while true; do
@@ -53,7 +56,7 @@ while true; do
           -openshift-addons-path=../openshift_addons \
           ${WORKER_OPTION} \
           -external-url=${EXTERNAL_URL} \
-          -docker-pull-config-json-file=${INSTALLER_DIR}/kubermatic/dockerconfigjson \
+          -docker-pull-config-json-file="$dockercfgjson" \
           -monitoring-scrape-annotation-prefix=${KUBERMATIC_ENV} \
           -logtostderr=1 \
           -backup-container=${INSTALLER_DIR}/kubermatic/sys11-store-container.yaml \
@@ -75,7 +78,7 @@ while true; do
           -openshift-addons-path=../openshift_addons \
           ${WORKER_OPTION} \
           -external-url=${EXTERNAL_URL} \
-          -docker-pull-config-json-file=${INSTALLER_DIR}/kubermatic/dockerconfigjson \
+          -docker-pull-config-json-file="$dockercfgjson" \
           -monitoring-scrape-annotation-prefix=${KUBERMATIC_ENV} \
           -logtostderr=1 \
           -backup-container=${INSTALLER_DIR}/kubermatic/sys11-store-container.yaml \
