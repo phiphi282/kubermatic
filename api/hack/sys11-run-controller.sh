@@ -59,8 +59,8 @@ while true; do
           -docker-pull-config-json-file="$dockercfgjson" \
           -monitoring-scrape-annotation-prefix=${KUBERMATIC_ENV} \
           -logtostderr=1 \
-          -backup-container=${INSTALLER_DIR}/kubermatic/sys11-store-container.yaml \
-          -cleanup-container=${INSTALLER_DIR}/kubermatic/sys11-cleanup-container.yaml \
+          -backup-container=./hack/sys11-store-container.yaml \
+          -cleanup-container=./hack/sys11-cleanup-container.yaml \
           -worker-count=1 \
           -kubermatic-image=docker.io/syseleven/kubermatic
           -v=8 $@ &
@@ -81,8 +81,8 @@ while true; do
           -docker-pull-config-json-file="$dockercfgjson" \
           -monitoring-scrape-annotation-prefix=${KUBERMATIC_ENV} \
           -logtostderr=1 \
-          -backup-container=${INSTALLER_DIR}/kubermatic/sys11-store-container.yaml \
-          -cleanup-container=${INSTALLER_DIR}/kubermatic/sys11-cleanup-container.yaml \
+          -backup-container=./hack/sys11-store-container.yaml \
+          -cleanup-container=./hack/sys11-cleanup-container.yaml \
           -worker-count=1 \
           -kubermatic-image=docker.io/syseleven/kubermatic
           -v=6 $@ &
