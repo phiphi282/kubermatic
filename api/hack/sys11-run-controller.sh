@@ -35,6 +35,12 @@ else
     WORKER_OPTION="-worker-name=$(tr -cd '[:alnum:]' <<< ${KUBERMATIC_WORKERNAME} | tr '[:upper:]' '[:lower:]')"
 fi
 
+if [[ "${DISABLE_LEADER_ELECTION}" == "true" ]]; then
+    DISABLE_LE_OPTION="-disable-leader-election"
+else
+    DISABLE_LE_OPTION=
+fi
+
 # TODO extract hack/sys11-store-container.yaml / hack/sys11-cleanup-container.yaml from the installer
 
 while true; do
@@ -62,7 +68,8 @@ while true; do
           -backup-container=./hack/sys11-store-container.yaml \
           -cleanup-container=./hack/sys11-cleanup-container.yaml \
           -worker-count=1 \
-          -kubermatic-image=docker.io/syseleven/kubermatic
+          -kubermatic-image=docker.io/syseleven/kubermatic \
+          ${DISABLE_LE_OPTION} \
           -v=8 $@ &
 
         PID=$!
@@ -83,7 +90,8 @@ while true; do
           -backup-container=./hack/sys11-store-container.yaml \
           -cleanup-container=./hack/sys11-cleanup-container.yaml \
           -worker-count=1 \
-          -kubermatic-image=docker.io/syseleven/kubermatic
+          -kubermatic-image=docker.io/syseleven/kubermatic \
+          ${DISABLE_LE_OPTION} \
           -v=6 $@ &
 
           # TODO
