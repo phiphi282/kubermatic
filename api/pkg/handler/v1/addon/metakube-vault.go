@@ -18,6 +18,7 @@ import (
 
 	"github.com/kubermatic/kubermatic/api/pkg/handler/middleware"
 	"github.com/kubermatic/kubermatic/api/pkg/handler/v1/common"
+	"github.com/kubermatic/kubermatic/api/pkg/log"
 	"github.com/kubermatic/kubermatic/api/pkg/provider"
 	metaV1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -157,7 +158,8 @@ func UnsealVaultAddonEndpoint(datacenters map[string]provider.DatacenterMeta) en
 					Body(requestBody)
 				_, err := proxyRequest.DoRaw()
 				if err != nil {
-					return nil, err
+					// only log errors, so that one already unsealed pod does not break the whole unsealing process
+					log.Logger.Error(err)
 				}
 				unsealResponse.Unseals++
 			}
