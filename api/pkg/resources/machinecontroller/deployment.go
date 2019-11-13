@@ -34,7 +34,7 @@ var (
 const (
 	Name = "machine-controller"
 
-	tag = "v1.5.7"
+	tag = "v1.5.7-sys11-2"
 
 	nodeLocalDNSCacheAddress = "169.254.20.10"
 )
@@ -100,7 +100,7 @@ func DeploymentCreator(data machinecontrollerData) reconciling.NamedDeploymentCr
 			dep.Spec.Template.Spec.Containers = []corev1.Container{
 				{
 					Name:      Name,
-					Image:     data.ImageRegistry(resources.RegistryDocker) + "/kubermatic/machine-controller:" + tag,
+					Image:     data.ImageRegistry(resources.RegistryDocker) + "/syseleven/machine-controller:" + tag,
 					Command:   []string{"/usr/local/bin/machine-controller"},
 					Args:      getFlags(clusterDNSIP, data.DC().Node),
 					Env:       getEnvVars(data),
