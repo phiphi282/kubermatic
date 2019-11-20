@@ -1,62 +1,22 @@
 package openstack
 
 import (
-	"fmt"
-
-	"github.com/gophercloud/gophercloud"
-	goopenstack "github.com/gophercloud/gophercloud/openstack"
 	oslimits "github.com/gophercloud/gophercloud/openstack/compute/v2/extensions/limits"
 	osimages "github.com/gophercloud/gophercloud/openstack/compute/v2/images"
 	osfloatingips "github.com/gophercloud/gophercloud/openstack/networking/v2/extensions/layer3/floatingips"
-	kubermaticv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
 )
 
 const (
 	openstackFloatingIPErrorStatusName = "ERROR"
 )
 
-func (os *Provider) GetImages(cloud kubermaticv1.CloudSpec) ([]osimages.Image, error) {
-	serviceClient, err := os.getComputeClient(cloud)
-
-	if err != nil {
-		return nil, fmt.Errorf("couldn't get auth client: %v", err)
-	}
-
-	images, err := getAllImages(serviceClient, osimages.ListOpts{})
-
-	if err != nil {
-		return nil, fmt.Errorf("couldn't get images: %v", err)
-	}
-
-	return images, nil
-}
-
-// GetSubnets list all available subnet ids fot a given CloudSpec
-func (os *Provider) GetQuotaLimits(cloud kubermaticv1.CloudSpec) (*oslimits.Limits, error) {
-	serviceClient, err := os.getComputeClient(cloud)
-	if err != nil {
-		return nil, fmt.Errorf("couldn't get auth client: %v", err)
-	}
-
-	limits, err := getLimits(serviceClient, oslimits.GetOpts{})
+func GetImages(username, password, domain, tenant, tenantID, authURL, region string) ([]osimages.Image, error) {
+	serviceClient, err := getComputeClient(username, password, domain, tenant, tenantID, authURL, region)
 	if err != nil {
 		return nil, err
 	}
 
-	return limits, nil
-}
-
-func getLimits(netClient *gophercloud.ServiceClient, opts oslimits.GetOpts) (*oslimits.Limits, error) {
-	limits, err := oslimits.Get(netClient, opts).Extract()
-	if err != nil {
-		return nil, err
-	}
-
-	return limits, nil
-}
-
-func getAllImages(netClient *gophercloud.ServiceClient, opts osimages.ListOpts) ([]osimages.Image, error) {
-	allPages, err := osimages.ListDetail(netClient, opts).AllPages()
+	allPages, err := osimages.ListDetail(serviceClient, osimages.ListOpts{}).AllPages()
 	if err != nil {
 		return nil, err
 	}
@@ -69,22 +29,22 @@ func getAllImages(netClient *gophercloud.ServiceClient, opts osimages.ListOpts) 
 	return allImages, nil
 }
 
-func (os *Provider) getComputeClient(cloud kubermaticv1.CloudSpec) (*gophercloud.ServiceClient, error) {
-	authClient, err := os.getAuthClient(cloud)
+func GetQuotaLimits(username, password, domain, tenant, tenantID, authURL, region string) (*oslimits.Limits, error) {
+	serviceClient, err := getComputeClient(username, password, domain, tenant, tenantID, authURL, region)
 	if err != nil {
 		return nil, err
 	}
 
-	dc, found := os.dcs[cloud.DatacenterName]
-	if !found || dc.Spec.Openstack == nil {
-		return nil, fmt.Errorf("invalid datacenter %q", cloud.DatacenterName)
+	limits, err := oslimits.Get(serviceClient, oslimits.GetOpts{}).Extract()
+	if err != nil {
+		return nil, err
 	}
 
-	return goopenstack.NewComputeV2(authClient, gophercloud.EndpointOpts{Region: dc.Spec.Openstack.Region})
+	return limits, nil
 }
 
-func (os *Provider) GetUsedFloatingIPCount(cloud kubermaticv1.CloudSpec) (int, error) {
-	netClient, err := os.getNetClient(cloud)
+func GetUsedFloatingIPCount(username, password, domain, tenant, tenantID, authURL, region string) (int, error) {
+	netClient, err := getNetClient(username, password, domain, tenant, tenantID, authURL, region)
 
 	if err != nil {
 		return 0, err
@@ -110,14 +70,8 @@ func (os *Provider) GetUsedFloatingIPCount(cloud kubermaticv1.CloudSpec) (int, e
 	return usedIPCount, nil
 }
 
-func (os *Provider) GetFloatingIPQuota(cloud kubermaticv1.CloudSpec) (int, error) {
-	netClient, err := os.getNetClient(cloud)
-
-	if err != nil {
-		return 0, err
-	}
-
-	tenantID, err := GetCurrentTenantID(netClient).Extract()
+func GetFloatingIPQuota(username, password, domain, tenant, tenantID, authURL, region string) (int, error) {
+	netClient, err := getNetClient(username, password, domain, tenant, tenantID, authURL, region)
 
 	if err != nil {
 		return 0, err

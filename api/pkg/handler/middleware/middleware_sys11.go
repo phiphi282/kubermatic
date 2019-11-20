@@ -3,7 +3,6 @@ package middleware
 import (
 	"context"
 	"github.com/kubermatic/kubermatic/api/pkg/keycloak"
-	"github.com/kubermatic/kubermatic/api/pkg/util/errors"
 	"net/http"
 
 	"github.com/kubermatic/kubermatic/api/pkg/handler/v1/common"
@@ -15,10 +14,8 @@ import (
 )
 
 const (
-	// AddonProviderContextKey key under which the current AddonProvider is kept in the ctx
-	AddonProviderContextKey contextKey = "addon-provider"
 	// KeycloakFacadeContextKey key under which the current keycloak.Facade is kept in the ctx
-	KeycloakFacadeContextKey contextKey = "keycloak-facade"
+	KeycloakFacadeContextKey = "keycloak-facade"
 )
 
 func PrivilegedUserGroupVerifier(userProjectMapper provider.ProjectMemberMapper, privilegedUserGroups map[string]bool) endpoint.Middleware {
@@ -48,21 +45,6 @@ func PrivilegedUserGroupVerifier(userProjectMapper provider.ProjectMemberMapper,
 			}
 
 			return nil, k8cerrors.New(http.StatusForbidden, "you don't have permission to access this resource")
-		}
-	}
-}
-
-// Addons is a middleware that injects the current AddonProvider into the ctx
-func Addons(addonProviders map[string]provider.AddonProvider) endpoint.Middleware {
-	return func(next endpoint.Endpoint) endpoint.Endpoint {
-		return func(ctx context.Context, request interface{}) (response interface{}, err error) {
-			getter := request.(dCGetter)
-			addonProvider, exists := addonProviders[getter.GetDC()]
-			if !exists {
-				return nil, errors.NewNotFound("addon-provider", getter.GetDC())
-			}
-			ctx = context.WithValue(ctx, AddonProviderContextKey, addonProvider)
-			return next(ctx, request)
 		}
 	}
 }

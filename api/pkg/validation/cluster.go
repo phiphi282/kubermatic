@@ -45,7 +45,7 @@ func ValidateCreateClusterSpec(spec *kubermaticv1.ClusterSpec, dc *kubermaticv1.
 		return fmt.Errorf("machine network validation failed, see: %v", err)
 	}
 
-	if err = validateAuthSettings(spec); err != nil {
+	if err := validateAuthSettings(spec); err != nil {
 		return fmt.Errorf("auth settings validation failed: %v", err)
 	}
 

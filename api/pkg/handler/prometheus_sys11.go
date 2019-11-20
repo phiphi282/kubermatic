@@ -35,9 +35,9 @@ func (r Routing) prometheusProxyHandler() http.Handler {
 		endpoint.Chain(
 			middleware.TokenVerifier(r.tokenVerifiers),
 			middleware.UserSaver(r.userProvider),
-			middleware.SetClusterProvider(r.clusterProviders, r.datacenters),
+			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
 			middleware.UserInfoExtractor(r.userProjectMapper),
-		)(getPrometheusProxyEndpoint(r.datacenters)),
+		)(getPrometheusProxyEndpoint(r.seedsGetter)),
 		decodePrometheusProxyReq,
 		encodeRawResponse,
 		r.defaultServerOptions()...,
@@ -78,7 +78,7 @@ func decodePrometheusProxyReq(c context.Context, r *http.Request) (interface{}, 
 	return req, nil
 }
 
-func getPrometheusProxyEndpoint(datacenters map[string]provider.DatacenterMeta) endpoint.Endpoint {
+func getPrometheusProxyEndpoint(seedsGetter provider.SeedsGetter) endpoint.Endpoint {
 	return func(ctx context.Context, request interface{}) (interface{}, error) {
 		userInfo := ctx.Value(middleware.UserInfoContextKey).(*provider.UserInfo)
 		clusterProvider := ctx.Value(middleware.ClusterProviderContextKey).(provider.ClusterProvider)
@@ -86,6 +86,11 @@ func getPrometheusProxyEndpoint(datacenters map[string]provider.DatacenterMeta) 
 		c, err := clusterProvider.Get(userInfo, req.ClusterID, &provider.ClusterGetOptions{})
 		if err != nil {
 			return nil, common.KubernetesErrorToHTTPError(err)
+		}
+
+		seed, _, err := provider.DatacenterFromSeedMap(userInfo, seedsGetter, c.Spec.Cloud.DatacenterName)
+		if err != nil {
+			return nil, fmt.Errorf("error getting dc: %v", err)
 		}
 
 		ctx, cancel := context.WithTimeout(ctx, time.Second)
@@ -114,7 +119,7 @@ func getPrometheusProxyEndpoint(datacenters map[string]provider.DatacenterMeta) 
 			return nil, fmt.Errorf("failed to get kubeconfig secret: %v", err)
 		}
 
-		seedConfig, err := getSeedKubeconfig(datacenters[c.Spec.Cloud.DatacenterName].Seed, seedConfigSecret.Data[resources.KubeconfigSecretKey])
+		seedConfig, err := getSeedKubeconfig(seed.Name, seedConfigSecret.Data[resources.KubeconfigSecretKey])
 		if err != nil {
 			return nil, fmt.Errorf("failed to get seed kubeconfig: %v", err)
 		}

@@ -586,13 +586,15 @@
 
 [[projects]]
   branch = "master"
-  digest = "1:8309ba48bdbffedeff08ed79d41728a8370eff42f7b9c13d3b326b4b0dc87bca"
+  digest = "1:fad979dda21f646403025227db715ee527746229dfc57759d4ed3a1e5810a61b"
   name = "github.com/gophercloud/gophercloud"
   packages = [
     ".",
     "internal",
     "openstack",
+    "openstack/compute/v2/extensions/limits",
     "openstack/compute/v2/flavors",
+    "openstack/compute/v2/images",
     "openstack/identity/v2/tenants",
     "openstack/identity/v2/tokens",
     "openstack/identity/v3/groups",
@@ -600,6 +602,7 @@
     "openstack/identity/v3/tokens",
     "openstack/identity/v3/users",
     "openstack/networking/v2/extensions/external",
+    "openstack/networking/v2/extensions/layer3/floatingips",
     "openstack/networking/v2/extensions/layer3/routers",
     "openstack/networking/v2/extensions/security/groups",
     "openstack/networking/v2/extensions/security/rules",
@@ -1985,23 +1988,23 @@
     "github.com/go-kit/kit/log",
     "github.com/go-kit/kit/transport/http",
     "github.com/go-logr/zapr",
-    "github.com/go-openapi/errors",
     "github.com/go-openapi/runtime",
     "github.com/go-openapi/runtime/client",
     "github.com/go-openapi/strfmt",
-    "github.com/go-openapi/swag",
-    "github.com/go-openapi/validate",
     "github.com/go-swagger/go-swagger/cmd/swagger",
     "github.com/go-test/deep",
     "github.com/gogo/protobuf/proto",
     "github.com/gogo/protobuf/types",
     "github.com/gophercloud/gophercloud",
     "github.com/gophercloud/gophercloud/openstack",
+    "github.com/gophercloud/gophercloud/openstack/compute/v2/extensions/limits",
     "github.com/gophercloud/gophercloud/openstack/compute/v2/flavors",
+    "github.com/gophercloud/gophercloud/openstack/compute/v2/images",
     "github.com/gophercloud/gophercloud/openstack/identity/v3/projects",
     "github.com/gophercloud/gophercloud/openstack/identity/v3/tokens",
     "github.com/gophercloud/gophercloud/openstack/identity/v3/users",
     "github.com/gophercloud/gophercloud/openstack/networking/v2/extensions/external",
+    "github.com/gophercloud/gophercloud/openstack/networking/v2/extensions/layer3/floatingips",
     "github.com/gophercloud/gophercloud/openstack/networking/v2/extensions/layer3/routers",
     "github.com/gophercloud/gophercloud/openstack/networking/v2/extensions/security/groups",
     "github.com/gophercloud/gophercloud/openstack/networking/v2/extensions/security/rules",

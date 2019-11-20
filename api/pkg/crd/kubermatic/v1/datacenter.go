@@ -146,8 +146,9 @@ type DatacenterSpecOpenstack struct {
 	// Optional: Gets mapped to the "trust-device-path" setting in the cloud config.
 	// See https://kubernetes.io/docs/concepts/cluster-administration/cloud-providers/#block-storage
 	// This setting defaults to false.
-	TrustDevicePath      *bool                         `json:"trust_device_path"`
-	NodeSizeRequirements OpenstackNodeSizeRequirements `json:"node_size_requirements"`
+	TrustDevicePath       *bool                         `json:"trust_device_path"`
+	NodeSizeRequirements  OpenstackNodeSizeRequirements `json:"node_size_requirements"`
+	NodeVolumeAttachLimit *uint                         `json:"node_volume_attach_limit"`
 }
 
 type OpenstackNodeSizeRequirements struct {

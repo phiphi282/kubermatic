@@ -66,7 +66,7 @@ type UnsealRequest struct {
 	Key string `json:"key"`
 }
 
-func UnsealVaultAddonEndpoint(datacenters map[string]provider.DatacenterMeta) endpoint.Endpoint {
+func UnsealVaultAddonEndpoint(seedsGetter provider.SeedsGetter) endpoint.Endpoint {
 	return func(ctx context.Context, request interface{}) (interface{}, error) {
 		userInfo := ctx.Value(middleware.UserInfoContextKey).(*provider.UserInfo)
 		clusterProvider := ctx.Value(middleware.ClusterProviderContextKey).(provider.ClusterProvider)
@@ -74,6 +74,11 @@ func UnsealVaultAddonEndpoint(datacenters map[string]provider.DatacenterMeta) en
 		c, err := clusterProvider.Get(userInfo, req.ClusterID, &provider.ClusterGetOptions{})
 		if err != nil {
 			return nil, common.KubernetesErrorToHTTPError(err)
+		}
+
+		seed, _, err := provider.DatacenterFromSeedMap(userInfo, seedsGetter, c.Spec.Cloud.DatacenterName)
+		if err != nil {
+			return nil, fmt.Errorf("error getting dc: %v", err)
 		}
 
 		ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
@@ -102,7 +107,7 @@ func UnsealVaultAddonEndpoint(datacenters map[string]provider.DatacenterMeta) en
 			return nil, fmt.Errorf("failed to get kubeconfig secret: %v", err)
 		}
 
-		seedConfig, err := getKubeconfig(datacenters[c.Spec.Cloud.DatacenterName].Seed, seedConfigSecret.Data[resources.KubeconfigSecretKey])
+		seedConfig, err := getKubeconfig(seed.Name, seedConfigSecret.Data[resources.KubeconfigSecretKey])
 		if err != nil {
 			return nil, fmt.Errorf("failed to get seed kubeconfig: %v", err)
 		}

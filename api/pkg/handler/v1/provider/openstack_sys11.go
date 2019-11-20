@@ -3,39 +3,71 @@ package provider
 import (
 	"context"
 	"fmt"
+	"github.com/kubermatic/kubermatic/api/pkg/handler/middleware"
+	"github.com/kubermatic/kubermatic/api/pkg/handler/v1/common"
+	"net/http"
 
 	v1 "github.com/kubermatic/kubermatic/api/pkg/api/v1"
 
 	"github.com/go-kit/kit/endpoint"
-	osimages "github.com/gophercloud/gophercloud/openstack/compute/v2/images"
-	kubermaticv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
 	"github.com/kubermatic/kubermatic/api/pkg/provider"
 	"github.com/kubermatic/kubermatic/api/pkg/provider/cloud/openstack"
+	"github.com/kubermatic/kubermatic/api/pkg/util/errors"
 )
 
-func OpenstackImageEndpoint(providers provider.CloudRegistry) endpoint.Endpoint {
+func OpenstackImageEndpoint(seedsGetter provider.SeedsGetter, credentialManager common.PresetsManager) endpoint.Endpoint {
 	return func(ctx context.Context, request interface{}) (interface{}, error) {
 		req, ok := request.(OpenstackReq)
 		if !ok {
 			return nil, fmt.Errorf("incorrect type of request, expected = OpenstackReq, got = %T", request)
 		}
+		userInfo, ok := ctx.Value(middleware.UserInfoContextKey).(*provider.UserInfo)
+		if !ok {
+			return nil, errors.New(http.StatusInternalServerError, "can not get user info")
+		}
 
-		return getOpenstackImages(providers, req.Username, req.Password, req.Tenant, req.Domain, req.DatacenterName)
+		datacenterName := req.DatacenterName
+		_, datacenter, err := provider.DatacenterFromSeedMap(userInfo, seedsGetter, datacenterName)
+		if err != nil {
+			return nil, fmt.Errorf("error getting dc: %v", err)
+		}
+
+		username, password, domain, tenant, tenantID, err := getOpenstackCredentials(userInfo, req.Credential, req.Username, req.Password, req.Domain, req.Tenant, req.TenantID, credentialManager)
+		if err != nil {
+			return nil, fmt.Errorf("error getting OpenStack credentials: %v", err)
+		}
+
+		return openstack.GetImages(username, password, domain, tenant, tenantID, datacenter.Spec.Openstack.AuthURL, datacenter.Spec.Openstack.Region)
 	}
 }
 
-func OpenstackQuotaLimitEndpoint(providers provider.CloudRegistry) endpoint.Endpoint {
+func OpenstackQuotaLimitEndpoint(seedsGetter provider.SeedsGetter, credentialManager common.PresetsManager) endpoint.Endpoint {
 	return func(ctx context.Context, request interface{}) (interface{}, error) {
 		req, ok := request.(OpenstackReq)
 		if !ok {
 			return nil, fmt.Errorf("incorrect type of request, expected = OpenstackReq, got = %T", request)
 		}
+		userInfo, ok := ctx.Value(middleware.UserInfoContextKey).(*provider.UserInfo)
+		if !ok {
+			return nil, errors.New(http.StatusInternalServerError, "can not get user info")
+		}
 
-		return getOpenstackQuotaLimits(providers, req.Username, req.Password, req.Tenant, req.Domain, req.DatacenterName)
+		datacenterName := req.DatacenterName
+		_, datacenter, err := provider.DatacenterFromSeedMap(userInfo, seedsGetter, datacenterName)
+		if err != nil {
+			return nil, fmt.Errorf("error getting dc: %v", err)
+		}
+
+		username, password, domain, tenant, tenantID, err := getOpenstackCredentials(userInfo, req.Credential, req.Username, req.Password, req.Domain, req.Tenant, req.TenantID, credentialManager)
+		if err != nil {
+			return nil, fmt.Errorf("error getting OpenStack credentials: %v", err)
+		}
+
+		return getOpenstackQuotaLimits(username, password, domain, tenant, tenantID, datacenter.Spec.Openstack.AuthURL, datacenter.Spec.Openstack.Region)
 	}
 }
 
-func OpenstackImageNoCredentialsEndpoint(projectProvider provider.ProjectProvider, providers provider.CloudRegistry) endpoint.Endpoint {
+func OpenstackImageNoCredentialsEndpoint(projectProvider provider.ProjectProvider, seedsGetter provider.SeedsGetter, credentialManager common.PresetsManager) endpoint.Endpoint {
 	return func(ctx context.Context, request interface{}) (interface{}, error) {
 		req := request.(OpenstackNoCredentialsReq)
 		cluster, err := getClusterForOpenstack(ctx, projectProvider, req.ProjectID, req.ClusterID)
@@ -43,13 +75,23 @@ func OpenstackImageNoCredentialsEndpoint(projectProvider provider.ProjectProvide
 			return nil, err
 		}
 
+		userInfo, ok := ctx.Value(middleware.UserInfoContextKey).(*provider.UserInfo)
+		if !ok {
+			return nil, errors.New(http.StatusInternalServerError, "can not get user info")
+		}
+
 		openstackSpec := cluster.Spec.Cloud.Openstack
 		datacenterName := cluster.Spec.Cloud.DatacenterName
-		return getOpenstackImages(providers, openstackSpec.Username, openstackSpec.Password, openstackSpec.Tenant, openstackSpec.Domain, datacenterName)
+		_, datacenter, err := provider.DatacenterFromSeedMap(userInfo, seedsGetter, datacenterName)
+		if err != nil {
+			return nil, fmt.Errorf("error getting dc: %v", err)
+		}
+
+		return openstack.GetImages(openstackSpec.Username, openstackSpec.Password, openstackSpec.Domain, openstackSpec.Tenant, openstackSpec.TenantID, datacenter.Spec.Openstack.AuthURL, datacenter.Spec.Openstack.Region)
 	}
 }
 
-func OpenstackQuotaLimitNoCredentialsEndpoint(projectProvider provider.ProjectProvider, providers provider.CloudRegistry) endpoint.Endpoint {
+func OpenstackQuotaLimitNoCredentialsEndpoint(projectProvider provider.ProjectProvider, seedsGetter provider.SeedsGetter, credentialManager common.PresetsManager) endpoint.Endpoint {
 	return func(ctx context.Context, request interface{}) (interface{}, error) {
 		req := request.(OpenstackNoCredentialsReq)
 		cluster, err := getClusterForOpenstack(ctx, projectProvider, req.ProjectID, req.ClusterID)
@@ -57,66 +99,34 @@ func OpenstackQuotaLimitNoCredentialsEndpoint(projectProvider provider.ProjectPr
 			return nil, err
 		}
 
+		userInfo, ok := ctx.Value(middleware.UserInfoContextKey).(*provider.UserInfo)
+		if !ok {
+			return nil, errors.New(http.StatusInternalServerError, "can not get user info")
+		}
+
 		openstackSpec := cluster.Spec.Cloud.Openstack
 		datacenterName := cluster.Spec.Cloud.DatacenterName
-		return getOpenstackQuotaLimits(providers, openstackSpec.Username, openstackSpec.Password, openstackSpec.Tenant, openstackSpec.Domain, datacenterName)
+		_, datacenter, err := provider.DatacenterFromSeedMap(userInfo, seedsGetter, datacenterName)
+		if err != nil {
+			return nil, fmt.Errorf("error getting dc: %v", err)
+		}
+
+		return getOpenstackQuotaLimits(openstackSpec.Username, openstackSpec.Password, openstackSpec.Domain, openstackSpec.Tenant, openstackSpec.TenantID, datacenter.Spec.Openstack.AuthURL, datacenter.Spec.Openstack.Region)
 	}
 }
 
-func getOpenstackImages(providers provider.CloudRegistry, username, password, tenant, domain, datacenterName string) ([]osimages.Image, error) {
-	osProviderInterface, ok := providers[provider.OpenstackCloudProvider]
-	if !ok {
-		return nil, fmt.Errorf("unable to get %s provider", provider.OpenstackCloudProvider)
-	}
-
-	osProvider, ok := osProviderInterface.(*openstack.Provider)
-	if !ok {
-		return nil, fmt.Errorf("unable to cast osProviderInterface to *openstack.Provider")
-	}
-
-	return osProvider.GetImages(kubermaticv1.CloudSpec{
-		DatacenterName: datacenterName,
-		Openstack: &kubermaticv1.OpenstackCloudSpec{
-			Username: username,
-			Tenant:   tenant,
-			Password: password,
-			Domain:   domain,
-		},
-	})
-}
-
-func getOpenstackQuotaLimits(providers provider.CloudRegistry, username, password, tenant, domain, datacenterName string) (*v1.Quotas, error) {
-	osProviderInterface, ok := providers[provider.OpenstackCloudProvider]
-	if !ok {
-		return nil, fmt.Errorf("unable to get %s provider", provider.OpenstackCloudProvider)
-	}
-
-	osProvider, ok := osProviderInterface.(*openstack.Provider)
-	if !ok {
-		return nil, fmt.Errorf("unable to cast osProviderInterface to *openstack.Provider")
-	}
-
-	cloud := kubermaticv1.CloudSpec{
-		DatacenterName: datacenterName,
-		Openstack: &kubermaticv1.OpenstackCloudSpec{
-			Username: username,
-			Tenant:   tenant,
-			Password: password,
-			Domain:   domain,
-		},
-	}
-
-	limits, err := osProvider.GetQuotaLimits(cloud)
+func getOpenstackQuotaLimits(username, password, domain, tenant, tenantID, authURL, region string) (*v1.Quotas, error) {
+	limits, err := openstack.GetQuotaLimits(username, password, domain, tenant, tenantID, authURL, region)
 	if err != nil {
 		return nil, err
 	}
 
-	usedFloatingIPCount, err := osProvider.GetUsedFloatingIPCount(cloud)
+	usedFloatingIPCount, err := openstack.GetUsedFloatingIPCount(username, password, domain, tenant, tenantID, authURL, region)
 	if err != nil {
 		return nil, err
 	}
 
-	floatingIPQuota, err := osProvider.GetFloatingIPQuota(cloud)
+	floatingIPQuota, err := openstack.GetFloatingIPQuota(username, password, domain, tenant, tenantID, authURL, region)
 	if err != nil {
 		return nil, err
 	}

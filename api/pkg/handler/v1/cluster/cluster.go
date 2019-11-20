@@ -367,6 +367,7 @@ func PatchEndpoint(projectProvider provider.ProjectProvider, seedsGetter provide
 		newInternalCluster.Spec.UsePodSecurityPolicyAdmissionPlugin = patchedCluster.Spec.UsePodSecurityPolicyAdmissionPlugin
 		newInternalCluster.Spec.AuditLogging = patchedCluster.Spec.AuditLogging
 		newInternalCluster.Spec.Openshift = patchedCluster.Spec.Openshift
+		newInternalCluster.Spec.Sys11Auth = patchedCluster.Spec.Sys11Auth
 
 		incompatibleKubelets, err := common.CheckClusterVersionSkew(ctx, userInfo, clusterProvider, newInternalCluster)
 		if err != nil {
@@ -389,7 +390,7 @@ func PatchEndpoint(projectProvider provider.ProjectProvider, seedsGetter provide
 			return nil, errors.NewBadRequest("invalid cluster: %v", err)
 		}
 
-		if err = validation.ValidateSys11AuthSettings(&patchedCluster.Spec, keycloakFacade); err != nil {
+		if err = validation.ValidateSys11AuthSettings(&newInternalCluster.Spec, keycloakFacade); err != nil {
 			return nil, common.KubernetesErrorToHTTPError(err)
 		}
 
