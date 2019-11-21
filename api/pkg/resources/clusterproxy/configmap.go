@@ -33,7 +33,7 @@ func ConfigMapCreator(data *resources.TemplateData) reconciling.NamedConfigMapCr
 				return nil, fmt.Errorf("can not get dns resolver IP: %v", err)
 			}
 
-			seedDC := data.SeedDC
+			seedDC := data.Seed().Name
 
 			if seedDC == "dbl1" {
 				seedDC = "syseleven-dbl1-1"
