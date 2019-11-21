@@ -5,21 +5,17 @@
   "produces": [
     "application/json"
   ],
+  "schemes": [
+    "https"
+  ],
   "swagger": "2.0",
   "info": {
-<<<<<<< HEAD
     "description": "This describes possible operations which can be made against the MetaKube API.",
     "title": "MetaKube API",
-    "version": "2.11"
-  },
-  "host": "metakube.syseleven.de",
-=======
-    "description": "Kubermatic API\n\nThis describes possible operations which can be made against the Kubermatic API.",
-    "title": "Kubermatic API.",
     "termsOfService": "There are no TOS at this moment, use at your own risk we take no responsibility",
     "version": "2.11"
   },
->>>>>>> v2.12.1
+  "host": "metakube.syseleven.de",
   "paths": {
     "/api/v1/addons": {
       "post": {
@@ -1059,26 +1055,16 @@
         }
       }
     },
-<<<<<<< HEAD
-    "/api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/events": {
-      "get": {
-=======
     "/api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/clusterroles": {
       "get": {
         "description": "Lists all ClusterRoles",
->>>>>>> v2.12.1
         "produces": [
-          "application/yaml"
+          "application/json"
         ],
         "tags": [
           "project"
         ],
-<<<<<<< HEAD
-        "summary": "Gets the events related to the specified cluster.",
-        "operationId": "getClusterEvents",
-=======
         "operationId": "listClusterRole",
->>>>>>> v2.12.1
         "parameters": [
           {
             "type": "string",
@@ -1100,31 +1086,15 @@
             "name": "cluster_id",
             "in": "path",
             "required": true
-<<<<<<< HEAD
-          },
-          {
-            "type": "string",
-            "name": "Type",
-            "in": "query"
-=======
->>>>>>> v2.12.1
           }
         ],
         "responses": {
           "200": {
-<<<<<<< HEAD
-            "description": "Event",
-            "schema": {
-              "type": "array",
-              "items": {
-                "$ref": "#/definitions/Event"
-=======
             "description": "ClusterRole",
             "schema": {
               "type": "array",
               "items": {
                 "$ref": "#/definitions/ClusterRole"
->>>>>>> v2.12.1
               }
             }
           },
@@ -1141,31 +1111,19 @@
             }
           }
         }
-<<<<<<< HEAD
-      }
-    },
-    "/api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/health": {
-      "get": {
-        "description": "Returns the cluster's component health status",
-=======
       },
       "post": {
         "description": "Creates cluster role",
         "consumes": [
           "application/json"
         ],
->>>>>>> v2.12.1
         "produces": [
           "application/json"
         ],
         "tags": [
           "project"
         ],
-<<<<<<< HEAD
-        "operationId": "getClusterHealth",
-=======
         "operationId": "createClusterRole",
->>>>>>> v2.12.1
         "parameters": [
           {
             "type": "string",
@@ -1187,15 +1145,6 @@
             "name": "cluster_id",
             "in": "path",
             "required": true
-<<<<<<< HEAD
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "ClusterHealth",
-            "schema": {
-              "$ref": "#/definitions/ClusterHealth"
-=======
           },
           {
             "name": "Body",
@@ -1210,7 +1159,6 @@
             "description": "ClusterRole",
             "schema": {
               "$ref": "#/definitions/ClusterRole"
->>>>>>> v2.12.1
             }
           },
           "401": {
@@ -1228,26 +1176,16 @@
         }
       }
     },
-<<<<<<< HEAD
-    "/api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/kubeconfig": {
-      "get": {
-=======
     "/api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/clusterroles/{role_id}": {
       "delete": {
         "description": "Delete the cluster role with the given name",
->>>>>>> v2.12.1
         "produces": [
-          "application/yaml"
+          "application/json"
         ],
         "tags": [
           "project"
         ],
-<<<<<<< HEAD
-        "summary": "Gets the kubeconfig for the specified cluster.",
-        "operationId": "getClusterKubeconfig",
-=======
         "operationId": "deleteClusterRole",
->>>>>>> v2.12.1
         "parameters": [
           {
             "type": "string",
@@ -1269,8 +1207,6 @@
             "name": "cluster_id",
             "in": "path",
             "required": true
-<<<<<<< HEAD
-=======
           },
           {
             "type": "string",
@@ -1278,19 +1214,11 @@
             "name": "role_id",
             "in": "path",
             "required": true
->>>>>>> v2.12.1
           }
         ],
         "responses": {
           "200": {
-<<<<<<< HEAD
-            "description": "Kubeconfig",
-            "schema": {
-              "$ref": "#/definitions/Kubeconfig"
-            }
-=======
             "$ref": "#/responses/empty"
->>>>>>> v2.12.1
           },
           "401": {
             "$ref": "#/responses/empty"
@@ -1305,1510 +1233,613 @@
             }
           }
         }
-<<<<<<< HEAD
+      },
+      "patch": {
+        "description": "Patch the cluster role with the given name",
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "project"
+        ],
+        "operationId": "patchClusterRole",
+        "parameters": [
+          {
+            "type": "string",
+            "x-go-name": "ProjectID",
+            "name": "project_id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "x-go-name": "DC",
+            "name": "dc",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "x-go-name": "ClusterID",
+            "name": "cluster_id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "x-go-name": "RoleID",
+            "name": "role_id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "name": "Patch",
+            "in": "body",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "integer",
+                "format": "uint8"
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ClusterRole",
+            "schema": {
+              "$ref": "#/definitions/ClusterRole"
+            }
+          },
+          "401": {
+            "$ref": "#/responses/empty"
+          },
+          "403": {
+            "$ref": "#/responses/empty"
+          },
+          "default": {
+            "description": "errorResponse",
+            "schema": {
+              "$ref": "#/definitions/errorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/clusterroles/{role_id}/clusterbindings": {
+      "get": {
+        "description": "List cluster role binding",
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "project"
+        ],
+        "operationId": "listClusterRoleBinding",
+        "parameters": [
+          {
+            "type": "string",
+            "x-go-name": "ProjectID",
+            "name": "project_id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "x-go-name": "DC",
+            "name": "dc",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "x-go-name": "ClusterID",
+            "name": "cluster_id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "x-go-name": "RoleID",
+            "name": "role_id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ClusterRoleBinding",
+            "schema": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/ClusterRoleBinding"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/responses/empty"
+          },
+          "403": {
+            "$ref": "#/responses/empty"
+          },
+          "default": {
+            "description": "errorResponse",
+            "schema": {
+              "$ref": "#/definitions/errorResponse"
+            }
+          }
+        }
+      },
+      "post": {
+        "description": "Creates cluster role binding",
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "project"
+        ],
+        "operationId": "createClusterRoleBinding",
+        "parameters": [
+          {
+            "type": "string",
+            "x-go-name": "ProjectID",
+            "name": "project_id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "x-go-name": "DC",
+            "name": "dc",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "x-go-name": "ClusterID",
+            "name": "cluster_id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "x-go-name": "RoleID",
+            "name": "role_id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "name": "Body",
+            "in": "body",
+            "schema": {
+              "$ref": "#/definitions/ClusterRoleBinding"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "ClusterRoleBinding",
+            "schema": {
+              "$ref": "#/definitions/ClusterRoleBinding"
+            }
+          },
+          "401": {
+            "$ref": "#/responses/empty"
+          },
+          "403": {
+            "$ref": "#/responses/empty"
+          },
+          "default": {
+            "description": "errorResponse",
+            "schema": {
+              "$ref": "#/definitions/errorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/clusterroles/{role_id}/clusterbindings/{binding_id}": {
+      "get": {
+        "description": "Get cluster role binding",
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "project"
+        ],
+        "operationId": "getClusterRoleBinding",
+        "parameters": [
+          {
+            "type": "string",
+            "x-go-name": "ProjectID",
+            "name": "project_id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "x-go-name": "DC",
+            "name": "dc",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "x-go-name": "ClusterID",
+            "name": "cluster_id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "x-go-name": "RoleID",
+            "name": "role_id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "x-go-name": "BindingID",
+            "name": "binding_id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ClusterRoleBinding",
+            "schema": {
+              "$ref": "#/definitions/ClusterRoleBinding"
+            }
+          },
+          "401": {
+            "$ref": "#/responses/empty"
+          },
+          "403": {
+            "$ref": "#/responses/empty"
+          },
+          "default": {
+            "description": "errorResponse",
+            "schema": {
+              "$ref": "#/definitions/errorResponse"
+            }
+          }
+        }
+      },
+      "delete": {
+        "description": "Delete cluster role binding",
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "project"
+        ],
+        "operationId": "deleteClusterRoleBinding",
+        "parameters": [
+          {
+            "type": "string",
+            "x-go-name": "ProjectID",
+            "name": "project_id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "x-go-name": "DC",
+            "name": "dc",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "x-go-name": "ClusterID",
+            "name": "cluster_id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "x-go-name": "RoleID",
+            "name": "role_id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "x-go-name": "BindingID",
+            "name": "binding_id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/responses/empty"
+          },
+          "401": {
+            "$ref": "#/responses/empty"
+          },
+          "403": {
+            "$ref": "#/responses/empty"
+          },
+          "default": {
+            "description": "errorResponse",
+            "schema": {
+              "$ref": "#/definitions/errorResponse"
+            }
+          }
+        }
+      },
+      "patch": {
+        "description": "Update cluster role binding",
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "project"
+        ],
+        "operationId": "patchClusterRoleBinding",
+        "parameters": [
+          {
+            "type": "string",
+            "x-go-name": "ProjectID",
+            "name": "project_id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "x-go-name": "DC",
+            "name": "dc",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "x-go-name": "ClusterID",
+            "name": "cluster_id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "x-go-name": "RoleID",
+            "name": "role_id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "x-go-name": "BindingID",
+            "name": "binding_id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "name": "Patch",
+            "in": "body",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "integer",
+                "format": "uint8"
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ClusterRoleBinding",
+            "schema": {
+              "$ref": "#/definitions/ClusterRoleBinding"
+            }
+          },
+          "401": {
+            "$ref": "#/responses/empty"
+          },
+          "403": {
+            "$ref": "#/responses/empty"
+          },
+          "default": {
+            "description": "errorResponse",
+            "schema": {
+              "$ref": "#/definitions/errorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/events": {
+      "get": {
+        "produces": [
+          "application/yaml"
+        ],
+        "tags": [
+          "project"
+        ],
+        "summary": "Gets the events related to the specified cluster.",
+        "operationId": "getClusterEvents",
+        "parameters": [
+          {
+            "type": "string",
+            "x-go-name": "ProjectID",
+            "name": "project_id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "x-go-name": "DC",
+            "name": "dc",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "x-go-name": "ClusterID",
+            "name": "cluster_id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "name": "Type",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Event",
+            "schema": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/Event"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/responses/empty"
+          },
+          "403": {
+            "$ref": "#/responses/empty"
+          },
+          "default": {
+            "description": "errorResponse",
+            "schema": {
+              "$ref": "#/definitions/errorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/health": {
+      "get": {
+        "description": "Returns the cluster's component health status",
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "project"
+        ],
+        "operationId": "getClusterHealth",
+        "parameters": [
+          {
+            "type": "string",
+            "x-go-name": "ProjectID",
+            "name": "project_id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "x-go-name": "DC",
+            "name": "dc",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "x-go-name": "ClusterID",
+            "name": "cluster_id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ClusterHealth",
+            "schema": {
+              "$ref": "#/definitions/ClusterHealth"
+            }
+          },
+          "401": {
+            "$ref": "#/responses/empty"
+          },
+          "403": {
+            "$ref": "#/responses/empty"
+          },
+          "default": {
+            "description": "errorResponse",
+            "schema": {
+              "$ref": "#/definitions/errorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/kubeconfig": {
+      "get": {
+        "produces": [
+          "application/yaml"
+        ],
+        "tags": [
+          "project"
+        ],
+        "summary": "Gets the kubeconfig for the specified cluster.",
+        "operationId": "getClusterKubeconfig",
+        "parameters": [
+          {
+            "type": "string",
+            "x-go-name": "ProjectID",
+            "name": "project_id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "x-go-name": "DC",
+            "name": "dc",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "x-go-name": "ClusterID",
+            "name": "cluster_id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Kubeconfig",
+            "schema": {
+              "$ref": "#/definitions/Kubeconfig"
+            }
+          },
+          "401": {
+            "$ref": "#/responses/empty"
+          },
+          "403": {
+            "$ref": "#/responses/empty"
+          },
+          "default": {
+            "description": "errorResponse",
+            "schema": {
+              "$ref": "#/definitions/errorResponse"
+            }
+          }
+        }
       }
     },
     "/api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/kubeloginkubeconfig": {
       "get": {
         "produces": [
           "application/yaml"
-=======
-      },
-      "patch": {
-        "description": "Patch the cluster role with the given name",
-        "produces": [
-          "application/json"
->>>>>>> v2.12.1
         ],
         "tags": [
           "project"
         ],
-<<<<<<< HEAD
         "summary": "Gets the kubeconfig for the specified cluster with oidc authentication that works nicely with kube-login.",
         "operationId": "getKubeLoginClusterKubeconfig",
-=======
-        "operationId": "patchClusterRole",
->>>>>>> v2.12.1
-        "parameters": [
-          {
-            "type": "string",
-            "x-go-name": "ProjectID",
-            "name": "project_id",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "string",
-            "x-go-name": "DC",
-            "name": "dc",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "string",
-            "x-go-name": "ClusterID",
-            "name": "cluster_id",
-            "in": "path",
-            "required": true
-<<<<<<< HEAD
-=======
-          },
-          {
-            "type": "string",
-            "x-go-name": "RoleID",
-            "name": "role_id",
-            "in": "path",
-            "required": true
-          },
-          {
-            "name": "Patch",
-            "in": "body",
-            "schema": {
-              "type": "array",
-              "items": {
-                "type": "integer",
-                "format": "uint8"
-              }
-            }
->>>>>>> v2.12.1
-          }
-        ],
-        "responses": {
-          "200": {
-<<<<<<< HEAD
-            "description": "Kubeconfig",
-            "schema": {
-              "$ref": "#/definitions/Kubeconfig"
-=======
-            "description": "ClusterRole",
-            "schema": {
-              "$ref": "#/definitions/ClusterRole"
->>>>>>> v2.12.1
-            }
-          },
-          "401": {
-            "$ref": "#/responses/empty"
-          },
-          "403": {
-            "$ref": "#/responses/empty"
-          },
-          "default": {
-            "description": "errorResponse",
-            "schema": {
-              "$ref": "#/definitions/errorResponse"
-            }
-          }
-        }
-      }
-    },
-<<<<<<< HEAD
-    "/api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/nodedeployments": {
-      "get": {
-        "description": "Lists node deployments that belong to the given cluster",
-=======
-    "/api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/clusterroles/{role_id}/clusterbindings": {
-      "get": {
-        "description": "List cluster role binding",
->>>>>>> v2.12.1
-        "produces": [
-          "application/json"
-        ],
-        "tags": [
-          "project"
-        ],
-<<<<<<< HEAD
-        "operationId": "listNodeDeployments",
-=======
-        "operationId": "listClusterRoleBinding",
->>>>>>> v2.12.1
-        "parameters": [
-          {
-            "type": "string",
-            "x-go-name": "ProjectID",
-            "name": "project_id",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "string",
-            "x-go-name": "DC",
-            "name": "dc",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "string",
-            "x-go-name": "ClusterID",
-            "name": "cluster_id",
-            "in": "path",
-            "required": true
-<<<<<<< HEAD
-=======
-          },
-          {
-            "type": "string",
-            "x-go-name": "RoleID",
-            "name": "role_id",
-            "in": "path",
-            "required": true
->>>>>>> v2.12.1
-          }
-        ],
-        "responses": {
-          "200": {
-<<<<<<< HEAD
-            "description": "NodeDeployment",
-            "schema": {
-              "type": "array",
-              "items": {
-                "$ref": "#/definitions/NodeDeployment"
-=======
-            "description": "ClusterRoleBinding",
-            "schema": {
-              "type": "array",
-              "items": {
-                "$ref": "#/definitions/ClusterRoleBinding"
->>>>>>> v2.12.1
-              }
-            }
-          },
-          "401": {
-            "$ref": "#/responses/empty"
-          },
-          "403": {
-            "$ref": "#/responses/empty"
-          },
-          "default": {
-            "description": "errorResponse",
-            "schema": {
-              "$ref": "#/definitions/errorResponse"
-            }
-          }
-        }
-      },
-      "post": {
-<<<<<<< HEAD
-        "description": "Creates a node deployment that will belong to the given cluster",
-=======
-        "description": "Creates cluster role binding",
->>>>>>> v2.12.1
-        "consumes": [
-          "application/json"
-        ],
-        "produces": [
-          "application/json"
-        ],
-        "tags": [
-          "project"
-        ],
-<<<<<<< HEAD
-        "operationId": "createNodeDeployment",
-=======
-        "operationId": "createClusterRoleBinding",
->>>>>>> v2.12.1
-        "parameters": [
-          {
-            "type": "string",
-            "x-go-name": "ProjectID",
-            "name": "project_id",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "string",
-            "x-go-name": "DC",
-            "name": "dc",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "string",
-            "x-go-name": "ClusterID",
-            "name": "cluster_id",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "string",
-            "x-go-name": "RoleID",
-            "name": "role_id",
-            "in": "path",
-            "required": true
-          },
-          {
-            "name": "Body",
-            "in": "body",
-            "schema": {
-<<<<<<< HEAD
-              "$ref": "#/definitions/NodeDeployment"
-=======
-              "$ref": "#/definitions/ClusterRoleBinding"
->>>>>>> v2.12.1
-            }
-          }
-        ],
-        "responses": {
-          "201": {
-<<<<<<< HEAD
-            "description": "NodeDeployment",
-            "schema": {
-              "$ref": "#/definitions/NodeDeployment"
-=======
-            "description": "ClusterRoleBinding",
-            "schema": {
-              "$ref": "#/definitions/ClusterRoleBinding"
->>>>>>> v2.12.1
-            }
-          },
-          "401": {
-            "$ref": "#/responses/empty"
-          },
-          "403": {
-            "$ref": "#/responses/empty"
-          },
-          "default": {
-            "description": "errorResponse",
-            "schema": {
-              "$ref": "#/definitions/errorResponse"
-            }
-          }
-        }
-      }
-    },
-<<<<<<< HEAD
-    "/api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/nodedeployments/{nodedeployment_id}": {
-      "get": {
-=======
-    "/api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/clusterroles/{role_id}/clusterbindings/{binding_id}": {
-      "get": {
-        "description": "Get cluster role binding",
->>>>>>> v2.12.1
-        "produces": [
-          "application/json"
-        ],
-        "tags": [
-          "project"
-        ],
-<<<<<<< HEAD
-        "summary": "Gets a node deployment that is assigned to the given cluster.",
-        "operationId": "getNodeDeployment",
-=======
-        "operationId": "getClusterRoleBinding",
->>>>>>> v2.12.1
-        "parameters": [
-          {
-            "type": "string",
-            "x-go-name": "ProjectID",
-            "name": "project_id",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "string",
-            "x-go-name": "DC",
-            "name": "dc",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "string",
-            "x-go-name": "ClusterID",
-            "name": "cluster_id",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "string",
-<<<<<<< HEAD
-            "x-go-name": "NodeDeploymentID",
-            "name": "nodedeployment_id",
-=======
-            "x-go-name": "RoleID",
-            "name": "role_id",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "string",
-            "x-go-name": "BindingID",
-            "name": "binding_id",
->>>>>>> v2.12.1
-            "in": "path",
-            "required": true
-          }
-        ],
-        "responses": {
-          "200": {
-<<<<<<< HEAD
-            "description": "NodeDeployment",
-            "schema": {
-              "$ref": "#/definitions/NodeDeployment"
-=======
-            "description": "ClusterRoleBinding",
-            "schema": {
-              "$ref": "#/definitions/ClusterRoleBinding"
->>>>>>> v2.12.1
-            }
-          },
-          "401": {
-            "$ref": "#/responses/empty"
-          },
-          "403": {
-            "$ref": "#/responses/empty"
-          },
-          "default": {
-            "description": "errorResponse",
-            "schema": {
-              "$ref": "#/definitions/errorResponse"
-            }
-          }
-        }
-      },
-      "delete": {
-<<<<<<< HEAD
-=======
-        "description": "Delete cluster role binding",
->>>>>>> v2.12.1
-        "produces": [
-          "application/json"
-        ],
-        "tags": [
-          "project"
-        ],
-<<<<<<< HEAD
-        "summary": "Deletes the given node deployment that belongs to the cluster.",
-        "operationId": "deleteNodeDeployment",
-=======
-        "operationId": "deleteClusterRoleBinding",
->>>>>>> v2.12.1
-        "parameters": [
-          {
-            "type": "string",
-            "x-go-name": "ProjectID",
-            "name": "project_id",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "string",
-            "x-go-name": "DC",
-            "name": "dc",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "string",
-            "x-go-name": "ClusterID",
-            "name": "cluster_id",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "string",
-<<<<<<< HEAD
-            "x-go-name": "NodeDeploymentID",
-            "name": "nodedeployment_id",
-            "in": "path",
-            "required": true
-          }
-        ],
-        "responses": {
-          "200": {
-            "$ref": "#/responses/empty"
-          },
-          "401": {
-            "$ref": "#/responses/empty"
-          },
-          "403": {
-            "$ref": "#/responses/empty"
-          },
-          "default": {
-            "$ref": "#/responses/errorResponse"
-          }
-        }
-      },
-      "patch": {
-        "description": "Patches a node deployment that is assigned to the given cluster. Please note that at the moment only\nnode deployment's spec can be updated by a patch, no other fields can be changed using this endpoint.",
-        "consumes": [
-          "application/json"
-        ],
-        "produces": [
-          "application/json"
-        ],
-        "tags": [
-          "project"
-        ],
-        "operationId": "patchNodeDeployment",
-        "parameters": [
-          {
-            "type": "string",
-            "x-go-name": "ProjectID",
-            "name": "project_id",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "string",
-            "x-go-name": "DC",
-            "name": "dc",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "string",
-            "x-go-name": "ClusterID",
-            "name": "cluster_id",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "string",
-            "x-go-name": "NodeDeploymentID",
-            "name": "nodedeployment_id",
-            "in": "path",
-            "required": true
-          },
-          {
-            "name": "Patch",
-            "in": "body",
-            "schema": {
-              "type": "array",
-              "items": {
-                "type": "integer",
-                "format": "uint8"
-              }
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "NodeDeployment",
-            "schema": {
-              "$ref": "#/definitions/NodeDeployment"
-            }
-          },
-          "401": {
-            "$ref": "#/responses/empty"
-          },
-          "403": {
-            "$ref": "#/responses/empty"
-          },
-          "default": {
-            "$ref": "#/responses/errorResponse"
-          }
-        }
-      }
-    },
-    "/api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/nodedeployments/{nodedeployment_id}/nodes": {
-      "get": {
-        "produces": [
-          "application/json"
-        ],
-        "tags": [
-          "project"
-        ],
-        "summary": "Lists nodes that belong to the given node deployment.",
-        "operationId": "listNodeDeploymentNodes",
-        "parameters": [
-          {
-            "type": "string",
-            "x-go-name": "ProjectID",
-            "name": "project_id",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "string",
-            "x-go-name": "DC",
-            "name": "dc",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "string",
-            "x-go-name": "ClusterID",
-            "name": "cluster_id",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "string",
-            "x-go-name": "NodeDeploymentID",
-            "name": "nodedeployment_id",
-=======
-            "x-go-name": "RoleID",
-            "name": "role_id",
->>>>>>> v2.12.1
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "string",
-            "x-go-name": "BindingID",
-            "name": "binding_id",
-            "in": "path",
-            "required": true
-          }
-        ],
-        "responses": {
-          "200": {
-<<<<<<< HEAD
-            "description": "Node",
-            "schema": {
-              "type": "array",
-              "items": {
-                "$ref": "#/definitions/Node"
-              }
-            }
-          },
-          "401": {
-            "$ref": "#/responses/empty"
-          },
-          "403": {
-            "$ref": "#/responses/empty"
-          },
-          "default": {
-            "$ref": "#/responses/errorResponse"
-          }
-        }
-      }
-    },
-    "/api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/nodedeployments/{nodedeployment_id}/nodes/events": {
-      "get": {
-        "description": "If the value is 'normal' then normal events are returned. If the query parameter is missing method returns all events.",
-        "produces": [
-          "application/json"
-        ],
-        "tags": [
-          "project"
-        ],
-        "summary": "Lists node deployment events. If query parameter `type` is set to `warning` then only warning events are retrieved.",
-        "operationId": "listNodeDeploymentNodesEvents",
-        "parameters": [
-          {
-            "type": "string",
-            "x-go-name": "ProjectID",
-            "name": "project_id",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "string",
-            "x-go-name": "DC",
-            "name": "dc",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "string",
-            "x-go-name": "ClusterID",
-            "name": "cluster_id",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "string",
-            "name": "Type",
-            "in": "query"
-          },
-          {
-            "type": "string",
-            "x-go-name": "NodeDeploymentID",
-            "name": "nodedeployment_id",
-            "in": "path",
-            "required": true
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Event",
-            "schema": {
-              "type": "array",
-              "items": {
-                "$ref": "#/definitions/Event"
-              }
-            }
-=======
-            "$ref": "#/responses/empty"
->>>>>>> v2.12.1
-          },
-          "401": {
-            "$ref": "#/responses/empty"
-          },
-          "403": {
-            "$ref": "#/responses/empty"
-          },
-          "default": {
-            "description": "errorResponse",
-            "schema": {
-              "$ref": "#/definitions/errorResponse"
-            }
-          }
-        }
-<<<<<<< HEAD
-      }
-    },
-    "/api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/nodes": {
-      "get": {
-        "description": "This endpoint is deprecated, please create a Node Deployment instead.",
-        "produces": [
-          "application/json"
-        ],
-        "tags": [
-          "project"
-        ],
-        "summary": "Deprecated:\nLists nodes that belong to the given cluster",
-        "operationId": "listNodesForClusterLegacy",
-        "parameters": [
-          {
-            "type": "string",
-            "x-go-name": "ProjectID",
-            "name": "project_id",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "string",
-            "x-go-name": "DC",
-            "name": "dc",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "string",
-            "x-go-name": "ClusterID",
-            "name": "cluster_id",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "boolean",
-            "x-go-name": "HideInitialConditions",
-            "name": "hideInitialConditions",
-            "in": "query"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Node",
-            "schema": {
-              "type": "array",
-              "items": {
-                "$ref": "#/definitions/Node"
-              }
-            }
-          },
-          "401": {
-            "$ref": "#/responses/empty"
-          },
-          "403": {
-            "$ref": "#/responses/empty"
-          },
-          "default": {
-            "$ref": "#/responses/errorResponse"
-          }
-        }
-      },
-      "post": {
-        "description": "This endpoint is deprecated, please create a Node Deployment instead.\nUse POST /api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/nodedeployments",
-        "consumes": [
-          "application/json"
-        ],
-        "produces": [
-          "application/json"
-        ],
-        "tags": [
-          "project"
-        ],
-        "summary": "Deprecated:\nCreates a node that will belong to the given cluster",
-        "operationId": "createNodeForClusterLegacy",
-        "parameters": [
-          {
-            "type": "string",
-            "x-go-name": "ProjectID",
-            "name": "project_id",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "string",
-            "x-go-name": "DC",
-            "name": "dc",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "string",
-            "x-go-name": "ClusterID",
-            "name": "cluster_id",
-            "in": "path",
-            "required": true
-          },
-          {
-            "name": "Body",
-            "in": "body",
-            "schema": {
-              "$ref": "#/definitions/Node"
-            }
-          }
-        ],
-        "responses": {
-          "201": {
-            "description": "Node",
-            "schema": {
-              "$ref": "#/definitions/Node"
-            }
-          },
-          "401": {
-            "$ref": "#/responses/empty"
-          },
-          "403": {
-            "$ref": "#/responses/empty"
-          },
-          "default": {
-            "$ref": "#/responses/errorResponse"
-          }
-        }
-      }
-    },
-    "/api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/nodes/upgrades": {
-      "put": {
-        "description": "Upgrades node deployments in a cluster",
-        "produces": [
-          "application/json"
-        ],
-        "tags": [
-          "project"
-        ],
-        "operationId": "upgradeClusterNodeDeployments",
-        "parameters": [
-          {
-            "type": "string",
-            "x-go-name": "ProjectID",
-            "name": "project_id",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "string",
-            "x-go-name": "DC",
-            "name": "dc",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "string",
-            "x-go-name": "ClusterID",
-            "name": "cluster_id",
-            "in": "path",
-            "required": true
-          },
-          {
-            "name": "Body",
-            "in": "body",
-            "schema": {
-              "$ref": "#/definitions/MasterVersion"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "$ref": "#/responses/empty"
-          },
-          "401": {
-            "$ref": "#/responses/empty"
-          },
-          "403": {
-            "$ref": "#/responses/empty"
-          },
-          "default": {
-            "$ref": "#/responses/errorResponse"
-          }
-        }
-      }
-    },
-    "/api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/nodes/{node_id}": {
-      "get": {
-        "description": "This endpoint is deprecated, please create a Node Deployment instead.",
-        "consumes": [
-          "application/json"
-        ],
-        "produces": [
-          "application/json"
-        ],
-        "tags": [
-          "project"
-        ],
-        "summary": "Deprecated:\nGets a node that is assigned to the given cluster.",
-        "operationId": "getNodeForClusterLegacy",
-        "parameters": [
-          {
-            "type": "string",
-            "x-go-name": "ProjectID",
-            "name": "project_id",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "string",
-            "x-go-name": "DC",
-            "name": "dc",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "string",
-            "x-go-name": "ClusterID",
-            "name": "cluster_id",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "string",
-            "x-go-name": "NodeID",
-            "name": "node_id",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "boolean",
-            "x-go-name": "HideInitialConditions",
-            "name": "hideInitialConditions",
-            "in": "query"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Node",
-            "schema": {
-              "$ref": "#/definitions/Node"
-            }
-          },
-          "401": {
-            "$ref": "#/responses/empty"
-          },
-          "403": {
-            "$ref": "#/responses/empty"
-          },
-          "default": {
-            "$ref": "#/responses/errorResponse"
-          }
-        }
-      },
-      "delete": {
-        "description": "This endpoint is deprecated, please create a Node Deployment instead.",
-        "produces": [
-          "application/json"
-        ],
-        "tags": [
-          "project"
-        ],
-        "summary": "Deprecated:\nDeletes the given node that belongs to the cluster.",
-        "operationId": "deleteNodeForClusterLegacy",
-        "parameters": [
-          {
-            "type": "string",
-            "x-go-name": "ProjectID",
-            "name": "project_id",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "string",
-            "x-go-name": "DC",
-            "name": "dc",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "string",
-            "x-go-name": "ClusterID",
-            "name": "cluster_id",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "string",
-            "x-go-name": "NodeID",
-            "name": "node_id",
-            "in": "path",
-            "required": true
-          }
-        ],
-        "responses": {
-          "200": {
-            "$ref": "#/responses/empty"
-          },
-          "401": {
-            "$ref": "#/responses/empty"
-          },
-          "403": {
-            "$ref": "#/responses/empty"
-          },
-          "default": {
-            "$ref": "#/responses/errorResponse"
-          }
-        }
-      }
-    },
-    "/api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/oidckubeconfig": {
-      "get": {
-        "produces": [
-          "application/yaml"
-        ],
-        "tags": [
-          "project"
-        ],
-        "summary": "Gets the kubeconfig for the specified cluster with oidc authentication.",
-        "operationId": "getOidcClusterKubeconfig",
-        "parameters": [
-          {
-            "type": "string",
-            "x-go-name": "ProjectID",
-            "name": "project_id",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "string",
-            "x-go-name": "DC",
-            "name": "dc",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "string",
-            "x-go-name": "ClusterID",
-            "name": "cluster_id",
-            "in": "path",
-            "required": true
-          }
-        ],
         "responses": {
           "200": {
             "description": "Kubeconfig",
             "schema": {
               "$ref": "#/definitions/Kubeconfig"
-            }
-          },
-          "401": {
-            "$ref": "#/responses/empty"
-          },
-          "403": {
-            "$ref": "#/responses/empty"
-          },
-          "default": {
-            "$ref": "#/responses/errorResponse"
-          }
-        }
-      }
-    },
-    "/api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/providers/azure/sizes": {
-      "get": {
-        "description": "Lists available VM sizes in an Azure region",
-        "produces": [
-          "application/json"
-        ],
-        "tags": [
-          "azure"
-        ],
-        "operationId": "listAzureSizesNoCredentials",
-        "parameters": [
-          {
-            "type": "string",
-            "x-go-name": "ProjectID",
-            "name": "project_id",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "string",
-            "x-go-name": "DC",
-            "name": "dc",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "string",
-            "x-go-name": "ClusterID",
-            "name": "cluster_id",
-            "in": "path",
-            "required": true
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "AzureSizeList",
-            "schema": {
-              "$ref": "#/definitions/AzureSizeList"
-            }
-          },
-          "default": {
-            "$ref": "#/responses/errorResponse"
-          }
-        }
-      }
-    },
-    "/api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/providers/digitalocean/sizes": {
-      "get": {
-        "description": "Lists sizes from digitalocean",
-        "produces": [
-          "application/json"
-        ],
-        "tags": [
-          "digitalocean"
-        ],
-        "operationId": "listDigitaloceanSizesNoCredentials",
-        "parameters": [
-          {
-            "type": "string",
-            "x-go-name": "ProjectID",
-            "name": "project_id",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "string",
-            "x-go-name": "DC",
-            "name": "dc",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "string",
-            "x-go-name": "ClusterID",
-            "name": "cluster_id",
-            "in": "path",
-            "required": true
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "DigitaloceanSizeList",
-            "schema": {
-              "$ref": "#/definitions/DigitaloceanSizeList"
-            }
-          },
-          "default": {
-            "$ref": "#/responses/errorResponse"
-          }
-        }
-      }
-    },
-    "/api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/providers/gcp/disktypes": {
-      "get": {
-        "description": "Lists disk types from GCP",
-        "produces": [
-          "application/json"
-        ],
-        "tags": [
-          "gcp"
-        ],
-        "operationId": "listGCPDiskTypesNoCredentials",
-        "parameters": [
-          {
-            "type": "string",
-            "x-go-name": "ProjectID",
-            "name": "project_id",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "string",
-            "x-go-name": "DC",
-            "name": "dc",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "string",
-            "x-go-name": "ClusterID",
-            "name": "cluster_id",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "string",
-            "name": "Zone",
-            "in": "header"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "GCPDiskTypeList",
-            "schema": {
-              "$ref": "#/definitions/GCPDiskTypeList"
-            }
-          },
-          "default": {
-            "$ref": "#/responses/errorResponse"
-          }
-        }
-      }
-    },
-    "/api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/providers/gcp/sizes": {
-      "get": {
-        "description": "Lists machine sizes from GCP",
-        "produces": [
-          "application/json"
-        ],
-        "tags": [
-          "gcp"
-        ],
-        "operationId": "listGCPSizesNoCredentials",
-        "parameters": [
-          {
-            "type": "string",
-            "x-go-name": "ProjectID",
-            "name": "project_id",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "string",
-            "x-go-name": "DC",
-            "name": "dc",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "string",
-            "x-go-name": "ClusterID",
-            "name": "cluster_id",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "string",
-            "name": "Zone",
-            "in": "header"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "GCPMachineSizeList",
-            "schema": {
-              "$ref": "#/definitions/GCPMachineSizeList"
-            }
-          },
-          "default": {
-            "$ref": "#/responses/errorResponse"
-          }
-        }
-      }
-    },
-    "/api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/providers/gcp/zones": {
-      "get": {
-        "description": "Lists available GCP zones",
-=======
-      },
-      "patch": {
-        "description": "Update cluster role binding",
->>>>>>> v2.12.1
-        "produces": [
-          "application/json"
-        ],
-        "tags": [
-          "gcp"
-        ],
-<<<<<<< HEAD
-        "operationId": "listGCPZonesNoCredentials",
-=======
-        "operationId": "patchClusterRoleBinding",
->>>>>>> v2.12.1
-        "parameters": [
-          {
-            "type": "string",
-            "x-go-name": "ProjectID",
-            "name": "project_id",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "string",
-            "x-go-name": "DC",
-            "name": "dc",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "string",
-            "x-go-name": "ClusterID",
-            "name": "cluster_id",
-            "in": "path",
-            "required": true
-<<<<<<< HEAD
-=======
-          },
-          {
-            "type": "string",
-            "x-go-name": "RoleID",
-            "name": "role_id",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "string",
-            "x-go-name": "BindingID",
-            "name": "binding_id",
-            "in": "path",
-            "required": true
-          },
-          {
-            "name": "Patch",
-            "in": "body",
-            "schema": {
-              "type": "array",
-              "items": {
-                "type": "integer",
-                "format": "uint8"
-              }
-            }
->>>>>>> v2.12.1
-          }
-        ],
-        "responses": {
-          "200": {
-<<<<<<< HEAD
-            "description": "GCPZoneList",
-            "schema": {
-              "$ref": "#/definitions/GCPZoneList"
-            }
-=======
-            "description": "ClusterRoleBinding",
-            "schema": {
-              "$ref": "#/definitions/ClusterRoleBinding"
-            }
-          },
-          "401": {
-            "$ref": "#/responses/empty"
-          },
-          "403": {
-            "$ref": "#/responses/empty"
->>>>>>> v2.12.1
-          },
-          "default": {
-            "description": "errorResponse",
-            "schema": {
-              "$ref": "#/definitions/errorResponse"
-            }
-          }
-        }
-      }
-    },
-<<<<<<< HEAD
-    "/api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/providers/openstack/images": {
-      "get": {
-        "description": "Lists images from openstack",
-=======
-    "/api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/events": {
-      "get": {
->>>>>>> v2.12.1
-        "produces": [
-          "application/yaml"
-        ],
-        "tags": [
-<<<<<<< HEAD
-          "openstack"
-        ],
-        "operationId": "listOpenstackImagesNoCredentials",
-=======
-          "project"
-        ],
-        "summary": "Gets the events related to the specified cluster.",
-        "operationId": "getClusterEvents",
->>>>>>> v2.12.1
-        "parameters": [
-          {
-            "type": "string",
-            "x-go-name": "ProjectID",
-            "name": "project_id",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "string",
-            "x-go-name": "DC",
-            "name": "dc",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "string",
-            "x-go-name": "ClusterID",
-            "name": "cluster_id",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "string",
-            "name": "Type",
-            "in": "query"
-          }
-        ],
-        "responses": {
-          "200": {
-<<<<<<< HEAD
-            "description": "Image",
-            "schema": {
-              "type": "array",
-              "items": {
-                "$ref": "#/definitions/Image"
-=======
-            "description": "Event",
-            "schema": {
-              "type": "array",
-              "items": {
-                "$ref": "#/definitions/Event"
->>>>>>> v2.12.1
-              }
-            }
-          },
-          "401": {
-            "$ref": "#/responses/empty"
-          },
-          "403": {
-            "$ref": "#/responses/empty"
-          },
-          "default": {
-            "description": "errorResponse",
-            "schema": {
-              "$ref": "#/definitions/errorResponse"
-            }
-          }
-        }
-      }
-    },
-<<<<<<< HEAD
-    "/api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/providers/openstack/networks": {
-      "get": {
-        "description": "Lists networks from openstack",
-=======
-    "/api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/health": {
-      "get": {
-        "description": "Returns the cluster's component health status",
->>>>>>> v2.12.1
-        "produces": [
-          "application/json"
-        ],
-        "tags": [
-<<<<<<< HEAD
-          "openstack"
-        ],
-        "operationId": "listOpenstackNetworksNoCredentials",
-=======
-          "project"
-        ],
-        "operationId": "getClusterHealth",
->>>>>>> v2.12.1
-        "parameters": [
-          {
-            "type": "string",
-            "x-go-name": "ProjectID",
-            "name": "project_id",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "string",
-            "x-go-name": "DC",
-            "name": "dc",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "string",
-            "x-go-name": "ClusterID",
-            "name": "cluster_id",
-            "in": "path",
-            "required": true
-          }
-        ],
-        "responses": {
-          "200": {
-<<<<<<< HEAD
-            "description": "OpenstackNetwork",
-            "schema": {
-              "type": "array",
-              "items": {
-                "$ref": "#/definitions/OpenstackNetwork"
-              }
-=======
-            "description": "ClusterHealth",
-            "schema": {
-              "$ref": "#/definitions/ClusterHealth"
->>>>>>> v2.12.1
-            }
-          },
-          "401": {
-            "$ref": "#/responses/empty"
-          },
-          "403": {
-            "$ref": "#/responses/empty"
-          },
-          "default": {
-            "description": "errorResponse",
-            "schema": {
-              "$ref": "#/definitions/errorResponse"
-            }
-          }
-        }
-      }
-    },
-<<<<<<< HEAD
-    "/api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/providers/openstack/quotalimits": {
-      "get": {
-        "description": "Lists quotalimits for tenant from openstack",
-=======
-    "/api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/kubeconfig": {
-      "get": {
->>>>>>> v2.12.1
-        "produces": [
-          "application/yaml"
-        ],
-        "tags": [
-          "project"
-        ],
-<<<<<<< HEAD
-        "operationId": "listOpenstackQuotaLimitsNoCredentials",
-=======
-        "summary": "Gets the kubeconfig for the specified cluster.",
-        "operationId": "getClusterKubeconfig",
->>>>>>> v2.12.1
-        "parameters": [
-          {
-            "type": "string",
-            "x-go-name": "ProjectID",
-            "name": "project_id",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "string",
-            "x-go-name": "DC",
-            "name": "dc",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "string",
-            "x-go-name": "ClusterID",
-            "name": "cluster_id",
-            "in": "path",
-            "required": true
-          }
-        ],
-        "responses": {
-          "200": {
-<<<<<<< HEAD
-            "description": "Quotas",
-            "schema": {
-              "$ref": "#/definitions/Quotas"
-=======
-            "description": "Kubeconfig",
-            "schema": {
-              "$ref": "#/definitions/Kubeconfig"
->>>>>>> v2.12.1
             }
           },
           "401": {
@@ -3232,17 +2263,10 @@
           }
         ],
         "responses": {
-<<<<<<< HEAD
-          "201": {
-            "description": "SSHKey",
-            "schema": {
-              "$ref": "#/definitions/SSHKey"
-=======
           "200": {
             "description": "NodeDeployment",
             "schema": {
               "$ref": "#/definitions/NodeDeployment"
->>>>>>> v2.12.1
             }
           },
           "401": {
@@ -4151,224 +3175,19 @@
           "application/json"
         ],
         "tags": [
-<<<<<<< HEAD
-          "users"
-        ],
-        "operationId": "addUserToProject",
-        "parameters": [
-          {
-            "type": "string",
-            "x-go-name": "ProjectID",
-            "name": "project_id",
-            "in": "path",
-            "required": true
-          },
-          {
-            "name": "Body",
-            "in": "body",
-            "schema": {
-              "$ref": "#/definitions/User"
-            }
-          }
-        ],
-        "responses": {
-          "201": {
-            "description": "User",
-            "schema": {
-              "$ref": "#/definitions/User"
-            }
-          },
-          "401": {
-            "$ref": "#/responses/empty"
-          },
-          "403": {
-            "$ref": "#/responses/empty"
-          },
-          "default": {
-            "$ref": "#/responses/errorResponse"
-          }
-        }
-      }
-    },
-    "/api/v1/projects/{project_id}/users/{user_id}": {
-      "put": {
-        "description": "Changes membership of the given user for the given project",
-        "consumes": [
-          "application/json"
-        ],
-        "produces": [
-          "application/json"
-        ],
-        "tags": [
-          "users"
-        ],
-        "operationId": "editUserInProject",
-        "parameters": [
-          {
-            "type": "string",
-            "x-go-name": "ProjectID",
-            "name": "project_id",
-            "in": "path",
-            "required": true
-          },
-          {
-            "name": "Body",
-            "in": "body",
-            "schema": {
-              "$ref": "#/definitions/User"
-            }
-          },
-          {
-            "type": "string",
-            "x-go-name": "UserID",
-            "name": "user_id",
-            "in": "path",
-            "required": true
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "User",
-            "schema": {
-              "$ref": "#/definitions/User"
-            }
-          },
-          "401": {
-            "$ref": "#/responses/empty"
-          },
-          "403": {
-            "$ref": "#/responses/empty"
-          },
-          "default": {
-            "$ref": "#/responses/errorResponse"
-          }
-        }
-      },
-      "delete": {
-        "description": "Removes the given member from the project",
-        "consumes": [
-          "application/json"
-        ],
-        "produces": [
-          "application/json"
-        ],
-        "tags": [
-          "users"
-        ],
-        "operationId": "deleteUserFromProject",
-        "parameters": [
-          {
-            "type": "string",
-            "x-go-name": "ProjectID",
-            "name": "project_id",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "string",
-            "x-go-name": "UserID",
-            "name": "user_id",
-            "in": "path",
-            "required": true
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "User",
-            "schema": {
-              "$ref": "#/definitions/User"
-            }
-          },
-          "401": {
-            "$ref": "#/responses/empty"
-          },
-          "403": {
-            "$ref": "#/responses/empty"
-          },
-          "default": {
-            "$ref": "#/responses/errorResponse"
-          }
-        }
-      }
-    },
-    "/api/v1/providers/azure/sizes": {
-      "get": {
-        "description": "Lists available VM sizes in an Azure region",
-        "produces": [
-          "application/json"
-        ],
-        "tags": [
-          "azure"
-        ],
-        "operationId": "listAzureSizes",
-        "responses": {
-          "200": {
-            "description": "AzureSizeList",
-            "schema": {
-              "$ref": "#/definitions/AzureSizeList"
-            }
-          },
-          "default": {
-            "$ref": "#/responses/errorResponse"
-          }
-        }
-      }
-    },
-    "/api/v1/providers/digitalocean/sizes": {
-      "get": {
-        "description": "Lists sizes from digitalocean",
-        "produces": [
-          "application/json"
-        ],
-        "tags": [
-          "digitalocean"
-        ],
-        "operationId": "listDigitaloceanSizes",
-        "responses": {
-          "200": {
-            "description": "DigitaloceanSizeList",
-            "schema": {
-              "$ref": "#/definitions/DigitaloceanSizeList"
-            }
-          },
-          "default": {
-            "$ref": "#/responses/errorResponse"
-          }
-        }
-      }
-    },
-    "/api/v1/providers/gcp/disktypes": {
-      "get": {
-        "description": "Lists disk types from GCP",
-        "produces": [
-          "application/json"
-        ],
-        "tags": [
-          "gcp"
-        ],
-        "operationId": "listGCPDiskTypes",
-=======
           "gcp"
         ],
         "operationId": "listGCPZonesNoCredentials",
->>>>>>> v2.12.1
         "parameters": [
           {
             "type": "string",
-            "name": "ServiceAccount",
-            "in": "header"
+            "x-go-name": "ProjectID",
+            "name": "project_id",
+            "in": "path",
+            "required": true
           },
           {
             "type": "string",
-<<<<<<< HEAD
-            "name": "Zone",
-            "in": "header"
-          },
-          {
-            "type": "string",
-            "name": "Credential",
-            "in": "query"
-=======
             "x-go-name": "DC",
             "name": "dc",
             "in": "path",
@@ -4380,20 +3199,13 @@
             "name": "cluster_id",
             "in": "path",
             "required": true
->>>>>>> v2.12.1
           }
         ],
         "responses": {
           "200": {
-<<<<<<< HEAD
-            "description": "GCPDiskTypeList",
-            "schema": {
-              "$ref": "#/definitions/GCPDiskTypeList"
-=======
             "description": "GCPZoneList",
             "schema": {
               "$ref": "#/definitions/GCPZoneList"
->>>>>>> v2.12.1
             }
           },
           "default": {
@@ -4405,24 +3217,13 @@
         }
       }
     },
-<<<<<<< HEAD
-    "/api/v1/providers/gcp/sizes": {
-      "get": {
-        "description": "Lists machine sizes from GCP",
-=======
     "/api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/providers/hetzner/sizes": {
       "get": {
         "description": "Lists sizes from hetzner",
->>>>>>> v2.12.1
         "produces": [
           "application/json"
         ],
         "tags": [
-<<<<<<< HEAD
-          "gcp"
-        ],
-        "operationId": "listGCPSizes",
-=======
           "hetzner"
         ],
         "operationId": "listHetznerSizesNoCredentials",
@@ -4454,6 +3255,58 @@
             "description": "HetznerSizeList",
             "schema": {
               "$ref": "#/definitions/HetznerSizeList"
+            }
+          },
+          "default": {
+            "description": "errorResponse",
+            "schema": {
+              "$ref": "#/definitions/errorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/providers/openstack/images": {
+      "get": {
+        "description": "Lists images from openstack",
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "openstack"
+        ],
+        "operationId": "listOpenstackImagesNoCredentials",
+        "parameters": [
+          {
+            "type": "string",
+            "x-go-name": "ProjectID",
+            "name": "project_id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "x-go-name": "DC",
+            "name": "dc",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "x-go-name": "ClusterID",
+            "name": "cluster_id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Image",
+            "schema": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/Image"
+              }
             }
           },
           "default": {
@@ -4506,6 +3359,55 @@
               "items": {
                 "$ref": "#/definitions/OpenstackNetwork"
               }
+            }
+          },
+          "default": {
+            "description": "errorResponse",
+            "schema": {
+              "$ref": "#/definitions/errorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/providers/openstack/quotalimits": {
+      "get": {
+        "description": "Lists quotalimits for tenant from openstack",
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "openstack"
+        ],
+        "operationId": "listOpenstackQuotaLimitsNoCredentials",
+        "parameters": [
+          {
+            "type": "string",
+            "x-go-name": "ProjectID",
+            "name": "project_id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "x-go-name": "DC",
+            "name": "dc",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "x-go-name": "ClusterID",
+            "name": "cluster_id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Quotas",
+            "schema": {
+              "$ref": "#/definitions/Quotas"
             }
           },
           "default": {
@@ -6789,33 +5691,34 @@
           "users"
         ],
         "operationId": "deleteUserFromProject",
->>>>>>> v2.12.1
         "parameters": [
           {
             "type": "string",
-            "name": "ServiceAccount",
-            "in": "header"
+            "x-go-name": "ProjectID",
+            "name": "project_id",
+            "in": "path",
+            "required": true
           },
           {
-<<<<<<< HEAD
             "type": "string",
-            "name": "Zone",
-            "in": "header"
-          },
-          {
-=======
->>>>>>> v2.12.1
-            "type": "string",
-            "name": "Credential",
-            "in": "query"
+            "x-go-name": "UserID",
+            "name": "user_id",
+            "in": "path",
+            "required": true
           }
         ],
         "responses": {
           "200": {
-            "description": "GCPMachineSizeList",
+            "description": "User",
             "schema": {
-              "$ref": "#/definitions/GCPMachineSizeList"
+              "$ref": "#/definitions/User"
             }
+          },
+          "401": {
+            "$ref": "#/responses/empty"
+          },
+          "403": {
+            "$ref": "#/responses/empty"
           },
           "default": {
             "description": "errorResponse",
@@ -6915,28 +5818,13 @@
         }
       }
     },
-<<<<<<< HEAD
-    "/api/v1/providers/gcp/{dc}/zones": {
-      "get": {
-        "description": "Lists available GCP zones",
-=======
     "/api/v1/providers/aws/{dc}/vpcs": {
       "get": {
         "description": "Lists available AWS vpc's",
->>>>>>> v2.12.1
         "produces": [
           "application/json"
         ],
         "tags": [
-<<<<<<< HEAD
-          "gcp"
-        ],
-        "operationId": "listGCPZones",
-        "parameters": [
-          {
-            "type": "string",
-            "name": "ServiceAccount",
-=======
           "aws"
         ],
         "operationId": "listAWSVPCS",
@@ -6944,19 +5832,15 @@
           {
             "type": "string",
             "name": "AccessKeyID",
->>>>>>> v2.12.1
             "in": "header"
           },
           {
             "type": "string",
-<<<<<<< HEAD
-=======
             "name": "SecretAccessKey",
             "in": "header"
           },
           {
             "type": "string",
->>>>>>> v2.12.1
             "name": "Credential",
             "in": "header"
           },
@@ -6970,15 +5854,9 @@
         ],
         "responses": {
           "200": {
-<<<<<<< HEAD
-            "description": "GCPZoneList",
-            "schema": {
-              "$ref": "#/definitions/GCPZoneList"
-=======
             "description": "AWSVPCList",
             "schema": {
               "$ref": "#/definitions/AWSVPCList"
->>>>>>> v2.12.1
             }
           },
           "default": {
@@ -6990,24 +5868,21 @@
         }
       }
     },
-    "/api/v1/providers/openstack/images": {
+    "/api/v1/providers/azure/sizes": {
       "get": {
-        "description": "Lists images from openstack",
+        "description": "Lists available VM sizes in an Azure region",
         "produces": [
           "application/json"
         ],
         "tags": [
-          "openstack"
+          "azure"
         ],
-        "operationId": "listOpenstackImages",
+        "operationId": "listAzureSizes",
         "responses": {
           "200": {
-            "description": "Image",
+            "description": "AzureSizeList",
             "schema": {
-              "type": "array",
-              "items": {
-                "$ref": "#/definitions/Image"
-              }
+              "$ref": "#/definitions/AzureSizeList"
             }
           },
           "default": {
@@ -7019,24 +5894,21 @@
         }
       }
     },
-    "/api/v1/providers/openstack/networks": {
+    "/api/v1/providers/digitalocean/sizes": {
       "get": {
-        "description": "Lists networks from openstack",
+        "description": "Lists sizes from digitalocean",
         "produces": [
           "application/json"
         ],
         "tags": [
-          "openstack"
+          "digitalocean"
         ],
-        "operationId": "listOpenstackNetworks",
+        "operationId": "listDigitaloceanSizes",
         "responses": {
           "200": {
-            "description": "OpenstackNetwork",
+            "description": "DigitaloceanSizeList",
             "schema": {
-              "type": "array",
-              "items": {
-                "$ref": "#/definitions/OpenstackNetwork"
-              }
+              "$ref": "#/definitions/DigitaloceanSizeList"
             }
           },
           "default": {
@@ -7194,6 +6066,64 @@
             "description": "HetznerSizeList",
             "schema": {
               "$ref": "#/definitions/HetznerSizeList"
+            }
+          },
+          "default": {
+            "description": "errorResponse",
+            "schema": {
+              "$ref": "#/definitions/errorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/providers/openstack/images": {
+      "get": {
+        "description": "Lists images from openstack",
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "openstack"
+        ],
+        "operationId": "listOpenstackImages",
+        "responses": {
+          "200": {
+            "description": "Image",
+            "schema": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/Image"
+              }
+            }
+          },
+          "default": {
+            "description": "errorResponse",
+            "schema": {
+              "$ref": "#/definitions/errorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/providers/openstack/networks": {
+      "get": {
+        "description": "Lists networks from openstack",
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "openstack"
+        ],
+        "operationId": "listOpenstackNetworks",
+        "responses": {
+          "200": {
+            "description": "OpenstackNetwork",
+            "schema": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/OpenstackNetwork"
+              }
             }
           },
           "default": {
@@ -7644,12 +6574,20 @@
           "type": "string",
           "x-go-name": "AccessKeyID"
         },
+        "availabilityZone": {
+          "type": "string",
+          "x-go-name": "AvailabilityZone"
+        },
         "credentialsReference": {
           "$ref": "#/definitions/GlobalSecretKeySelector"
         },
         "instanceProfileName": {
           "type": "string",
           "x-go-name": "InstanceProfileName"
+        },
+        "openstackBillingTenant": {
+          "type": "string",
+          "x-go-name": "OpenstackBillingTenant"
         },
         "roleARN": {
           "description": "The IAM role, the control plane will use. The control plane will perform an assume-role",
@@ -7885,16 +6823,8 @@
           "type": "string",
           "x-go-name": "DhcpOptionsID"
         },
-<<<<<<< HEAD
-        "openstackBillingTenant": {
-          "type": "string",
-          "x-go-name": "OpenstackBillingTenant"
-        },
-        "roleARN": {
-=======
         "instanceTenancy": {
           "description": "The allowed tenancy of instances launched into the VPC.",
->>>>>>> v2.12.1
           "type": "string",
           "x-go-name": "InstanceTenancy"
         },
@@ -7983,49 +6913,22 @@
         "associationId": {
           "description": "The association ID for the IPv4 CIDR block.",
           "type": "string",
-<<<<<<< HEAD
-          "x-go-name": "Region"
-        }
-      },
-      "x-go-package": "github.com/kubermatic/kubermatic/api/pkg/api/v1"
-    },
-    "AWSNodeSpec": {
-      "description": "AWSNodeSpec aws specific node settings",
-      "type": "object",
-      "required": [
-        "instanceType",
-        "diskSize",
-        "volumeType"
-      ],
-      "properties": {
-        "ami": {
-          "description": "ami to use. Will be defaulted to a ami for your selected operating system and region. Only set this when you know what you do.",
+          "x-go-name": "AssociationID"
+        },
+        "cidrBlock": {
+          "description": "The IPv4 CIDR block.",
           "type": "string",
-          "x-go-name": "AMI"
+          "x-go-name": "CidrBlock"
         },
-        "diskSize": {
-          "description": "size of the volume in gb. Only one volume will be created",
-          "type": "integer",
-          "format": "int64",
-          "x-go-name": "VolumeSize"
-        },
-        "instanceType": {
+        "state": {
+          "description": "The state of the CIDR block.",
           "type": "string",
-          "x-go-name": "InstanceType",
-          "example": "t2.micro"
+          "x-go-name": "State"
         },
-        "tags": {
-          "description": "additional instance tags",
-          "type": "object",
-          "additionalProperties": {
-            "type": "string"
-          },
-          "x-go-name": "Tags"
-        },
-        "volumeType": {
+        "statusMessage": {
+          "description": "A message about the status of the CIDR block, if applicable.",
           "type": "string",
-          "x-go-name": "VolumeType",
-          "example": "gp2, io1, st1, sc1, standard"
+          "x-go-name": "StatusMessage"
         }
       },
       "x-go-package": "github.com/kubermatic/kubermatic/api/pkg/api/v1"
@@ -8151,64 +7054,6 @@
       },
       "x-go-package": "github.com/kubermatic/kubermatic/api/pkg/api/v1"
     },
-    "Addon": {
-      "description": "Addon represents a predefined addon that users may install into their cluster",
-      "type": "object",
-      "properties": {
-        "creationTimestamp": {
-          "description": "CreationTimestamp is a timestamp representing the server time when this object was created.",
-          "type": "string",
-          "format": "date-time",
-          "x-go-name": "CreationTimestamp"
-        },
-        "deletionTimestamp": {
-          "description": "DeletionTimestamp is a timestamp representing the server time when this object was deleted.",
-          "type": "string",
-          "format": "date-time",
-          "x-go-name": "DeletionTimestamp"
-        },
-        "id": {
-          "description": "ID unique value that identifies the resource generated by the server",
-          "type": "string",
-          "x-go-name": "ID"
-        },
-        "name": {
-          "description": "Name represents human readable name for the resource",
-          "type": "string",
-          "x-go-name": "Name"
-        },
-        "spec": {
-          "$ref": "#/definitions/AddonSpec"
-=======
-          "x-go-name": "AssociationID"
-        },
-        "cidrBlock": {
-          "description": "The IPv4 CIDR block.",
-          "type": "string",
-          "x-go-name": "CidrBlock"
-        },
-        "state": {
-          "description": "The state of the CIDR block.",
-          "type": "string",
-          "x-go-name": "State"
-        },
-        "statusMessage": {
-          "description": "A message about the status of the CIDR block, if applicable.",
-          "type": "string",
-          "x-go-name": "StatusMessage"
->>>>>>> v2.12.1
-        }
-      },
-      "x-go-package": "github.com/kubermatic/kubermatic/api/pkg/api/v1"
-    },
-<<<<<<< HEAD
-    "AddonSpec": {
-      "description": "AddonSpec addon specification",
-      "type": "object",
-      "properties": {
-        "variables": {
-          "$ref": "#/definitions/RawExtension"
-=======
     "AccessibleAddons": {
       "type": "array",
       "title": "AccessibleAddons represents an array of addons that can be configured in the user clusters.",
@@ -8265,7 +7110,6 @@
             "type": "object"
           },
           "x-go-name": "Variables"
->>>>>>> v2.12.1
         }
       },
       "x-go-package": "github.com/kubermatic/kubermatic/api/pkg/api/v1"
@@ -8797,13 +7641,11 @@
         "oidc": {
           "$ref": "#/definitions/OIDCSettings"
         },
-<<<<<<< HEAD
-        "sys11auth": {
-          "$ref": "#/definitions/Sys11AuthSettings"
-=======
         "openshift": {
           "$ref": "#/definitions/Openshift"
->>>>>>> v2.12.1
+        },
+        "sys11auth": {
+          "$ref": "#/definitions/Sys11AuthSettings"
         },
         "usePodSecurityPolicyAdmissionPlugin": {
           "description": "If active the PodSecurityPolicy admission plugin is configured at the apiserver",
@@ -9428,19 +8270,6 @@
       },
       "x-go-package": "github.com/kubermatic/kubermatic/api/pkg/api/v1"
     },
-<<<<<<< HEAD
-    "Header": {
-      "description": "The keys should be in canonical form, as returned by\nCanonicalHeaderKey.",
-      "type": "object",
-      "title": "A Header represents the key-value pairs in an HTTP header.",
-      "additionalProperties": {
-        "type": "array",
-        "items": {
-          "type": "string"
-        }
-      },
-      "x-go-package": "net/http"
-=======
     "GlobalObjectKeySelector": {
       "description": "GlobalObjectKeySelector is needed as we can not use v1.SecretKeySelector\nbecause it is not cross namespace",
       "type": "object",
@@ -9487,7 +8316,18 @@
     },
     "GlobalSecretKeySelector": {
       "$ref": "#/definitions/GlobalObjectKeySelector"
->>>>>>> v2.12.1
+    },
+    "Header": {
+      "description": "The keys should be in canonical form, as returned by\nCanonicalHeaderKey.",
+      "type": "object",
+      "title": "A Header represents the key-value pairs in an HTTP header.",
+      "additionalProperties": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "x-go-package": "net/http"
     },
     "HealthStatus": {
       "type": "integer",
@@ -9538,53 +8378,6 @@
       },
       "x-go-package": "github.com/kubermatic/kubermatic/api/pkg/api/v1"
     },
-<<<<<<< HEAD
-    "Image": {
-      "type": "object",
-      "title": "Image represents an Image returned by the Compute API.",
-      "properties": {
-        "Created": {
-          "description": "Created is the date when the image was created.",
-          "type": "string"
-        },
-        "ID": {
-          "description": "ID is the unique ID of an image.",
-          "type": "string"
-        },
-        "Metadata": {
-          "description": "Metadata provides free-form key/value pairs that further describe the\nimage.",
-          "type": "object",
-          "additionalProperties": {
-            "type": "object"
-          }
-        },
-        "MinDisk": {
-          "description": "MinDisk is the minimum amount of disk a flavor must have to be able\nto create a server based on the image, measured in GB.",
-          "type": "integer",
-          "format": "int64"
-        },
-        "MinRAM": {
-          "description": "MinRAM is the minimum amount of RAM a flavor must have to be able\nto create a server based on the image, measured in MB.",
-          "type": "integer",
-          "format": "int64"
-        },
-        "Name": {
-          "description": "Name provides a human-readable moniker for the OS image.",
-          "type": "string"
-        },
-        "Progress": {
-          "description": "The Progress and Status fields indicate image-creation status.",
-          "type": "integer",
-          "format": "int64"
-        },
-        "Status": {
-          "description": "Status is the current status of the image.",
-          "type": "string"
-        },
-        "Updated": {
-          "description": "Update is the date when the image was updated.",
-          "type": "string"
-=======
     "HetznerSize": {
       "type": "object",
       "title": "HetznerSize is the object representing Hetzner sizes.",
@@ -9637,7 +8430,55 @@
             "$ref": "#/definitions/HetznerSize"
           },
           "x-go-name": "Standard"
->>>>>>> v2.12.1
+        }
+      },
+      "x-go-package": "github.com/kubermatic/kubermatic/api/pkg/api/v1"
+    },
+    "Image": {
+      "type": "object",
+      "title": "Image represents an Image returned by the Compute API.",
+      "properties": {
+        "Created": {
+          "description": "Created is the date when the image was created.",
+          "type": "string"
+        },
+        "ID": {
+          "description": "ID is the unique ID of an image.",
+          "type": "string"
+        },
+        "Metadata": {
+          "description": "Metadata provides free-form key/value pairs that further describe the\nimage.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "object"
+          }
+        },
+        "MinDisk": {
+          "description": "MinDisk is the minimum amount of disk a flavor must have to be able\nto create a server based on the image, measured in GB.",
+          "type": "integer",
+          "format": "int64"
+        },
+        "MinRAM": {
+          "description": "MinRAM is the minimum amount of RAM a flavor must have to be able\nto create a server based on the image, measured in MB.",
+          "type": "integer",
+          "format": "int64"
+        },
+        "Name": {
+          "description": "Name provides a human-readable moniker for the OS image.",
+          "type": "string"
+        },
+        "Progress": {
+          "description": "The Progress and Status fields indicate image-creation status.",
+          "type": "integer",
+          "format": "int64"
+        },
+        "Status": {
+          "description": "Status is the current status of the image.",
+          "type": "string"
+        },
+        "Updated": {
+          "description": "Update is the date when the image was updated.",
+          "type": "string"
         }
       },
       "x-go-package": "github.com/kubermatic/kubermatic/api/pkg/api/v1"
@@ -9703,20 +8544,6 @@
             "$ref": "#/definitions/NamedAuthInfo"
           },
           "x-go-name": "AuthInfos"
-        }
-      },
-      "x-go-package": "github.com/kubermatic/kubermatic/api/pkg/api/v1"
-    },
-<<<<<<< HEAD
-=======
-    "KubermaticVersions": {
-      "type": "object",
-      "title": "KubermaticVersions describes the versions of running Kubermatic components.",
-      "properties": {
-        "api": {
-          "description": "Version of the Kubermatic API server.",
-          "type": "string",
-          "x-go-name": "API"
         }
       },
       "x-go-package": "github.com/kubermatic/kubermatic/api/pkg/api/v1"
@@ -9792,7 +8619,6 @@
       },
       "x-go-package": "github.com/kubermatic/kubermatic/api/pkg/api/v1"
     },
->>>>>>> v2.12.1
     "LegacyObjectMeta": {
       "description": "Deprecated: LegacyObjectMeta is deprecated use ObjectMeta instead.",
       "type": "object",
@@ -10332,40 +9158,6 @@
         }
       },
       "x-go-package": "github.com/kubermatic/kubermatic/api/pkg/api/v1"
-    },
-    "OIDCSettings": {
-      "type": "object",
-      "properties": {
-        "clientId": {
-          "type": "string",
-          "x-go-name": "ClientID"
-        },
-        "clientSecret": {
-          "type": "string",
-          "x-go-name": "ClientSecret"
-        },
-        "extraScopes": {
-          "type": "string",
-          "x-go-name": "ExtraScopes"
-        },
-        "groupsClaim": {
-          "type": "string",
-          "x-go-name": "GroupsClaim"
-        },
-        "issuerUrl": {
-          "type": "string",
-          "x-go-name": "IssuerURL"
-        },
-        "requiredClaim": {
-          "type": "string",
-          "x-go-name": "RequiredClaim"
-        },
-        "usernameClaim": {
-          "type": "string",
-          "x-go-name": "UsernameClaim"
-        }
-      },
-      "x-go-package": "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
     },
     "OIDCSettings": {
       "type": "object",
@@ -11154,7 +9946,6 @@
       },
       "x-go-package": "github.com/kubermatic/kubermatic/api/vendor/k8s.io/apimachinery/pkg/runtime"
     },
-<<<<<<< HEAD
     "RawResponse": {
       "type": "object",
       "properties": {
@@ -11170,7 +9961,7 @@
         }
       },
       "x-go-package": "github.com/kubermatic/kubermatic/api/pkg/handler/v1/addon"
-=======
+    },
     "ResourceLabelMap": {
       "title": "ResourceLabelMap defines list of labels grouped by specific resource types.",
       "x-go-package": "github.com/kubermatic/kubermatic/api/pkg/api/v1"
@@ -11266,7 +10057,6 @@
         }
       },
       "x-go-package": "github.com/kubermatic/kubermatic/api/pkg/api/v1"
->>>>>>> v2.12.1
     },
     "SSHKey": {
       "description": "SSHKey represents a ssh key",
@@ -11399,17 +10189,6 @@
       },
       "x-go-package": "github.com/kubermatic/kubermatic/api/pkg/api/v1"
     },
-<<<<<<< HEAD
-    "Sys11AuthSettings": {
-      "type": "object",
-      "properties": {
-        "realm": {
-          "type": "string",
-          "x-go-name": "Realm"
-        }
-      },
-      "x-go-package": "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
-=======
     "Subject": {
       "description": "Right now we support \"User\" as a API group.",
       "type": "object",
@@ -11432,7 +10211,16 @@
         }
       },
       "x-go-package": "github.com/kubermatic/kubermatic/api/pkg/api/v1"
->>>>>>> v2.12.1
+    },
+    "Sys11AuthSettings": {
+      "type": "object",
+      "properties": {
+        "realm": {
+          "type": "string",
+          "x-go-name": "Realm"
+        }
+      },
+      "x-go-package": "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
     },
     "TaintSpec": {
       "description": "TaintSpec defines a node taint",
@@ -11692,7 +10480,17 @@
       "title": "Version represents a single semantic version.",
       "x-go-package": "github.com/kubermatic/kubermatic/api/vendor/github.com/Masterminds/semver"
     },
-<<<<<<< HEAD
+    "errorResponse": {
+      "description": "ErrorResponse is the default representation of an error",
+      "type": "object",
+      "properties": {
+        "error": {
+          "$ref": "#/definitions/ErrorDetails"
+        }
+      },
+      "x-go-name": "ErrorResponse",
+      "x-go-package": "github.com/kubermatic/kubermatic/api/pkg/handler"
+    },
     "unsealVaultReq": {
       "description": "unsealVaultReq defines HTTP request for unsealVaultAddon",
       "type": "object",
@@ -11722,18 +10520,6 @@
         }
       },
       "x-go-package": "github.com/kubermatic/kubermatic/api/pkg/handler/v1/addon"
-=======
-    "errorResponse": {
-      "description": "ErrorResponse is the default representation of an error",
-      "type": "object",
-      "properties": {
-        "error": {
-          "$ref": "#/definitions/ErrorDetails"
-        }
-      },
-      "x-go-name": "ErrorResponse",
-      "x-go-package": "github.com/kubermatic/kubermatic/api/pkg/handler"
->>>>>>> v2.12.1
     }
   },
   "responses": {
