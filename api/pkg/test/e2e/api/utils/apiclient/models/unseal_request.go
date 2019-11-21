@@ -11,21 +11,21 @@ import (
 	"github.com/go-openapi/swag"
 )
 
-// AWSZone AWSZone represents a object of AWS availability zone.
-// swagger:model AWSZone
-type AWSZone struct {
+// UnsealRequest unseal request
+// swagger:model UnsealRequest
+type UnsealRequest struct {
 
-	// name
-	Name string `json:"name,omitempty"`
+	// key
+	Key string `json:"key,omitempty"`
 }
 
-// Validate validates this a w s zone
-func (m *AWSZone) Validate(formats strfmt.Registry) error {
+// Validate validates this unseal request
+func (m *UnsealRequest) Validate(formats strfmt.Registry) error {
 	return nil
 }
 
 // MarshalBinary interface implementation
-func (m *AWSZone) MarshalBinary() ([]byte, error) {
+func (m *UnsealRequest) MarshalBinary() ([]byte, error) {
 	if m == nil {
 		return nil, nil
 	}
@@ -33,8 +33,8 @@ func (m *AWSZone) MarshalBinary() ([]byte, error) {
 }
 
 // UnmarshalBinary interface implementation
-func (m *AWSZone) UnmarshalBinary(b []byte) error {
-	var res AWSZone
+func (m *UnsealRequest) UnmarshalBinary(b []byte) error {
+	var res UnsealRequest
 	if err := swag.ReadJSON(b, &res); err != nil {
 		return err
 	}

@@ -8,10 +8,6 @@ package models
 import (
 	strfmt "github.com/go-openapi/strfmt"
 
-<<<<<<< HEAD
-	"github.com/go-openapi/errors"
-=======
->>>>>>> v2.12.1
 	"github.com/go-openapi/swag"
 )
 
@@ -19,50 +15,15 @@ import (
 // swagger:model AddonSpec
 type AddonSpec struct {
 
-<<<<<<< HEAD
-	// variables
-	Variables *RawExtension `json:"variables,omitempty"`
-=======
 	// IsDefault indicates whether the addon is default
 	IsDefault bool `json:"isDefault,omitempty"`
 
 	// Variables is free form data to use for parsing the manifest templates
 	Variables map[string]interface{} `json:"variables,omitempty"`
->>>>>>> v2.12.1
 }
 
 // Validate validates this addon spec
 func (m *AddonSpec) Validate(formats strfmt.Registry) error {
-<<<<<<< HEAD
-	var res []error
-
-	if err := m.validateVariables(formats); err != nil {
-		res = append(res, err)
-	}
-
-	if len(res) > 0 {
-		return errors.CompositeValidationError(res...)
-	}
-	return nil
-}
-
-func (m *AddonSpec) validateVariables(formats strfmt.Registry) error {
-
-	if swag.IsZero(m.Variables) { // not required
-		return nil
-	}
-
-	if m.Variables != nil {
-		if err := m.Variables.Validate(formats); err != nil {
-			if ve, ok := err.(*errors.Validation); ok {
-				return ve.ValidateName("variables")
-			}
-			return err
-		}
-	}
-
-=======
->>>>>>> v2.12.1
 	return nil
 }
 

@@ -82,12 +82,12 @@ func NewListOpenstackQuotaLimitsNoCredentialsDefault(code int) *ListOpenstackQuo
 
 /*ListOpenstackQuotaLimitsNoCredentialsDefault handles this case with default header values.
 
-ErrorResponse is the default representation of an error
+errorResponse
 */
 type ListOpenstackQuotaLimitsNoCredentialsDefault struct {
 	_statusCode int
 
-	Payload *models.ErrorDetails
+	Payload *models.ErrorResponse
 }
 
 // Code gets the status code for the list openstack quota limits no credentials default response
@@ -101,7 +101,7 @@ func (o *ListOpenstackQuotaLimitsNoCredentialsDefault) Error() string {
 
 func (o *ListOpenstackQuotaLimitsNoCredentialsDefault) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
-	o.Payload = new(models.ErrorDetails)
+	o.Payload = new(models.ErrorResponse)
 
 	// response payload
 	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {

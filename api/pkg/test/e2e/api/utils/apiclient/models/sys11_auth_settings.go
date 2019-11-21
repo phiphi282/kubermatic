@@ -11,24 +11,21 @@ import (
 	"github.com/go-openapi/swag"
 )
 
-// AWSSubnetTag AWSSubnetTag represents a object of AWS subnet tags.
-// swagger:model AWSSubnetTag
-type AWSSubnetTag struct {
+// Sys11AuthSettings sys11 auth settings
+// swagger:model Sys11AuthSettings
+type Sys11AuthSettings struct {
 
-	// key
-	Key string `json:"key,omitempty"`
-
-	// value
-	Value string `json:"value,omitempty"`
+	// realm
+	Realm string `json:"realm,omitempty"`
 }
 
-// Validate validates this a w s subnet tag
-func (m *AWSSubnetTag) Validate(formats strfmt.Registry) error {
+// Validate validates this sys11 auth settings
+func (m *Sys11AuthSettings) Validate(formats strfmt.Registry) error {
 	return nil
 }
 
 // MarshalBinary interface implementation
-func (m *AWSSubnetTag) MarshalBinary() ([]byte, error) {
+func (m *Sys11AuthSettings) MarshalBinary() ([]byte, error) {
 	if m == nil {
 		return nil, nil
 	}
@@ -36,8 +33,8 @@ func (m *AWSSubnetTag) MarshalBinary() ([]byte, error) {
 }
 
 // UnmarshalBinary interface implementation
-func (m *AWSSubnetTag) UnmarshalBinary(b []byte) error {
-	var res AWSSubnetTag
+func (m *Sys11AuthSettings) UnmarshalBinary(b []byte) error {
+	var res Sys11AuthSettings
 	if err := swag.ReadJSON(b, &res); err != nil {
 		return err
 	}

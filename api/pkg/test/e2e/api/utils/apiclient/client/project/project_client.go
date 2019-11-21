@@ -320,35 +320,6 @@ func (a *Client) CreateSSHKey(params *CreateSSHKeyParams, authInfo runtime.Clien
 }
 
 /*
-DeleteAddon deletes the given addon that belongs to the cluster
-*/
-func (a *Client) DeleteAddon(params *DeleteAddonParams, authInfo runtime.ClientAuthInfoWriter) (*DeleteAddonOK, error) {
-	// TODO: Validate the params before sending
-	if params == nil {
-		params = NewDeleteAddonParams()
-	}
-
-	result, err := a.transport.Submit(&runtime.ClientOperation{
-		ID:                 "deleteAddon",
-		Method:             "DELETE",
-		PathPattern:        "/api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/addons/{addon_id}",
-		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json"},
-		Schemes:            []string{"https"},
-		Params:             params,
-		Reader:             &DeleteAddonReader{formats: a.formats},
-		AuthInfo:           authInfo,
-		Context:            params.Context,
-		Client:             params.HTTPClient,
-	})
-	if err != nil {
-		return nil, err
-	}
-	return result.(*DeleteAddonOK), nil
-
-}
-
-/*
 DeleteCluster Deletes the specified cluster
 */
 func (a *Client) DeleteCluster(params *DeleteClusterParams, authInfo runtime.ClientAuthInfoWriter) (*DeleteClusterOK, error) {
@@ -869,6 +840,35 @@ func (a *Client) GetClusterUpgrades(params *GetClusterUpgradesParams, authInfo r
 		return nil, err
 	}
 	return result.(*GetClusterUpgradesOK), nil
+
+}
+
+/*
+GetKubeLoginClusterKubeconfig gets the kubeconfig for the specified cluster with oidc authentication that works nicely with kube login
+*/
+func (a *Client) GetKubeLoginClusterKubeconfig(params *GetKubeLoginClusterKubeconfigParams, authInfo runtime.ClientAuthInfoWriter) (*GetKubeLoginClusterKubeconfigOK, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewGetKubeLoginClusterKubeconfigParams()
+	}
+
+	result, err := a.transport.Submit(&runtime.ClientOperation{
+		ID:                 "getKubeLoginClusterKubeconfig",
+		Method:             "GET",
+		PathPattern:        "/api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/kubeloginkubeconfig",
+		ProducesMediaTypes: []string{"application/yaml"},
+		ConsumesMediaTypes: []string{"application/json"},
+		Schemes:            []string{"https"},
+		Params:             params,
+		Reader:             &GetKubeLoginClusterKubeconfigReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.(*GetKubeLoginClusterKubeconfigOK), nil
 
 }
 

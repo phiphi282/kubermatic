@@ -11,24 +11,21 @@ import (
 	"github.com/go-openapi/swag"
 )
 
-// ClusterMetric ClusterMetric defines a metric for the given cluster
-// swagger:model ClusterMetric
-type ClusterMetric struct {
+// UnsealResponse unseal response
+// swagger:model UnsealResponse
+type UnsealResponse struct {
 
-	// name
-	Name string `json:"name,omitempty"`
-
-	// values
-	Values []float64 `json:"values"`
+	// unseals
+	Unseals int64 `json:"unseals,omitempty"`
 }
 
-// Validate validates this cluster metric
-func (m *ClusterMetric) Validate(formats strfmt.Registry) error {
+// Validate validates this unseal response
+func (m *UnsealResponse) Validate(formats strfmt.Registry) error {
 	return nil
 }
 
 // MarshalBinary interface implementation
-func (m *ClusterMetric) MarshalBinary() ([]byte, error) {
+func (m *UnsealResponse) MarshalBinary() ([]byte, error) {
 	if m == nil {
 		return nil, nil
 	}
@@ -36,8 +33,8 @@ func (m *ClusterMetric) MarshalBinary() ([]byte, error) {
 }
 
 // UnmarshalBinary interface implementation
-func (m *ClusterMetric) UnmarshalBinary(b []byte) error {
-	var res ClusterMetric
+func (m *UnsealResponse) UnmarshalBinary(b []byte) error {
+	var res UnsealResponse
 	if err := swag.ReadJSON(b, &res); err != nil {
 		return err
 	}
