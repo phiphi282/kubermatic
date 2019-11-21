@@ -76,7 +76,8 @@ func GetAdminKubeconfigEndpoint(projectProvider provider.ProjectProvider) endpoi
 	}
 }
 
-func _GetOidcKubeconfigEndpoint(projectProvider provider.ProjectProvider) endpoint.Endpoint { // method renamed in sys11 fork so we get the one from cluster_sys11.go, which supports sys11auth
+// method left in sys11 fork to avoid future merge conflicts, but renamed so we get the one from cluster_sys11.go, which supports sys11auth
+func _GetOidcKubeconfigEndpoint(projectProvider provider.ProjectProvider) endpoint.Endpoint { //nolint:unused,deadcode
 	return func(ctx context.Context, request interface{}) (interface{}, error) {
 		req := request.(common.GetClusterReq)
 		clusterProvider := ctx.Value(middleware.ClusterProviderContextKey).(provider.ClusterProvider)

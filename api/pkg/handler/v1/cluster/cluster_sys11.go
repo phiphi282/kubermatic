@@ -18,6 +18,7 @@ import (
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 )
 
+//nolint:goconst
 func GetOidcKubeconfigEndpoint(projectProvider provider.ProjectProvider) endpoint.Endpoint {
 	return func(ctx context.Context, request interface{}) (interface{}, error) {
 		req := request.(GetClusterKubeconfigRequest)
@@ -135,15 +136,16 @@ func getKubeconfigWithUniqueName(project *v1.Project, cluster *v1.Cluster, clien
 func getOidcSettings(ctx context.Context, cluster *v1.Cluster) (*v1.OIDCSettings, error) {
 	keycloakFacade := ctx.Value(middleware.KeycloakFacadeContextKey).(keycloak.Facade)
 
-	if cluster.Spec.Sys11Auth.Realm != "" {
+	switch {
+	case cluster.Spec.Sys11Auth.Realm != "":
 		settings, err := keycloak.Sys11AuthToOidcSettings(cluster.Spec.Sys11Auth, keycloakFacade)
 		if err != nil {
 			return nil, common.KubernetesErrorToHTTPError(err)
 		}
 		return settings, nil
-	} else if cluster.Spec.OIDC.IssuerURL != "" && cluster.Spec.OIDC.ClientID != "" {
+	case cluster.Spec.OIDC.IssuerURL != "" && cluster.Spec.OIDC.ClientID != "":
 		return &cluster.Spec.OIDC, nil
-	} else {
+	default:
 		return nil, kcerrors.NewNotFound("OIDC settings for", cluster.Name)
 	}
 }

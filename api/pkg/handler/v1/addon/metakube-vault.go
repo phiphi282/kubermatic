@@ -4,15 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net/http"
-	"time"
-
 	"github.com/kubermatic/kubermatic/api/pkg/resources"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
+	"net/http"
 
 	"github.com/go-kit/kit/endpoint"
 
@@ -80,9 +78,6 @@ func UnsealVaultAddonEndpoint(seedsGetter provider.SeedsGetter) endpoint.Endpoin
 		if err != nil {
 			return nil, fmt.Errorf("error getting dc: %v", err)
 		}
-
-		ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
-		defer cancel()
 
 		masterConfig, err := rest.InClusterConfig()
 		if err != nil {

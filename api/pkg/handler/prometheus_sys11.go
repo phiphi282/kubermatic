@@ -4,8 +4,6 @@ import (
 	"context"
 	goerrors "errors"
 	"fmt"
-	"time"
-
 	"github.com/kubermatic/kubermatic/api/pkg/resources"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -92,9 +90,6 @@ func getPrometheusProxyEndpoint(seedsGetter provider.SeedsGetter) endpoint.Endpo
 		if err != nil {
 			return nil, fmt.Errorf("error getting dc: %v", err)
 		}
-
-		ctx, cancel := context.WithTimeout(ctx, time.Second)
-		defer cancel()
 
 		masterConfig, err := rest.InClusterConfig()
 		if err != nil {

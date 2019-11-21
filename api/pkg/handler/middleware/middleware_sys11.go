@@ -3,6 +3,7 @@ package middleware
 import (
 	"context"
 	"github.com/kubermatic/kubermatic/api/pkg/keycloak"
+	contextutil "github.com/kubermatic/kubermatic/api/pkg/util/context"
 	"net/http"
 
 	"github.com/kubermatic/kubermatic/api/pkg/handler/v1/common"
@@ -15,7 +16,7 @@ import (
 
 const (
 	// KeycloakFacadeContextKey key under which the current keycloak.Facade is kept in the ctx
-	KeycloakFacadeContextKey = "keycloak-facade"
+	KeycloakFacadeContextKey contextutil.Key = "keycloak-facade"
 )
 
 func PrivilegedUserGroupVerifier(userProjectMapper provider.ProjectMemberMapper, privilegedUserGroups map[string]bool) endpoint.Middleware {
