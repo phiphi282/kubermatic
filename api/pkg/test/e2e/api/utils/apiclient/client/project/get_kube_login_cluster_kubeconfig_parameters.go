@@ -20,7 +20,7 @@ import (
 // NewGetKubeLoginClusterKubeconfigParams creates a new GetKubeLoginClusterKubeconfigParams object
 // with the default values initialized.
 func NewGetKubeLoginClusterKubeconfigParams() *GetKubeLoginClusterKubeconfigParams {
-
+	var ()
 	return &GetKubeLoginClusterKubeconfigParams{
 
 		timeout: cr.DefaultTimeout,
@@ -30,7 +30,7 @@ func NewGetKubeLoginClusterKubeconfigParams() *GetKubeLoginClusterKubeconfigPara
 // NewGetKubeLoginClusterKubeconfigParamsWithTimeout creates a new GetKubeLoginClusterKubeconfigParams object
 // with the default values initialized, and the ability to set a timeout on a request
 func NewGetKubeLoginClusterKubeconfigParamsWithTimeout(timeout time.Duration) *GetKubeLoginClusterKubeconfigParams {
-
+	var ()
 	return &GetKubeLoginClusterKubeconfigParams{
 
 		timeout: timeout,
@@ -40,7 +40,7 @@ func NewGetKubeLoginClusterKubeconfigParamsWithTimeout(timeout time.Duration) *G
 // NewGetKubeLoginClusterKubeconfigParamsWithContext creates a new GetKubeLoginClusterKubeconfigParams object
 // with the default values initialized, and the ability to set a context for a request
 func NewGetKubeLoginClusterKubeconfigParamsWithContext(ctx context.Context) *GetKubeLoginClusterKubeconfigParams {
-
+	var ()
 	return &GetKubeLoginClusterKubeconfigParams{
 
 		Context: ctx,
@@ -50,7 +50,7 @@ func NewGetKubeLoginClusterKubeconfigParamsWithContext(ctx context.Context) *Get
 // NewGetKubeLoginClusterKubeconfigParamsWithHTTPClient creates a new GetKubeLoginClusterKubeconfigParams object
 // with the default values initialized, and the ability to set a custom HTTPClient for a request
 func NewGetKubeLoginClusterKubeconfigParamsWithHTTPClient(client *http.Client) *GetKubeLoginClusterKubeconfigParams {
-
+	var ()
 	return &GetKubeLoginClusterKubeconfigParams{
 		HTTPClient: client,
 	}
@@ -60,6 +60,14 @@ func NewGetKubeLoginClusterKubeconfigParamsWithHTTPClient(client *http.Client) *
 for the get kube login cluster kubeconfig operation typically these are written to a http.Request
 */
 type GetKubeLoginClusterKubeconfigParams struct {
+
+	/*ClusterID*/
+	ClusterID string
+	/*Dc*/
+	Dc string
+	/*ProjectID*/
+	ProjectID string
+
 	timeout    time.Duration
 	Context    context.Context
 	HTTPClient *http.Client
@@ -98,6 +106,39 @@ func (o *GetKubeLoginClusterKubeconfigParams) SetHTTPClient(client *http.Client)
 	o.HTTPClient = client
 }
 
+// WithClusterID adds the clusterID to the get kube login cluster kubeconfig params
+func (o *GetKubeLoginClusterKubeconfigParams) WithClusterID(clusterID string) *GetKubeLoginClusterKubeconfigParams {
+	o.SetClusterID(clusterID)
+	return o
+}
+
+// SetClusterID adds the clusterId to the get kube login cluster kubeconfig params
+func (o *GetKubeLoginClusterKubeconfigParams) SetClusterID(clusterID string) {
+	o.ClusterID = clusterID
+}
+
+// WithDc adds the dc to the get kube login cluster kubeconfig params
+func (o *GetKubeLoginClusterKubeconfigParams) WithDc(dc string) *GetKubeLoginClusterKubeconfigParams {
+	o.SetDc(dc)
+	return o
+}
+
+// SetDc adds the dc to the get kube login cluster kubeconfig params
+func (o *GetKubeLoginClusterKubeconfigParams) SetDc(dc string) {
+	o.Dc = dc
+}
+
+// WithProjectID adds the projectID to the get kube login cluster kubeconfig params
+func (o *GetKubeLoginClusterKubeconfigParams) WithProjectID(projectID string) *GetKubeLoginClusterKubeconfigParams {
+	o.SetProjectID(projectID)
+	return o
+}
+
+// SetProjectID adds the projectId to the get kube login cluster kubeconfig params
+func (o *GetKubeLoginClusterKubeconfigParams) SetProjectID(projectID string) {
+	o.ProjectID = projectID
+}
+
 // WriteToRequest writes these params to a swagger request
 func (o *GetKubeLoginClusterKubeconfigParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
 
@@ -105,6 +146,21 @@ func (o *GetKubeLoginClusterKubeconfigParams) WriteToRequest(r runtime.ClientReq
 		return err
 	}
 	var res []error
+
+	// path param cluster_id
+	if err := r.SetPathParam("cluster_id", o.ClusterID); err != nil {
+		return err
+	}
+
+	// path param dc
+	if err := r.SetPathParam("dc", o.Dc); err != nil {
+		return err
+	}
+
+	// path param project_id
+	if err := r.SetPathParam("project_id", o.ProjectID); err != nil {
+		return err
+	}
 
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)

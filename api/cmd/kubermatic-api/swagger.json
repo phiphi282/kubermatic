@@ -1835,6 +1835,29 @@
         ],
         "summary": "Gets the kubeconfig for the specified cluster with oidc authentication that works nicely with kube-login.",
         "operationId": "getKubeLoginClusterKubeconfig",
+        "parameters": [
+          {
+            "type": "string",
+            "x-go-name": "ProjectID",
+            "name": "project_id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "x-go-name": "DC",
+            "name": "dc",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "x-go-name": "ClusterID",
+            "name": "cluster_id",
+            "in": "path",
+            "required": true
+          }
+        ],
         "responses": {
           "200": {
             "description": "Kubeconfig",
