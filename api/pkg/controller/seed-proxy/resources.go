@@ -6,7 +6,7 @@ import (
 	"strings"
 	"text/template"
 
-	"github.com/kubermatic/kubermatic/api/pkg/provider"
+	kubermaticv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
 	"github.com/kubermatic/kubermatic/api/pkg/resources/reconciling"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -15,7 +15,10 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
-	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
+	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/clientcmd"
+	"k8s.io/client-go/tools/clientcmd/api"
+	"k8s.io/utils/pointer"
 )
 
 func secretName(contextName string) string {
@@ -28,10 +31,6 @@ func deploymentName(contextName string) string {
 
 func serviceName(contextName string) string {
 	return fmt.Sprintf("seed-proxy-%s", contextName)
-}
-
-func fullPrometheusService() string {
-	return fmt.Sprintf("%s:%s", SeedPrometheusServiceName, SeedPrometheusServicePort)
 }
 
 func defaultLabels(name string, instance string) map[string]string {
@@ -63,19 +62,20 @@ func seedServiceAccountCreator() reconciling.NamedServiceAccountCreatorGetter {
 	}
 }
 
-func seedPrometheusRoleCreator() reconciling.NamedRoleCreatorGetter {
+func seedMonitoringRoleCreator() reconciling.NamedRoleCreatorGetter {
 	return func() (string, reconciling.RoleCreator) {
-		return SeedPrometheusRoleName, func(r *rbacv1.Role) (*rbacv1.Role, error) {
-			r.Name = SeedPrometheusRoleName
-			r.Namespace = SeedPrometheusNamespace
-			r.Labels = defaultLabels(SeedPrometheusRoleName, "")
+		return SeedMonitoringRoleName, func(r *rbacv1.Role) (*rbacv1.Role, error) {
+			r.Labels = defaultLabels(SeedMonitoringRoleName, "")
 
 			r.Rules = []rbacv1.PolicyRule{
 				{
-					APIGroups:     []string{""},
-					Resources:     []string{"services/proxy"},
-					ResourceNames: []string{fullPrometheusService()},
-					Verbs:         []string{"get"},
+					APIGroups: []string{""},
+					Verbs:     []string{"get"},
+					Resources: []string{"services/proxy"},
+					ResourceNames: []string{
+						SeedPrometheusService,
+						SeedAlertmanagerService,
+					},
 				},
 			}
 
@@ -84,17 +84,15 @@ func seedPrometheusRoleCreator() reconciling.NamedRoleCreatorGetter {
 	}
 }
 
-func seedPrometheusRoleBindingCreator() reconciling.NamedRoleBindingCreatorGetter {
+func seedMonitoringRoleBindingCreator() reconciling.NamedRoleBindingCreatorGetter {
 	return func() (string, reconciling.RoleBindingCreator) {
-		return SeedPrometheusRoleBindingName, func(rb *rbacv1.RoleBinding) (*rbacv1.RoleBinding, error) {
-			rb.Name = SeedPrometheusRoleBindingName
-			rb.Namespace = SeedPrometheusNamespace
-			rb.Labels = defaultLabels(SeedPrometheusRoleBindingName, "")
+		return SeedMonitoringRoleBindingName, func(rb *rbacv1.RoleBinding) (*rbacv1.RoleBinding, error) {
+			rb.Labels = defaultLabels(SeedMonitoringRoleBindingName, "")
 
 			rb.RoleRef = rbacv1.RoleRef{
 				APIGroup: rbacv1.GroupName,
 				Kind:     "Role",
-				Name:     SeedPrometheusRoleName,
+				Name:     SeedMonitoringRoleName,
 			}
 
 			rb.Subjects = []rbacv1.Subject{
@@ -110,26 +108,55 @@ func seedPrometheusRoleBindingCreator() reconciling.NamedRoleBindingCreatorGette
 	}
 }
 
-func masterSecretCreator(contextName string, credentials *corev1.Secret) reconciling.NamedSecretCreatorGetter {
+func masterSecretCreator(contextName string, kubeconfig *rest.Config, credentials *corev1.Secret) reconciling.NamedSecretCreatorGetter {
 	name := secretName(contextName)
+	host := kubeconfig.Host
 
 	return func() (string, reconciling.SecretCreator) {
 		return name, func(s *corev1.Secret) (*corev1.Secret, error) {
-			s.Name = name
-			s.Namespace = MasterTargetNamespace
 			s.Labels = defaultLabels("seed-proxy", contextName)
 
 			if s.Data == nil {
 				s.Data = make(map[string][]byte)
 			}
 
-			for k, v := range credentials.Data {
-				s.Data[k] = v
+			// convert the service account CA and token into a handy kubeconfig so that
+			// consuming the credentials becomes easier later on
+			kubeconfig, err := convertServiceAccountToKubeconfig(host, credentials)
+			if err != nil {
+				return s, fmt.Errorf("failed to create kubeconfig: %v", err)
 			}
+
+			s.Data["kubeconfig"] = kubeconfig
 
 			return s, nil
 		}
 	}
+}
+
+func convertServiceAccountToKubeconfig(host string, credentials *corev1.Secret) ([]byte, error) {
+	clusterName := "seed"
+	contextName := "default"
+	authName := "token-based"
+
+	cluster := api.NewCluster()
+	cluster.CertificateAuthorityData = credentials.Data["ca.crt"]
+	cluster.Server = host
+
+	context := api.NewContext()
+	context.Cluster = clusterName
+	context.AuthInfo = authName
+
+	user := api.NewAuthInfo()
+	user.Token = string(credentials.Data["token"])
+
+	kubeconfig := api.NewConfig()
+	kubeconfig.Clusters[clusterName] = cluster
+	kubeconfig.Contexts[contextName] = context
+	kubeconfig.AuthInfos[authName] = user
+	kubeconfig.CurrentContext = contextName
+
+	return clientcmd.Write(*kubeconfig)
 }
 
 func masterDeploymentCreator(contextName string, secret *corev1.Secret) reconciling.NamedDeploymentCreatorGetter {
@@ -157,13 +184,11 @@ func masterDeploymentCreator(contextName string, secret *corev1.Secret) reconcil
 				},
 			}
 
-			d.Name = name
-			d.Namespace = MasterTargetNamespace
 			d.OwnerReferences = ownerReferences(secret)
 			d.Labels = labels()
 			d.Labels[ManagedByLabel] = ControllerName
 
-			d.Spec.Replicas = i32ptr(1)
+			d.Spec.Replicas = pointer.Int32Ptr(1)
 			d.Spec.Selector = &metav1.LabelSelector{
 				MatchLabels: labels(),
 			}
@@ -174,15 +199,18 @@ func masterDeploymentCreator(contextName string, secret *corev1.Secret) reconcil
 
 			d.Spec.Template.Spec.Containers = []corev1.Container{
 				{
-					Name:            "proxy",
-					Image:           "quay.io/kubermatic/util:1.0.0-5",
-					ImagePullPolicy: corev1.PullIfNotPresent,
-					Command:         []string{"/bin/bash"},
-					Args:            []string{"-c", strings.TrimSpace(proxyScript)},
+					Name:    "proxy",
+					Image:   "quay.io/kubermatic/util:1.1.3",
+					Command: []string{"/bin/bash"},
+					Args:    []string{"-c", strings.TrimSpace(proxyScript)},
 					Env: []corev1.EnvVar{
 						{
 							Name:  "KUBERNETES_CONTEXT",
 							Value: contextName,
+						},
+						{
+							Name:  "KUBECONFIG",
+							Value: "/opt/kubeconfig/kubeconfig",
 						},
 						{
 							Name:  "PROXY_PORT",
@@ -198,8 +226,8 @@ func masterDeploymentCreator(contextName string, secret *corev1.Secret) reconcil
 					},
 					VolumeMounts: []corev1.VolumeMount{
 						{
-							MountPath: "var/run/secrets/kubernetes.io/serviceaccount/",
-							Name:      "serviceaccount",
+							MountPath: "/opt/kubeconfig",
+							Name:      "kubeconfig",
 							ReadOnly:  true,
 						},
 					},
@@ -213,19 +241,16 @@ func masterDeploymentCreator(contextName string, secret *corev1.Secret) reconcil
 							corev1.ResourceMemory: resource.MustParse("32Mi"),
 						},
 					},
-					TerminationMessagePolicy: corev1.TerminationMessageReadFile,
-					TerminationMessagePath:   "/dev/termination-log",
-					ReadinessProbe:           &probe,
+					ReadinessProbe: &probe,
 				},
 			}
 
 			d.Spec.Template.Spec.Volumes = []corev1.Volume{
 				{
-					Name: "serviceaccount",
+					Name: "kubeconfig",
 					VolumeSource: corev1.VolumeSource{
 						Secret: &corev1.SecretVolumeSource{
-							DefaultMode: i32ptr(420),
-							SecretName:  secret.Name,
+							SecretName: secret.Name,
 						},
 					},
 				},
@@ -241,8 +266,6 @@ func masterServiceCreator(contextName string, secret *corev1.Secret) reconciling
 
 	return func() (string, reconciling.ServiceCreator) {
 		return name, func(s *corev1.Service) (*corev1.Service, error) {
-			s.Name = name
-			s.Namespace = MasterTargetNamespace
 			s.OwnerReferences = ownerReferences(secret)
 			s.Labels = map[string]string{
 				NameLabel:      MasterServiceName,
@@ -272,7 +295,7 @@ func masterServiceCreator(contextName string, secret *corev1.Secret) reconciling
 	}
 }
 
-func masterGrafanaConfigmapCreator(datacenters map[string]provider.DatacenterMeta, kubeconfig *clientcmdapi.Config) reconciling.NamedConfigMapCreatorGetter {
+func (r *Reconciler) masterGrafanaConfigmapCreator(seeds map[string]*kubermaticv1.Seed) reconciling.NamedConfigMapCreatorGetter {
 	return func() (string, reconciling.ConfigMapCreator) {
 		return MasterGrafanaConfigMapName, func(c *corev1.ConfigMap) (*corev1.ConfigMap, error) {
 			labels := func() map[string]string {
@@ -281,24 +304,20 @@ func masterGrafanaConfigmapCreator(datacenters map[string]provider.DatacenterMet
 				}
 			}
 
-			c.Name = MasterGrafanaConfigMapName
-			c.Namespace = MasterGrafanaNamespace
 			c.Data = make(map[string]string)
 
 			c.Labels = labels()
 			c.Labels[ManagedByLabel] = ControllerName
 
-			for dcName, dc := range datacenters {
-				if dc.IsSeed {
-					filename := fmt.Sprintf("prometheus-%s.yaml", dcName)
+			for seedName := range seeds {
+				filename := fmt.Sprintf("prometheus-%s.yaml", seedName)
 
-					config, err := buildGrafanaDatasource(dcName, kubeconfig)
-					if err != nil {
-						return nil, fmt.Errorf("failed to build Grafana config for seed %s: %v", dcName, err)
-					}
-
-					c.Data[filename] = config
+				config, err := buildGrafanaDatasource(seedName)
+				if err != nil {
+					return nil, fmt.Errorf("failed to build Grafana config for seed %s: %v", seedName, err)
 				}
+
+				c.Data[filename] = config
 			}
 
 			return c, nil
@@ -306,14 +325,14 @@ func masterGrafanaConfigmapCreator(datacenters map[string]provider.DatacenterMet
 	}
 }
 
-func buildGrafanaDatasource(contextName string, kubeconfig *clientcmdapi.Config) (string, error) {
+func buildGrafanaDatasource(seedName string) (string, error) {
 	data := map[string]interface{}{
-		"ContextName":             contextName,
-		"ServiceName":             serviceName(contextName),
+		"ContextName":             seedName,
+		"ServiceName":             serviceName(seedName),
 		"ServiceNamespace":        MasterTargetNamespace,
 		"ProxyPort":               KubectlProxyPort,
-		"SeedPrometheusNamespace": SeedPrometheusNamespace,
-		"SeedPrometheusService":   fullPrometheusService(),
+		"SeedMonitoringNamespace": SeedMonitoringNamespace,
+		"SeedPrometheusService":   SeedPrometheusService,
 	}
 
 	var buffer bytes.Buffer
@@ -322,10 +341,6 @@ func buildGrafanaDatasource(contextName string, kubeconfig *clientcmdapi.Config)
 	err := tpl.Execute(&buffer, data)
 
 	return strings.TrimSpace(buffer.String()), err
-}
-
-func i32ptr(i int32) *int32 {
-	return &i
 }
 
 const proxyScript = `
@@ -348,6 +363,6 @@ datasources:
   org_id: 1
   type: prometheus
   access: proxy
-  url: http://{{ .ServiceName }}.{{ .ServiceNamespace }}.svc.cluster.local:{{ .ProxyPort }}/api/v1/namespaces/{{ .SeedPrometheusNamespace }}/services/{{ .SeedPrometheusService }}/proxy/
+  url: http://{{ .ServiceName }}.{{ .ServiceNamespace }}.svc.cluster.local:{{ .ProxyPort }}/api/v1/namespaces/{{ .SeedMonitoringNamespace }}/services/{{ .SeedPrometheusService }}/proxy/
   editable: false
 `

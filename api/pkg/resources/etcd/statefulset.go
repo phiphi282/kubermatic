@@ -44,6 +44,7 @@ type etcdStatefulSetCreatorData interface {
 	ImageRegistry(string) string
 	EtcdDiskSize() resource.Quantity
 	GetClusterRef() metav1.OwnerReference
+	SupportsFailureDomainZoneAntiAffinity() bool
 }
 
 // StatefulSetCreator returns the function to reconcile the etcd StatefulSet
@@ -91,12 +92,9 @@ func StatefulSetCreator(data etcdStatefulSetCreatorData, enableDataCorruptionChe
 			}
 			set.Spec.Template.Spec.Containers = []corev1.Container{
 				{
-					Name:                     name,
-					Image:                    data.ImageRegistry(resources.RegistryGCR) + "/etcd-development/etcd:" + ImageTag,
-					ImagePullPolicy:          corev1.PullIfNotPresent,
-					Command:                  etcdStartCmd,
-					TerminationMessagePath:   corev1.TerminationMessagePathDefault,
-					TerminationMessagePolicy: corev1.TerminationMessageReadFile,
+					Name:    name,
+					Image:   data.ImageRegistry(resources.RegistryGCR) + "/etcd-development/etcd:" + ImageTag,
+					Command: etcdStartCmd,
 					Env: []corev1.EnvVar{
 						{
 							Name: "POD_NAME",
@@ -176,6 +174,11 @@ func StatefulSetCreator(data etcdStatefulSetCreatorData, enableDataCorruptionChe
 			}
 
 			set.Spec.Template.Spec.Affinity = resources.HostnameAntiAffinity(resources.EtcdStatefulSetName, data.Cluster().Name)
+			if data.SupportsFailureDomainZoneAntiAffinity() {
+				antiAffinities := set.Spec.Template.Spec.Affinity.PodAntiAffinity.PreferredDuringSchedulingIgnoredDuringExecution
+				antiAffinities = append(antiAffinities, resources.FailureDomainZoneAntiAffinity(resources.EtcdStatefulSetName, data.Cluster().Name))
+				set.Spec.Template.Spec.Affinity.PodAntiAffinity.PreferredDuringSchedulingIgnoredDuringExecution = antiAffinities
+			}
 
 			set.Spec.Template.Spec.Volumes = volumes
 
@@ -211,8 +214,7 @@ func getVolumes() []corev1.Volume {
 			Name: resources.EtcdTLSCertificateSecretName,
 			VolumeSource: corev1.VolumeSource{
 				Secret: &corev1.SecretVolumeSource{
-					SecretName:  resources.EtcdTLSCertificateSecretName,
-					DefaultMode: resources.Int32(resources.DefaultOwnerReadOnlyMode),
+					SecretName: resources.EtcdTLSCertificateSecretName,
 				},
 			},
 		},
@@ -220,8 +222,7 @@ func getVolumes() []corev1.Volume {
 			Name: resources.CASecretName,
 			VolumeSource: corev1.VolumeSource{
 				Secret: &corev1.SecretVolumeSource{
-					SecretName:  resources.CASecretName,
-					DefaultMode: resources.Int32(resources.DefaultOwnerReadOnlyMode),
+					SecretName: resources.CASecretName,
 					Items: []corev1.KeyToPath{
 						{
 							Path: resources.CACertSecretKey,
@@ -235,8 +236,7 @@ func getVolumes() []corev1.Volume {
 			Name: resources.ApiserverEtcdClientCertificateSecretName,
 			VolumeSource: corev1.VolumeSource{
 				Secret: &corev1.SecretVolumeSource{
-					SecretName:  resources.ApiserverEtcdClientCertificateSecretName,
-					DefaultMode: resources.Int32(resources.DefaultOwnerReadOnlyMode),
+					SecretName: resources.ApiserverEtcdClientCertificateSecretName,
 				},
 			},
 		},

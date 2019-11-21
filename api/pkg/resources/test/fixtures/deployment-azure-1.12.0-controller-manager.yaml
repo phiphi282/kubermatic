@@ -8,11 +8,7 @@ spec:
   selector:
     matchLabels:
       app: controller-manager
-  strategy:
-    rollingUpdate:
-      maxSurge: 1
-      maxUnavailable: 0
-    type: RollingUpdate
+  strategy: {}
   template:
     metadata:
       annotations:
@@ -96,7 +92,6 @@ spec:
             memory: 5Mi
         securityContext:
           privileged: true
-          procMount: Default
         volumeMounts:
         - mountPath: /etc/openvpn/pki/client
           name: openvpn-client-certificates
@@ -115,7 +110,24 @@ spec:
         - '{"command":"/hyperkube","args":["kube-controller-manager","--kubeconfig","/etc/kubernetes/kubeconfig/kubeconfig","--service-account-private-key-file","/etc/kubernetes/service-account-key/sa.key","--root-ca-file","/etc/kubernetes/pki/ca/ca.crt","--cluster-signing-cert-file","/etc/kubernetes/pki/ca/ca.crt","--cluster-signing-key-file","/etc/kubernetes/pki/ca/ca.key","--cluster-cidr","172.25.0.0/16","--allocate-node-cidrs=true","--controllers","*,bootstrapsigner,tokencleaner","--use-service-account-credentials=true","--feature-gates","RotateKubeletClientCertificate=true,RotateKubeletServerCertificate=true,ScheduleDaemonSetPods=false","--cloud-provider","azure","--cloud-config","/etc/kubernetes/cloud/config","--configure-cloud-routes=false","--authentication-kubeconfig","/etc/kubernetes/kubeconfig/kubeconfig","--client-ca-file","/etc/kubernetes/pki/ca/ca.crt","--authentication-skip-lookup=true"]}'
         command:
         - /http-prober-bin/http-prober
+<<<<<<< HEAD
         image: docker.io/syseleven/hyperkube-amd64:v1.12.0-sys11-1
+=======
+        env:
+        - name: HTTP_PROXY
+          value: http://my-corp
+        - name: HTTPS_PROXY
+          value: http://my-corp
+        - name: http_proxy
+          value: http://my-corp
+        - name: https_proxy
+          value: http://my-corp
+        - name: NO_PROXY
+          value: apiserver-external.cluster-de-test-01.svc.cluster.local.
+        - name: no_proxy
+          value: apiserver-external.cluster-de-test-01.svc.cluster.local.
+        image: gcr.io/google_containers/hyperkube-amd64:v1.12.0
+>>>>>>> v2.12.1
         livenessProbe:
           failureThreshold: 8
           httpGet:
@@ -176,7 +188,11 @@ spec:
         - /bin/cp
         - /usr/local/bin/http-prober
         - /http-prober-bin/http-prober
+<<<<<<< HEAD
         image: quay.io/kubermatic/http-prober:v0.2
+=======
+        image: quay.io/kubermatic/http-prober:v0.3.1
+>>>>>>> v2.12.1
         name: copy-http-prober
         resources: {}
         volumeMounts:
@@ -185,23 +201,18 @@ spec:
       volumes:
       - name: ca
         secret:
-          defaultMode: 256
           secretName: ca
       - name: service-account-key
         secret:
-          defaultMode: 256
           secretName: service-account-key
       - configMap:
-          defaultMode: 420
           name: cloud-config
         name: cloud-config
       - name: openvpn-client-certificates
         secret:
-          defaultMode: 256
           secretName: openvpn-client-certificates
       - name: controllermanager-kubeconfig
         secret:
-          defaultMode: 256
           secretName: controllermanager-kubeconfig
       - emptyDir: {}
         name: http-prober-bin

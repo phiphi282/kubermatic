@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 
-	kubermaticapiv1 "github.com/kubermatic/kubermatic/api/pkg/api/v1"
 	"github.com/kubermatic/kubermatic/api/pkg/semver"
 	apimodels "github.com/kubermatic/kubermatic/api/pkg/test/e2e/api/utils/apiclient/models"
 )
@@ -15,15 +14,15 @@ func getOpenStackScenarios(versions []*semver.Semver) []testScenario {
 		// Ubuntu
 		scenarios = append(scenarios, &openStackScenario{
 			version: v,
-			nodeOsSpec: kubermaticapiv1.OperatingSystemSpec{
-				Ubuntu: &kubermaticapiv1.UbuntuSpec{},
+			nodeOsSpec: apimodels.OperatingSystemSpec{
+				Ubuntu: &apimodels.UbuntuSpec{},
 			},
 		})
 		// CoreOS
 		scenarios = append(scenarios, &openStackScenario{
 			version: v,
-			nodeOsSpec: kubermaticapiv1.OperatingSystemSpec{
-				ContainerLinux: &kubermaticapiv1.ContainerLinuxSpec{
+			nodeOsSpec: apimodels.OperatingSystemSpec{
+				ContainerLinux: &apimodels.ContainerLinuxSpec{
 					// Otherwise the nodes restart directly after creation - bad for tests
 					DisableAutoUpdate: true,
 				},
@@ -32,8 +31,8 @@ func getOpenStackScenarios(versions []*semver.Semver) []testScenario {
 		// CentOS
 		scenarios = append(scenarios, &openStackScenario{
 			version: v,
-			nodeOsSpec: kubermaticapiv1.OperatingSystemSpec{
-				CentOS: &kubermaticapiv1.CentOSSpec{},
+			nodeOsSpec: apimodels.OperatingSystemSpec{
+				Centos: &apimodels.CentOSSpec{},
 			},
 		})
 	}
@@ -43,7 +42,7 @@ func getOpenStackScenarios(versions []*semver.Semver) []testScenario {
 
 type openStackScenario struct {
 	version    *semver.Semver
-	nodeOsSpec kubermaticapiv1.OperatingSystemSpec
+	nodeOsSpec apimodels.OperatingSystemSpec
 }
 
 func (s *openStackScenario) Name() string {
@@ -71,23 +70,33 @@ func (s *openStackScenario) Cluster(secrets secrets) *apimodels.CreateClusterSpe
 	}
 }
 
-func (s *openStackScenario) Nodes(num int, _ secrets) *kubermaticapiv1.NodeDeployment {
+func (s *openStackScenario) NodeDeployments(num int, _ secrets) ([]apimodels.NodeDeployment, error) {
 	osName := getOSNameFromSpec(s.nodeOsSpec)
-	return &kubermaticapiv1.NodeDeployment{
-		Spec: kubermaticapiv1.NodeDeploymentSpec{
-			Replicas: int32(num),
-			Template: kubermaticapiv1.NodeSpec{
-				Cloud: kubermaticapiv1.NodeCloudSpec{
-					Openstack: &kubermaticapiv1.OpenstackNodeSpec{
-						Flavor: "m1.small",
-						Image:  "kubermatic-e2e-" + osName,
+	image := "kubermatic-e2e-" + osName
+	flavor := "m1.small"
+	replicas := int32(num)
+
+	return []apimodels.NodeDeployment{
+		{
+			Spec: &apimodels.NodeDeploymentSpec{
+				Replicas: &replicas,
+				Template: &apimodels.NodeSpec{
+					Cloud: &apimodels.NodeCloudSpec{
+						Openstack: &apimodels.OpenstackNodeSpec{
+							Flavor: &flavor,
+							Image:  &image,
+						},
 					},
+					Versions: &apimodels.NodeVersionInfo{
+						Kubelet: s.version.String(),
+					},
+					OperatingSystem: &s.nodeOsSpec,
 				},
-				Versions: kubermaticapiv1.NodeVersionInfo{
-					Kubelet: s.version.String(),
-				},
-				OperatingSystem: s.nodeOsSpec,
 			},
 		},
-	}
+	}, nil
+}
+
+func (s *openStackScenario) OS() apimodels.OperatingSystemSpec {
+	return s.nodeOsSpec
 }

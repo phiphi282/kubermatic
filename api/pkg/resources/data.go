@@ -8,16 +8,17 @@ import (
 	"net"
 	"strings"
 
-	"github.com/golang/glog"
 	kubermaticv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
 	"github.com/kubermatic/kubermatic/api/pkg/provider"
 	"github.com/kubermatic/kubermatic/api/pkg/resources/certificates/triple"
-	"k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/types"
+	providerconfig "github.com/kubermatic/machine-controller/pkg/providerconfig/types"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/klog"
 	ctrlruntimeclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -26,8 +27,8 @@ type TemplateData struct {
 	ctx                                              context.Context
 	client                                           ctrlruntimeclient.Client
 	cluster                                          *kubermaticv1.Cluster
-	dc                                               *provider.DatacenterMeta
-	SeedDC                                           string
+	dc                                               *kubermaticv1.Datacenter
+	seed                                             *kubermaticv1.Seed
 	OverwriteRegistry                                string
 	nodePortRange                                    string
 	nodeAccessNetwork                                string
@@ -45,7 +46,8 @@ type TemplateData struct {
 	KeycloakFacade                                   keycloak.Facade
 	nodeLocalDNSCacheEnabled                         bool
 	kubermaticImage                                  string
-	apiserverExposeStrategy                          corev1.ServiceType
+	dnatControllerImage                              string
+	supportsFailureDomainZoneAntiAffinity            bool
 }
 
 // NewTemplateData returns an instance of TemplateData
@@ -53,8 +55,8 @@ func NewTemplateData(
 	ctx context.Context,
 	client ctrlruntimeclient.Client,
 	cluster *kubermaticv1.Cluster,
-	dc *provider.DatacenterMeta,
-	seedDatacenter string,
+	dc *kubermaticv1.Datacenter,
+	seed *kubermaticv1.Seed,
 	overwriteRegistry string,
 	nodePortRange string,
 	nodeAccessNetwork string,
@@ -71,13 +73,15 @@ func NewTemplateData(
 	oidcURL string,
 	oidcIssuerClientID string,
 	nodeLocalDNSCacheEnabled bool,
-	kubermaticImage string) *TemplateData {
+	kubermaticImage string,
+	dnatControllerImage string,
+	supportsFailureDomainZoneAntiAffinity bool) *TemplateData {
 	return &TemplateData{
 		ctx:                                    ctx,
 		client:                                 client,
 		cluster:                                cluster,
 		dc:                                     dc,
-		SeedDC:                                 seedDatacenter,
+		seed:                                   seed,
 		OverwriteRegistry:                      overwriteRegistry,
 		nodePortRange:                          nodePortRange,
 		nodeAccessNetwork:                      nodeAccessNetwork,
@@ -95,7 +99,18 @@ func NewTemplateData(
 		KeycloakFacade:                                   keycloakFacade,
 		nodeLocalDNSCacheEnabled:                         nodeLocalDNSCacheEnabled,
 		kubermaticImage:                                  kubermaticImage,
+		dnatControllerImage:                              dnatControllerImage,
+		supportsFailureDomainZoneAntiAffinity:            supportsFailureDomainZoneAntiAffinity,
 	}
+}
+
+// GetViewerToken returns the viewer token
+func (d *TemplateData) GetViewerToken() (string, error) {
+	viewerTokenSecret := &corev1.Secret{}
+	if err := d.client.Get(d.ctx, ctrlruntimeclient.ObjectKey{Name: ViewerTokenSecretName, Namespace: d.cluster.Status.NamespaceName}, viewerTokenSecret); err != nil {
+		return "", err
+	}
+	return string(viewerTokenSecret.Data[ViewerTokenSecretKey]), nil
 }
 
 // GetDexCA returns the chain of public certificates of the Dex
@@ -129,7 +144,7 @@ func (d *TemplateData) ClusterVersion() string {
 }
 
 // DC returns the dc
-func (d *TemplateData) DC() *provider.DatacenterMeta {
+func (d *TemplateData) DC() *kubermaticv1.Datacenter {
 	return d.dc
 }
 
@@ -209,7 +224,7 @@ func (d *TemplateData) ClusterIPByServiceName(name string) (string, error) {
 func (d *TemplateData) ProviderName() string {
 	p, err := provider.ClusterCloudProviderName(d.cluster.Spec.Cloud)
 	if err != nil {
-		glog.Errorf("could not identify cloud provider: %v", err)
+		klog.Errorf("could not identify cloud provider: %v", err)
 	}
 	return p
 }
@@ -285,6 +300,66 @@ func (d *TemplateData) KubermaticAPIImage() string {
 	return d.ImageRegistry(registry) + "/" + imageWithoutRegistry
 }
 
-func (d *TemplateData) APIServerExposeStrategy() corev1.ServiceType {
-	return d.apiserverExposeStrategy
+func (d *TemplateData) DNATControllerImage() string {
+	dnatControllerImageSplit := strings.Split(d.dnatControllerImage, "/")
+	var registry, imageWithoutRegistry string
+	if len(dnatControllerImageSplit) != 3 {
+		registry = "docker.io"
+		imageWithoutRegistry = strings.Join(dnatControllerImageSplit, "/")
+	} else {
+		registry = dnatControllerImageSplit[0]
+		imageWithoutRegistry = strings.Join(dnatControllerImageSplit[1:], "/")
+	}
+	return d.ImageRegistry(registry) + "/" + imageWithoutRegistry
+}
+
+func (d *TemplateData) SupportsFailureDomainZoneAntiAffinity() bool {
+	return d.supportsFailureDomainZoneAntiAffinity
+}
+
+func (d *TemplateData) GetGlobalSecretKeySelectorValue(configVar *providerconfig.GlobalSecretKeySelector, key string) (string, error) {
+	// We need all three of these to fetch and use a secret
+	if configVar.Name != "" && configVar.Namespace != "" && key != "" {
+		secret := &corev1.Secret{}
+		namespacedName := types.NamespacedName{Namespace: configVar.Namespace, Name: configVar.Name}
+		if err := d.client.Get(d.ctx, namespacedName, secret); err != nil {
+			return "", fmt.Errorf("error retrieving secret %q from namespace %q: %v", configVar.Name, configVar.Namespace, err)
+		}
+
+		if val, ok := secret.Data[key]; ok {
+			return string(val), nil
+		}
+		return "", fmt.Errorf("secret %q in namespace %q has no key %q", configVar.Name, configVar.Namespace, key)
+	}
+	return "", nil
+}
+
+func (d *TemplateData) GetKubernetesCloudProviderName() string {
+	return GetKubernetesCloudProviderName(d.Cluster())
+}
+
+func (d *TemplateData) CloudCredentialSecretTemplate() ([]byte, error) {
+	// This is needed for Openshift only
+	return nil, nil
+}
+
+func GetKubernetesCloudProviderName(cluster *kubermaticv1.Cluster) string {
+	if cluster.Spec.Cloud.AWS != nil {
+		return "aws"
+	}
+	if cluster.Spec.Cloud.Openstack != nil {
+		return "openstack"
+	}
+	if cluster.Spec.Cloud.VSphere != nil {
+		return "vsphere"
+	}
+	if cluster.Spec.Cloud.Azure != nil {
+		return "azure"
+	}
+
+	return ""
+}
+
+func (d *TemplateData) Seed() *kubermaticv1.Seed {
+	return d.seed
 }

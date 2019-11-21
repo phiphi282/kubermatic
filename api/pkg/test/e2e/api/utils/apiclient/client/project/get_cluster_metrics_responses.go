@@ -65,20 +65,22 @@ func NewGetClusterMetricsOK() *GetClusterMetricsOK {
 
 /*GetClusterMetricsOK handles this case with default header values.
 
-ClusterMetric
+ClusterMetrics
 */
 type GetClusterMetricsOK struct {
-	Payload []*models.ClusterMetric
+	Payload *models.ControlPlaneMetrics
 }
 
 func (o *GetClusterMetricsOK) Error() string {
-	return fmt.Sprintf("[GET /api/v1alpha/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/metrics][%d] getClusterMetricsOK  %+v", 200, o.Payload)
+	return fmt.Sprintf("[GET /api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/metrics][%d] getClusterMetricsOK  %+v", 200, o.Payload)
 }
 
 func (o *GetClusterMetricsOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
+	o.Payload = new(models.ControlPlaneMetrics)
+
 	// response payload
-	if err := consumer.Consume(response.Body(), &o.Payload); err != nil && err != io.EOF {
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
 		return err
 	}
 
@@ -98,7 +100,7 @@ type GetClusterMetricsUnauthorized struct {
 }
 
 func (o *GetClusterMetricsUnauthorized) Error() string {
-	return fmt.Sprintf("[GET /api/v1alpha/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/metrics][%d] getClusterMetricsUnauthorized ", 401)
+	return fmt.Sprintf("[GET /api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/metrics][%d] getClusterMetricsUnauthorized ", 401)
 }
 
 func (o *GetClusterMetricsUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -119,7 +121,7 @@ type GetClusterMetricsForbidden struct {
 }
 
 func (o *GetClusterMetricsForbidden) Error() string {
-	return fmt.Sprintf("[GET /api/v1alpha/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/metrics][%d] getClusterMetricsForbidden ", 403)
+	return fmt.Sprintf("[GET /api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/metrics][%d] getClusterMetricsForbidden ", 403)
 }
 
 func (o *GetClusterMetricsForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -136,12 +138,12 @@ func NewGetClusterMetricsDefault(code int) *GetClusterMetricsDefault {
 
 /*GetClusterMetricsDefault handles this case with default header values.
 
-ErrorResponse is the default representation of an error
+errorResponse
 */
 type GetClusterMetricsDefault struct {
 	_statusCode int
 
-	Payload *models.ErrorDetails
+	Payload *models.ErrorResponse
 }
 
 // Code gets the status code for the get cluster metrics default response
@@ -150,12 +152,12 @@ func (o *GetClusterMetricsDefault) Code() int {
 }
 
 func (o *GetClusterMetricsDefault) Error() string {
-	return fmt.Sprintf("[GET /api/v1alpha/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/metrics][%d] getClusterMetrics default  %+v", o._statusCode, o.Payload)
+	return fmt.Sprintf("[GET /api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/metrics][%d] getClusterMetrics default  %+v", o._statusCode, o.Payload)
 }
 
 func (o *GetClusterMetricsDefault) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
-	o.Payload = new(models.ErrorDetails)
+	o.Payload = new(models.ErrorResponse)
 
 	// response payload
 	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {

@@ -3,6 +3,7 @@ package openstack
 import (
 	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 
 	"github.com/gophercloud/gophercloud"
@@ -206,8 +207,21 @@ func createKubermaticSecurityGroup(netClient *gophercloud.ServiceClient, cluster
 	}
 
 	for _, opts := range rules {
+	reiterate:
 		rres := osecuritygrouprules.Create(netClient, opts)
 		if rres.Err != nil {
+			if e, ok := rres.Err.(gophercloud.ErrUnexpectedResponseCode); ok && e.Actual == http.StatusConflict {
+				// already exists
+				continue
+			}
+
+			if _, ok := rres.Err.(gophercloud.ErrDefault400); ok && opts.Protocol == osecuritygrouprules.ProtocolIPv6ICMP {
+				// workaround for old versions of Opnestack with different protocol name,
+				// from before https://review.opendev.org/#/c/252155/
+				opts.Protocol = "icmpv6"
+				goto reiterate // I'm very sorry, but this was really the cleanest way.
+			}
+
 			return "", rres.Err
 		}
 
@@ -328,7 +342,15 @@ func detachSubnetFromRouter(netClient *gophercloud.ServiceClient, subnetID, rout
 func getFlavors(authClient *gophercloud.ProviderClient, region string) ([]osflavors.Flavor, error) {
 	computeClient, err := goopenstack.NewComputeV2(authClient, gophercloud.EndpointOpts{Availability: gophercloud.AvailabilityPublic, Region: region})
 	if err != nil {
-		return nil, err
+		// this is special case for  services that span only one region.
+		if _, ok := err.(*gophercloud.ErrEndpointNotFound); ok {
+			computeClient, err = goopenstack.NewComputeV2(authClient, gophercloud.EndpointOpts{})
+			if err != nil {
+				return nil, fmt.Errorf("couldn't get identity endpoint: %v", err)
+			}
+		} else {
+			return nil, fmt.Errorf("couldn't get identity endpoint: %v", err)
+		}
 	}
 
 	var allFlavors []osflavors.Flavor
@@ -352,6 +374,7 @@ func getTenants(authClient *gophercloud.ProviderClient, region string) ([]osproj
 	sc, err := goopenstack.NewIdentityV3(authClient, gophercloud.EndpointOpts{Region: region})
 	if err != nil {
 		// this is special case for  services that span only one region.
+		//lint:ignore S1020 false positive, we must do the errcheck regardless of if its an ErrEndpointNotFound
 		if _, ok := err.(*gophercloud.ErrEndpointNotFound); ok {
 			sc, err = goopenstack.NewIdentityV3(authClient, gophercloud.EndpointOpts{})
 			if err != nil {

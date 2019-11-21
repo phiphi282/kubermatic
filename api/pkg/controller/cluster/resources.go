@@ -3,6 +3,8 @@ package cluster
 import (
 	"context"
 	"fmt"
+
+	controllerutil "github.com/kubermatic/kubermatic/api/pkg/controller/util"
 	kubermaticv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
 	"github.com/kubermatic/kubermatic/api/pkg/resources"
 	"github.com/kubermatic/kubermatic/api/pkg/resources/apiserver"
@@ -13,6 +15,7 @@ import (
 	"github.com/kubermatic/kubermatic/api/pkg/resources/controllermanager"
 	"github.com/kubermatic/kubermatic/api/pkg/resources/dns"
 	"github.com/kubermatic/kubermatic/api/pkg/resources/etcd"
+	"github.com/kubermatic/kubermatic/api/pkg/resources/kubernetes-dashboard"
 	"github.com/kubermatic/kubermatic/api/pkg/resources/machinecontroller"
 	metricsserver "github.com/kubermatic/kubermatic/api/pkg/resources/metrics-server"
 	"github.com/kubermatic/kubermatic/api/pkg/resources/nodeportproxy"
@@ -28,7 +31,11 @@ import (
 )
 
 func (r *Reconciler) ensureResourcesAreDeployed(ctx context.Context, cluster *kubermaticv1.Cluster) error {
-	data, err := r.getClusterTemplateData(ctx, cluster)
+	seed, err := r.seedGetter()
+	if err != nil {
+		return err
+	}
+	data, err := r.getClusterTemplateData(ctx, cluster, seed)
 	if err != nil {
 		return err
 	}
@@ -39,7 +46,7 @@ func (r *Reconciler) ensureResourcesAreDeployed(ctx context.Context, cluster *ku
 	}
 
 	// Set the hostname & url
-	if err := r.syncAddress(ctx, cluster); err != nil {
+	if err := r.syncAddress(ctx, cluster, seed); err != nil {
 		return fmt.Errorf("failed to sync address: %v", err)
 	}
 
@@ -102,18 +109,23 @@ func (r *Reconciler) ensureResourcesAreDeployed(ctx context.Context, cluster *ku
 	return nil
 }
 
-func (r *Reconciler) getClusterTemplateData(ctx context.Context, cluster *kubermaticv1.Cluster) (*resources.TemplateData, error) {
-	dc, found := r.dcs[cluster.Spec.Cloud.DatacenterName]
+func (r *Reconciler) getClusterTemplateData(ctx context.Context, cluster *kubermaticv1.Cluster, seed *kubermaticv1.Seed) (*resources.TemplateData, error) {
+	datacenter, found := seed.Spec.Datacenters[cluster.Spec.Cloud.DatacenterName]
 	if !found {
 		return nil, fmt.Errorf("failed to get datacenter %s", cluster.Spec.Cloud.DatacenterName)
+	}
+
+	supportsFailureDomainZoneAntiAffinity, err := controllerutil.SupportsFailureDomainZoneAntiAffinity(ctx, r.Client)
+	if err != nil {
+		return nil, err
 	}
 
 	return resources.NewTemplateData(
 		ctx,
 		r,
 		cluster,
-		&dc,
-		r.dc,
+		&datacenter,
+		seed.DeepCopy(),
 		r.overwriteRegistry,
 		r.nodePortRange,
 		r.nodeAccessNetwork,
@@ -131,6 +143,8 @@ func (r *Reconciler) getClusterTemplateData(ctx context.Context, cluster *kuberm
 		r.oidcIssuerClientID,
 		r.nodeLocalDNSCacheEnabled,
 		r.kubermaticImage,
+		r.dnatControllerImage,
+		supportsFailureDomainZoneAntiAffinity,
 	), nil
 }
 
@@ -201,6 +215,7 @@ func GetDeploymentCreators(data *resources.TemplateData, enableAPIserverOIDCAuth
 		metricsserver.DeploymentCreator(data),
 		usercluster.DeploymentCreator(data, false),
 		clusterproxy.DeploymentCreator(data),
+		kubernetesdashboard.DeploymentCreator(data),
 	}
 	if data.Cluster().Annotations[kubermaticv1.AnnotationNameClusterAutoscalerEnabled] != "" &&
 		data.Cluster().Spec.Version.Minor() > 13 {
@@ -231,6 +246,7 @@ func (r *Reconciler) GetSecretCreators(data *resources.TemplateData) []reconcili
 		openvpn.TLSServingCertificateCreator(data),
 		openvpn.InternalClientCertificateCreator(data),
 		machinecontroller.TLSServingCertificateCreator(data),
+		metricsserver.TLSServingCertSecretCreator(data.GetRootCA),
 
 		// Kubeconfigs
 		resources.GetInternalKubeconfigCreator(resources.SchedulerKubeconfigSecretName, resources.SchedulerCertUsername, nil, data),
@@ -240,8 +256,11 @@ func (r *Reconciler) GetSecretCreators(data *resources.TemplateData) []reconcili
 		resources.GetInternalKubeconfigCreator(resources.KubeStateMetricsKubeconfigSecretName, resources.KubeStateMetricsCertUsername, nil, data),
 		resources.GetInternalKubeconfigCreator(resources.MetricsServerKubeconfigSecretName, resources.MetricsServerCertUsername, nil, data),
 		resources.GetInternalKubeconfigCreator(resources.InternalUserClusterAdminKubeconfigSecretName, resources.InternalUserClusterAdminKubeconfigCertUsername, []string{"system:masters"}, data),
+		resources.GetInternalKubeconfigCreator(resources.KubernetesDashboardKubeconfigSecretName, resources.KubernetesDashboardCertUsername, nil, data),
 		resources.AdminKubeconfigCreator(data),
+		apiserver.TokenViewerCreator(),
 		apiserver.TokenUsersCreator(data),
+		resources.ViewerKubeconfigCreator(data),
 	}
 
 	if data.Cluster().Spec.Version.Minor() > 13 {
@@ -253,7 +272,7 @@ func (r *Reconciler) GetSecretCreators(data *resources.TemplateData) []reconcili
 	}
 
 	if data.Cluster().Spec.Cloud.GCP != nil {
-		creators = append(creators, resources.ServiceAccountSecretCreator(data.Cluster().Spec.Cloud.GCP.ServiceAccount))
+		creators = append(creators, resources.ServiceAccountSecretCreator(data))
 	}
 
 	return creators
@@ -277,6 +296,7 @@ func GetConfigMapCreators(data *resources.TemplateData) []reconciling.NamedConfi
 		dns.ConfigMapCreator(data),
 		clusterproxy.ConfigMapCreator(data),
 		scheduler.ConfigMapCreator(data),
+		apiserver.AuditConfigMapCreator(),
 	}
 }
 

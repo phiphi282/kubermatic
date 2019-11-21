@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	apiv1 "github.com/kubermatic/kubermatic/api/pkg/api/v1"
+	kubermaticapiv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
 	"github.com/kubermatic/kubermatic/api/pkg/handler/test"
 	"github.com/kubermatic/kubermatic/api/pkg/handler/test/hack"
 	"github.com/kubermatic/kubermatic/api/pkg/handler/v1/cluster"
@@ -87,7 +88,7 @@ func TestCreateOIDCKubeconfig(t *testing.T) {
 			ProjectID:           test.GenDefaultProject().Name,
 			UserID:              "0000",
 			ExistingAPIUser:     test.GenDefaultAPIUser(),
-			Datacenter:          test.TestDatacenter,
+			Datacenter:          test.TestSeedDatacenter,
 			HTTPStatusInitPhase: http.StatusNotFound,
 		},
 		{
@@ -95,7 +96,7 @@ func TestCreateOIDCKubeconfig(t *testing.T) {
 			ClusterID:                 test.ClusterID,
 			ProjectID:                 test.GenDefaultProject().Name,
 			UserID:                    test.GenDefaultUser().Name,
-			Datacenter:                test.TestDatacenter,
+			Datacenter:                test.TestSeedDatacenter,
 			Nonce:                     "abc", // incorrect length
 			HTTPStatusInitPhase:       http.StatusSeeOther,
 			ExistingKubermaticObjects: genTestKubeconfigKubermaticObjects(),
@@ -111,7 +112,7 @@ func TestCreateOIDCKubeconfig(t *testing.T) {
 			ClusterID:                 test.ClusterID,
 			ProjectID:                 test.GenDefaultProject().Name,
 			UserID:                    test.GenDefaultUser().Name,
-			Datacenter:                test.TestDatacenter,
+			Datacenter:                test.TestSeedDatacenter,
 			HTTPStatusInitPhase:       http.StatusSeeOther,
 			ExistingKubermaticObjects: genTestKubeconfigKubermaticObjects(),
 			ExpectedRedirectURI:       testExpectedRedirectURI,
@@ -135,13 +136,15 @@ func TestCreateOIDCKubeconfig(t *testing.T) {
 
 			// act
 			ep.ServeHTTP(res, req)
+			result := res.Result()
+			defer result.Body.Close()
 
 			// validate
 			assert.Equal(t, tc.HTTPStatusInitPhase, res.Code)
 
 			// Redirection to dex provider
 			if res.Code == http.StatusSeeOther {
-				location, err := res.Result().Location()
+				location, err := result.Location()
 				if err != nil {
 					t.Fatalf("expected url for redirection %v", err)
 				}
@@ -196,21 +199,94 @@ func TestCreateOIDCKubeconfig(t *testing.T) {
 					http.SetCookie(res, &http.Cookie{Name: "csrf_token", Value: encoded})
 
 					// Copy the Cookie over to a new Request
-					req.Header.Add("Cookie", res.HeaderMap["Set-Cookie"][0])
+					req.Header.Add("Cookie", res.Header().Get("Set-Cookie"))
 				}
 
 				// act
 				ep.ServeHTTP(res, req)
+				defer res.Result().Body.Close()
 
 				// validate
 				assert.Equal(t, tc.ExpectedExchangeCodePhase.HTTPStatus, res.Code)
 
 				// validate
 				assert.Equal(t, tc.ExpectedExchangeCodePhase.BodyResponse, res.Body.String())
-
 			}
 		})
 	}
+}
+
+func TestGetMasterKubeconfig(t *testing.T) {
+	t.Parallel()
+	testcases := []struct {
+		Name                   string
+		ExpectedResponseString string
+		ExpectedActions        int
+		ProjectToGet           string
+		ClusterToGet           string
+		HTTPStatus             int
+		ExistingAPIUser        apiv1.User
+		ExistingKubermaticObjs []runtime.Object
+	}{
+		{
+			Name:         "scenario 1: owner gets master kubeconfig",
+			HTTPStatus:   http.StatusOK,
+			ProjectToGet: "foo-ID",
+			ClusterToGet: "cluster-foo",
+			ExistingKubermaticObjs: []runtime.Object{
+				/*add projects*/
+				test.GenProject("foo", kubermaticapiv1.ProjectActive, test.DefaultCreationTimestamp()),
+				/*add bindings*/
+				test.GenBinding("foo-ID", "john@acme.com", "owners"),
+
+				/*add users*/
+				test.GenUser("", "john", "john@acme.com"),
+				test.GenCluster("cluster-foo", "cluster-foo", "foo-ID", test.DefaultCreationTimestamp()),
+			},
+			ExistingAPIUser:        *test.GenAPIUser("john", "john@acme.com"),
+			ExpectedResponseString: genToken(test.IDToken),
+		},
+		{
+			Name:         "scenario 2: viewer gets master kubeconfig",
+			HTTPStatus:   http.StatusOK,
+			ProjectToGet: "foo-ID",
+			ClusterToGet: "cluster-foo",
+			ExistingKubermaticObjs: []runtime.Object{
+				/*add projects*/
+				test.GenProject("foo", kubermaticapiv1.ProjectActive, test.DefaultCreationTimestamp()),
+				/*add bindings*/
+				test.GenBinding("foo-ID", "john@acme.com", "viewers"),
+
+				/*add users*/
+				test.GenUser("", "john", "john@acme.com"),
+				test.GenCluster("cluster-foo", "cluster-foo", "foo-ID", test.DefaultCreationTimestamp()),
+			},
+			ExistingAPIUser:        *test.GenAPIUser("john", "john@acme.com"),
+			ExpectedResponseString: genToken(test.IDViewerToken),
+		},
+	}
+
+	for _, tc := range testcases {
+		t.Run(tc.Name, func(t *testing.T) {
+			req := httptest.NewRequest("GET", fmt.Sprintf("/api/v1/projects/%s/dc/us-central1/clusters/%s/kubeconfig", tc.ProjectToGet, tc.ClusterToGet), nil)
+			res := httptest.NewRecorder()
+			kubermaticObj := []runtime.Object{}
+			kubermaticObj = append(kubermaticObj, tc.ExistingKubermaticObjs...)
+			ep, _, err := test.CreateTestEndpointAndGetClients(tc.ExistingAPIUser, nil, []runtime.Object{}, []runtime.Object{}, kubermaticObj, nil, nil, hack.NewTestRouting)
+			if err != nil {
+				t.Fatalf("failed to create test endpoint due to %v", err)
+			}
+
+			ep.ServeHTTP(res, req)
+
+			if res.Code != tc.HTTPStatus {
+				t.Fatalf("Expected HTTP status code %d, got %d: %s", tc.HTTPStatus, res.Code, res.Body.String())
+			}
+
+			test.CompareWithResult(t, res, tc.ExpectedResponseString)
+		})
+	}
+
 }
 
 func genTestKubeconfigKubermaticObjects() []runtime.Object {
@@ -247,4 +323,25 @@ func unmarshalState(rawState []byte) (cluster.OIDCState, error) {
 
 func getSecureCookie() *securecookie.SecureCookie {
 	return securecookie.New([]byte(""), nil)
+}
+
+func genToken(tokenID string) string {
+	return fmt.Sprintf(`apiVersion: v1
+clusters:
+- cluster:
+    server: test.fake.io
+  name: AbcClusterID
+contexts:
+- context:
+    cluster: AbcClusterID
+    user: default
+  name: default
+current-context: default
+kind: Config
+preferences: {}
+users:
+- name: default
+  user:
+    token: %s
+`, tokenID)
 }

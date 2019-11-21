@@ -6,7 +6,10 @@ set -euo pipefail
 # receives a SIGINT
 set -o monitor
 
+setup_start_time=${SECONDS:-0}
+
 cd $(go env GOPATH)/src/github.com/kubermatic/kubermatic
+export SEED_NAME=prow-build-cluster
 
 source ./api/hack/lib.sh
 
@@ -18,12 +21,16 @@ echodate "Testing versions: ${VERSIONS}"
 export GIT_HEAD_HASH="$(git rev-parse HEAD|tr -d '\n')"
 export EXCLUDE_DISTRIBUTIONS=${EXCLUDE_DISTRIBUTIONS:-ubuntu,centos}
 export DEFAULT_TIMEOUT_MINUTES=${DEFAULT_TIMEOUT_MINUTES:-10}
+export ONLY_TEST_CREATION=${ONLY_TEST_CREATION:-false}
+export PULL_BASE_REF=${PULL_BASE_REF:-$(git rev-parse --abbrev-ref HEAD)}
+export PULL_BASE_SHA=${PULL_BASE_SHA:-$GIT_HEAD_HASH}
 
 # if no provider argument has been specified, default to aws
 provider=${PROVIDER:-"aws"}
 
 if [[ -n ${OPENSHIFT:-} ]]; then
   OPENSHIFT_ARG="-openshift=true"
+  export VERSIONS=${OPENSHIFT_VERSION}
   OPENSHIFT_HELM_ARGS="--set-string=kubermatic.controller.featureGates=OpenIDAuthPlugin=true
  --set-string=kubermatic.auth.caBundle=$(cat /etc/oidc-data/oidc-ca-file|base64 -w0)
  --set-string=kubermatic.auth.tokenIssuer=$OIDC_ISSUER_URL
@@ -58,6 +65,8 @@ function cleanup {
       kubectl describe cluster -l worker-name=$BUILD_ID|egrep -vi 'Domain|Tenant|Username|Password'
     elif [[ $provider == "vsphere" ]]; then
       kubectl describe cluster -l worker-name=$BUILD_ID|egrep -vi 'Username|Password'
+    elif [[ $provider == "kubevirt" ]]; then
+      kubectl describe cluster -l worker-name=$BUILD_ID|grep Events: -A 100
     else
       echo "Provider $provider is not yet supported."
       exit 1
@@ -104,12 +113,17 @@ function cleanup {
   kubectl delete clusterrolebinding -l prowjob=$BUILD_ID
   kubectl delete namespace $NAMESPACE --wait=false
 
+  # Cleanup the endpoints objects created by the leader election
+  kubectl delete endpoints -n kube-system \
+    kubermatic-master-controller-manager-leader-election-$BUILD_ID kubermatic-controller-manager-$BUILD_ID
+
   # Upload the JUNIT files
   mv /reports/* ${ARTIFACTS}/
   echodate "Finished cleanup"
 }
 trap cleanup EXIT
 
+TEST_NAME="Get Vault token"
 echodate "Getting secrets from Vault"
 export VAULT_ADDR=https://vault.loodse.com/
 export VAULT_TOKEN=$(vault write \
@@ -119,313 +133,26 @@ export VAULT_TOKEN=$(vault write \
 export KUBECONFIG=/tmp/kubeconfig
 export VALUES_FILE=/tmp/values.yaml
 export DATACENTERS_FILE=/tmp/datacenters.yaml
-cat <<EOF > $DATACENTERS_FILE
-datacenters:
-#==================================
-#===============Seed===============
-#==================================
-  'prow-build-cluster': #master
-    location: Helsinki
-    country: FL
-    is_seed: true
-    spec:
-      bringyourown: {}
-#==================================
-#===========BringYourOwn===========
-#==================================
-  'byo-prow-build-cluster':
-    location: Helsinki
-    seed: 'prow-build-cluster'
-    country: FL
-    spec:
-      bringyourown: {}
-#==================================
-#===========Digitalocean===========
-#==================================
-  do-ams3:
-    location: Amsterdam
-    seed: 'prow-build-cluster'
-    country: NL
-    spec:
-      digitalocean:
-        region: ams3
-  do-nyc1:
-    location: New York
-    seed: 'prow-build-cluster'
-    country: US
-    spec:
-      digitalocean:
-        region: nyc1
-  do-sfo2:
-    location: San Francisco
-    seed: 'prow-build-cluster'
-    country: US
-    spec:
-      digitalocean:
-        region: sfo2
-  do-sgp1:
-    location: Singapore
-    seed: 'prow-build-cluster'
-    country: SG
-    spec:
-      digitalocean:
-        region: sgp1
-  do-lon1:
-    location: London
-    seed: 'prow-build-cluster'
-    country: GB
-    spec:
-      digitalocean:
-        region: lon1
-  do-fra1:
-    location: Frankfurt
-    seed: 'prow-build-cluster'
-    country: DE
-    spec:
-      digitalocean:
-        region: fra1
-  do-tor1:
-    location: Toronto
-    seed: 'prow-build-cluster'
-    country: CA
-    spec:
-      digitalocean:
-        region: tor1
-  do-blr1:
-    location: Bangalore
-    seed: 'prow-build-cluster'
-    country: IN
-    spec:
-      digitalocean:
-        region: blr1
-#==================================
-#===============AWS================
-#==================================
-  aws-us-east-1a:
-    location: US East (N. Virginia)
-    seed: 'prow-build-cluster'
-    country: US
-    spec:
-      aws:
-        region: us-east-1
-        zone_character: a
-  aws-us-east-2a:
-    location: US East (Ohio)
-    seed: 'prow-build-cluster'
-    country: US
-    spec:
-      aws:
-        region: us-east-2
-        zone_character: a
-  aws-us-west-1b:
-    location: US West (N. California)
-    seed: 'prow-build-cluster'
-    country: US
-    spec:
-      aws:
-        region: us-west-1
-        zone_character: b
-  aws-us-west-2a:
-    location: US West (Oregon)
-    seed: 'prow-build-cluster'
-    country: US
-    spec:
-      aws:
-        region: us-west-2
-        zone_character: a
-  aws-ca-central-1a:
-    location: Canada (Central)
-    seed: 'prow-build-cluster'
-    country: CA
-    spec:
-      aws:
-        region: ca-central-1
-        zone_character: a
-  aws-eu-west-1a:
-    location: EU (Ireland)
-    seed: 'prow-build-cluster'
-    country: IE
-    spec:
-      aws:
-        region: eu-west-1
-        zone_character: a
-  aws-eu-central-1a:
-    location: EU (Frankfurt)
-    seed: 'prow-build-cluster'
-    country: DE
-    spec:
-      aws:
-        region: eu-central-1
-        zone_character: a
-  aws-eu-west-2a:
-    location: EU (London)
-    seed: 'prow-build-cluster'
-    country: GB
-    spec:
-      aws:
-        region: eu-west-2
-        zone_character: a
-  aws-ap-northeast-1a:
-    location: Asia Pacific (Tokyo)
-    seed: 'prow-build-cluster'
-    country: JP
-    spec:
-      aws:
-        region: ap-northeast-1
-        zone_character: a
-  aws-ap-northeast-2a:
-    location: Asia Pacific (Seoul)
-    seed: 'prow-build-cluster'
-    country: KR
-    spec:
-      aws:
-        region: ap-northeast-2
-        zone_character: a
-  aws-ap-southeast-1a:
-    location: Asia Pacific (Singapore)
-    seed: 'prow-build-cluster'
-    country: SG
-    spec:
-      aws:
-        region: ap-southeast-1
-        zone_character: a
-  aws-ap-southeast-2a:
-    location: Asia Pacific (Sydney)
-    seed: 'prow-build-cluster'
-    country: AU
-    spec:
-      aws:
-        region: ap-southeast-2
-        zone_character: a
-  aws-ap-south-1a:
-    location: Asia Pacific (Mumbai)
-    seed: 'prow-build-cluster'
-    country: IN
-    spec:
-      aws:
-        region: ap-south-1
-        zone_character: a
-  aws-sa-east-1a:
-    location: South America (São Paulo)
-    seed: 'prow-build-cluster'
-    country: BR
-    spec:
-      aws:
-        region: sa-east-1
-        zone_character: a
-#==================================
-#=============Hetzner==============
-#==================================
-  hetzner-fsn1:
-    location: Falkenstein 1 DC 8
-    seed: 'prow-build-cluster'
-    country: DE
-    spec:
-      hetzner:
-        datacenter: fsn1-dc8
-  hetzner-nbg1:
-    location: Nuremberg 1 DC 3
-    seed: 'prow-build-cluster'
-    country: DE
-    spec:
-      hetzner:
-        datacenter: nbg1-dc3
-#==================================
-#=============vSphere==============
-#==================================
-  vsphere-ger:
-    location: Hetzner
-    seed: 'prow-build-cluster'
-    country: DE
-    spec:
-      vsphere:
-        endpoint: "https://vcenter.loodse.com"
-        datacenter: "dc-1"
-        datastore: "exsi-nas"
-        cluster: "cl-1"
-        root_path: "/dc-1/vm/e2e-tests"
-        templates:
-          ubuntu: "machine-controller-e2e-ubuntu"
-          centos: "machine-controller-e2e-centos"
-          coreos: "machine-controller-e2e-coreos"
-#==================================
-#============= Azure ==============
-#==================================
-  azure-westeurope:
-    location: "Azure West europe"
-    seed: 'prow-build-cluster'
-    country: NL
-    spec:
-      azure:
-        location: "westeurope"
-  azure-eastus:
-    location: "Azure East US"
-    seed: 'prow-build-cluster'
-    country: US
-    spec:
-      azure:
-        location: "eastus"
-  azure-southeastasia:
-    location: "Azure South-East Asia"
-    seed: 'prow-build-cluster'
-    country: HK
-    spec:
-      azure:
-        location: "southeastasia"
-#==================================
-#============= GCP ================
-#==================================
-  gcp-westeurope:
-    location: "Europe West (Germany)"
-    seed: 'prow-build-cluster'
-    country: DE
-    spec:
-      gcp:
-        region: europe-west3
-        zone_suffixes:
-        - c
-#==================================
-#============= Packet ================
-#==================================
-  packet-ams1:
-    location: "Packet AMS1 (Amsterdam)"
-    seed: 'prow-build-cluster'
-    country: NL
-    spec:
-      packet:
-        facilities:
-        - ams1
-#==================================
-#============OpenStack=============
-#==================================
-  syseleven-dbl1:
-    location: Syseleven - dbl1
-    seed: europe-west3-c
-    country: DE
-    spec:
-      openstack:
-        auth_url: https://keystone.cloud.syseleven.net:5000/v3
-        availability_zone: dbl1
-        region: dbl
-        dns_servers:
-        - 37.123.105.116
-        - 37.123.105.117
-        images:
-          ubuntu: "kubermatic-e2e-ubuntu"
-          centos: "kubermatic-e2e-centos"
-          coreos: "kubermatic-e2e-coreos"
-        enforce_floating_ip: true
-EOF
+export OPENSTACK_DATACENTER_FILE=/tmp/openstack-datacenters.yaml
+TEST_NAME="Get Kubeconfig from Vault"
 retry 5 vault kv get -field=kubeconfig \
   dev/seed-clusters/ci.kubermatic.io > $KUBECONFIG
+TEST_NAME="Get Values file from Vault"
 retry 5 vault kv get -field=values.yaml \
   dev/seed-clusters/ci.kubermatic.io > $VALUES_FILE
-sed -E "s/(datacenters: ).*/\1$(base64 -w0 $DATACENTERS_FILE)/" -i $VALUES_FILE
+TEST_NAME="Get datacenters.yaml from Vault"
+retry 5 vault kv get -field=datacenters.yaml \
+  dev/seed-clusters/ci.kubermatic.io > $DATACENTERS_FILE
+TEST_NAME="Get Openstack datacenters file from Vault"
+retry 5 vault kv get -field=openstack-datacenter.yaml \
+  dev/seed-clusters/ci.kubermatic.io > $OPENSTACK_DATACENTER_FILE
+TEST_NAME="Get ProjectID from Vault"
 retry 5 vault kv get -field=project_id \
-	dev/seed-clusters/ci.kubermatic.io > /tmp/kubermatic_project_id
+  dev/seed-clusters/ci.kubermatic.io > /tmp/kubermatic_project_id
 export KUBERMATIC_PROJECT_ID="$(cat /tmp/kubermatic_project_id)"
+TEST_NAME="Get ServiceAccount token from Vault"
 retry 5 vault kv get -field=serviceaccount_token \
-	dev/seed-clusters/ci.kubermatic.io > /tmp/kubermatic_serviceaccount_token
+  dev/seed-clusters/ci.kubermatic.io > /tmp/kubermatic_serviceaccount_token
 export KUBERMATIC_SERVICEACCOUNT_TOKEN="$(cat /tmp/kubermatic_serviceaccount_token)"
 echodate "Successfully got secrets from Vault"
 
@@ -434,29 +161,53 @@ build_tag_if_not_exists() {
   # Build kubermatic binaries and push the image
   if ! curl -Ss --fail "http://registry.registry.svc.cluster.local.:5000/v2/kubermatic/api/tags/list"|grep -q "$1"; then
     mkdir -p /etc/containers
-		cat <<EOF > /etc/containers/registries.conf
+    cat <<EOF > /etc/containers/registries.conf
 [registries.search]
 registries = ['docker.io']
 [registries.insecure]
 registries = ["registry.registry.svc.cluster.local:5000"]
 EOF
     echodate "Building binaries"
-    time make -C api build
+    TEST_NAME="Build Kubermatic binaries"
+    time retry 1 make -C api build
     (
       echodate "Building docker image"
+      TEST_NAME="Build Kubermatic Docker image"
       cd api
       time retry 5 buildah build-using-dockerfile --squash -t "registry.registry.svc.cluster.local:5000/kubermatic/api:$1" .
     )
     (
       echodate "Building addons image"
+      TEST_NAME="Build addons Docker image"
       cd addons
       time retry 5 buildah build-using-dockerfile --squash -t "registry.registry.svc.cluster.local:5000/kubermatic/addons:$1" .
     )
+    (
+      echodate "Building openshift addons image"
+      TEST_NAME="Build openshift Docker image"
+      cd openshift_addons
+      time retry 5 buildah build-using-dockerfile --squash -t "registry.registry.svc.cluster.local:5000/kubermatic/openshift_addons:$1" .
+    )
+    (
+      echodate "Building dnatcontroller image"
+      TEST_NAME="Build dnatcontroller Docker image"
+      cd api/cmd/kubeletdnat-controller
+      make build
+      time retry 5 buildah build-using-dockerfile --squash -t "registry.registry.svc.cluster.local:5000/kubermatic/kubeletdnat-controller:$1 ."
+    )
     echodate "Pushing docker image"
+    TEST_NAME="Push Kubermatic Docker image"
     time retry 5 buildah push "registry.registry.svc.cluster.local:5000/kubermatic/api:$1"
+    TEST_NAME="Push addons Docker image"
     echodate "Pushing addons image"
     time retry 5 buildah push "registry.registry.svc.cluster.local:5000/kubermatic/addons:$1"
-    echodate "Finished building and pushing docker image"
+    TEST_NAME="Push openshift addons Docker image"
+    echodate "Pushing openshift addons image"
+    time retry 5 buildah push "registry.registry.svc.cluster.local:5000/kubermatic/openshift_addons:$1"
+    TEST_NAME="Push dnatcontroller Docker image"
+    echodate "Pushing dnatcontroller image"
+    time retry 5 buildah push "registry.registry.svc.cluster.local:5000/kubermatic/kubeletdnat-controller:$1"
+    echodate "Finished building and pushing docker images"
   else
     echodate "Omitting building of binaries and docker image, as tag $1 already exists in local registry"
   fi
@@ -464,11 +215,14 @@ EOF
 
 build_tag_if_not_exists "$GIT_HEAD_HASH"
 
-INITIAL_MANIFESTS=$(cat <<EOF
+INITIAL_MANIFESTS="$(mktemp)"
+cat <<EOF >$INITIAL_MANIFESTS
 apiVersion: v1
 kind: Namespace
 metadata:
   name: $NAMESPACE
+  labels:
+    worker-name: "$BUILD_ID"
 spec: {}
 status: {}
 ---
@@ -507,21 +261,30 @@ roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
   name: cluster-admin
+---
 EOF
-)
 echodate "Creating namespace $NAMESPACE to deploy kubermatic in"
-echo "$INITIAL_MANIFESTS"|kubectl apply -f -
+TEST_NAME="Create Kubermatic namespace and Bindings"
+retry 5 kubectl apply -f $INITIAL_MANIFESTS
 
 echodate "Deploying tiller"
+TEST_NAME="Deploy Tiller"
 helm init --wait --service-account=tiller --tiller-namespace=$NAMESPACE
 
 echodate "Installing Kubermatic via Helm"
+TEST_NAME="Deploy Kubermatic"
 
 if [[ -n ${UPGRADE_TEST_BASE_HASH:-} ]]; then
   echodate "Upgradetest, checking out revision ${UPGRADE_TEST_BASE_HASH}"
   git checkout $UPGRADE_TEST_BASE_HASH
   build_tag_if_not_exists "$UPGRADE_TEST_BASE_HASH"
 fi
+
+# Hardcoded as the only thing these tests test about the dashboard is that the pod comes up. In order to
+# not introduce a dependency on the dashboard push postsubmit being successfully run, we just harcode it
+# here.
+LATEST_DASHBOARD=43037e8f118f0e310cfcae713bc2b3bd1a2c8496
+
 # We must delete all templates for cluster-scoped resources
 # because those already exist because of the main Kubermatic installation
 # otherwise the helm upgrade --install fails
@@ -536,26 +299,122 @@ retry 3 helm upgrade --install --force --wait --timeout 300 \
   --set-string=kubermatic.controller.addons.kubernetes.image.repository=127.0.0.1:5000/kubermatic/addons \
   --set-string=kubermatic.controller.image.tag=${UPGRADE_TEST_BASE_HASH:-$GIT_HEAD_HASH} \
   --set-string=kubermatic.controller.image.repository=127.0.0.1:5000/kubermatic/api \
+  --set-string=kubermatic.controller.addons.openshift.image.tag=${GIT_HEAD_HASH} \
+  --set-string=kubermatic.controller.addons.openshift.image.repository=127.0.0.1:5000/kubermatic/openshift_addons \
   --set-string=kubermatic.api.image.repository=127.0.0.1:5000/kubermatic/api \
   --set-string=kubermatic.api.image.tag=${UPGRADE_TEST_BASE_HASH:-$GIT_HEAD_HASH} \
   --set-string=kubermatic.masterController.image.tag=${UPGRADE_TEST_BASE_HASH:-$GIT_HEAD_HASH} \
   --set-string=kubermatic.masterController.image.repository=127.0.0.1:5000/kubermatic/api \
+  --set-string=kubermatic.ui.image.tag=${LATEST_DASHBOARD} \
   --set-string=kubermatic.kubermaticImage=127.0.0.1:5000/kubermatic/api \
+  --set-string=kubermatic.dnatcontrollerImage=127.0.0.1:5000/kubermatic/kubeletdnat-controller \
   --set-string=kubermatic.worker_name=$BUILD_ID \
   --set=kubermatic.ingressClass=non-existent \
   --set=kubermatic.checks.crd.disable=true \
+  --set=kubermatic.datacenters='' \
+  --set=kubermatic.dynamicDatacenters=true \
   ${OPENSHIFT_HELM_ARGS:-} \
   --values ${VALUES_FILE} \
   --namespace $NAMESPACE \
   kubermatic-$BUILD_ID ./config/kubermatic/
-
-
 echodate "Finished installing Kubermatic"
 
+echodate "Installing seed"
+SEED_MANIFEST="$(mktemp)"
+cat <<EOF >$SEED_MANIFEST
+kind: Secret
+apiVersion: v1
+metadata:
+  name: ${SEED_NAME}-kubeconfig
+  namespace: ${NAMESPACE}
+data:
+  kubeconfig: "$(cat $KUBECONFIG|base64 -w0)"
+---
+kind: Seed
+apiVersion: kubermatic.k8s.io/v1
+metadata:
+  name: ${SEED_NAME}
+  namespace: ${NAMESPACE}
+  labels:
+    worker-name: "$BUILD_ID"
+spec:
+  country: Germany
+  location: Hamburg
+  kubeconfig:
+    name: ${SEED_NAME}-kubeconfig
+    namespace: ${NAMESPACE}
+    fieldPath: kubeconfig
+  datacenters:
+    aws-eu-central-1a:
+      location: EU (Frankfurt)
+      country: DE
+      spec:
+        aws:
+          region: eu-central-1
+    hetzner-nbg1:
+      location: Nuremberg 1 DC 3
+      country: DE
+      spec:
+        hetzner:
+          datacenter: nbg1-dc3
+    vsphere-ger:
+      location: Hamburg
+      country: DE
+      spec:
+        vsphere:
+          endpoint: "https://vcenter.loodse.io"
+          datacenter: "dc-1"
+          datastore: "exsi-nas"
+          cluster: "cl-1"
+          root_path: "/dc-1/vm/e2e-tests"
+          templates:
+            ubuntu: "machine-controller-e2e-ubuntu"
+            centos: "machine-controller-e2e-centos"
+            coreos: "machine-controller-e2e-coreos"
+    azure-westeurope:
+      location: "Azure West europe"
+      country: NL
+      spec:
+        azure:
+          location: "westeurope"
+    gcp-westeurope:
+      location: "Europe West (Germany)"
+      country: DE
+      spec:
+        gcp:
+          region: europe-west3
+          zone_suffixes:
+          - c
+    packet-ewr1:
+      location: "Packet EWR1 (New York)"
+      country: US
+      spec:
+        packet:
+          facilities:
+          - ewr1
+    do-ams3:
+      location: Amsterdam
+      country: NL
+      spec:
+        digitalocean:
+          region: ams3
+    kubevirt-europe-west3-c:
+      location: Frankfurt
+      country: DE
+      spec:
+        kubevirt: {}
+$(cat $OPENSTACK_DATACENTER_FILE)
+EOF
+TEST_NAME="Deploy Seed Manifest"
+retry 7 kubectl apply -f $SEED_MANIFEST
+echodate "Finished installing seed"
+
 # We build the CLI after deploying to make sure we fail fast if the helm deployment fails
-echodate "Building conformance-tests cli"
-time go build -v github.com/kubermatic/kubermatic/api/cmd/conformance-tests
-echodate "Finished building conformance-tests cli"
+if ! ls ./api/_build/conformance-tests &>/dev/null; then
+  echodate "Building conformance-tests cli"
+  time make -C api conformance-tests
+  echodate "Finished building conformance-tests cli"
+fi
 
 if [[ -n ${UPGRADE_TEST_BASE_HASH:-} ]]; then
   echodate "Upgradetest, going back to old revision"
@@ -589,9 +448,20 @@ elif [[ $provider == "openstack" ]]; then
 elif [[ $provider == "vsphere" ]]; then
   EXTRA_ARGS="-vsphere-username=${VSPHERE_E2E_USERNAME}
     -vsphere-password=${VSPHERE_E2E_PASSWORD}"
+elif [[ $provider == "kubevirt" ]]; then
+  EXTRA_ARGS="-kubevirt-kubeconfig=${KUBEVIRT_E2E_TESTS_KUBECONFIG}"
 fi
 
-timeout -s 9 90m ./conformance-tests $EXTRA_ARGS \
+# Gather the total time it takes between starting this sscript and staring the conformance tester
+setup_elasped_time=$((${SECONDS:-} - $setup_start_time))
+TEST_NAME="Setup Kubermatic total" write_junit "0" "$setup_elasped_time"
+
+kubermatic_delete_cluster="true"
+if [ -n "${UPGRADE_TEST_BASE_HASH:-}" ]; then
+  kubermatic_delete_cluster="false"
+fi
+
+timeout -s 9 90m ./api/_build/conformance-tests ${EXTRA_ARGS:-} \
   -debug \
   -worker-name=$BUILD_ID \
   -kubeconfig=$KUBECONFIG \
@@ -604,9 +474,10 @@ timeout -s 9 90m ./conformance-tests $EXTRA_ARGS \
   -run-kubermatic-controller-manager=false \
   -versions="$VERSIONS" \
   -providers=$provider \
+  -only-test-creation="${ONLY_TEST_CREATION}" \
   -exclude-distributions="${EXCLUDE_DISTRIBUTIONS}" \
   ${OPENSHIFT_ARG:-} \
-  -kubermatic-delete-cluster=false \
+  -kubermatic-delete-cluster=${kubermatic_delete_cluster} \
   -print-ginkgo-logs=true \
   -default-timeout-minutes=${DEFAULT_TIMEOUT_MINUTES}
 
@@ -616,19 +487,27 @@ if [[ -z ${UPGRADE_TEST_BASE_HASH:-} ]]; then
   exit 0
 fi
 
+# PULL_BASE_REF is the name of the current branch in case of a post-submit
+# or the name of the base branch in case of a PR.
+LATEST_DASHBOARD="$(get_latest_dashboard_hash "${PULL_BASE_REF}")"
+
 echodate "Installing current version of Kubermatic"
 retry 3 helm upgrade --install --force --wait --timeout 300 \
   --tiller-namespace=$NAMESPACE \
   --set=kubermatic.isMaster=true \
   --set-string=kubermatic.controller.addons.kubernetes.image.tag=${GIT_HEAD_HASH} \
   --set-string=kubermatic.controller.addons.kubernetes.image.repository=127.0.0.1:5000/kubermatic/addons \
+  --set-string=kubermatic.controller.addons.openshift.image.tag=${GIT_HEAD_HASH} \
+  --set-string=kubermatic.controller.addons.openshift.image.repository=127.0.0.1:5000/kubermatic/openshift_addons \
   --set-string=kubermatic.controller.image.tag=${GIT_HEAD_HASH} \
   --set-string=kubermatic.controller.image.repository=127.0.0.1:5000/kubermatic/api \
   --set-string=kubermatic.api.image.repository=127.0.0.1:5000/kubermatic/api \
   --set-string=kubermatic.api.image.tag=${GIT_HEAD_HASH} \
   --set-string=kubermatic.masterController.image.tag=${GIT_HEAD_HASH} \
   --set-string=kubermatic.masterController.image.repository=127.0.0.1:5000/kubermatic/api \
+  --set-string=kubermatic.ui.image.tag=${LATEST_DASHBOARD} \
   --set-string=kubermatic.kubermaticImage=127.0.0.1:5000/kubermatic/api \
+  --set-string=kubermatic.dnatcontrollerImage=127.0.0.1:5000/kubermatic/kubeletdnat-controller \
   --set-string=kubermatic.worker_name=$BUILD_ID \
   --set=kubermatic.ingressClass=non-existent \
   --set=kubermatic.checks.crd.disable=true \
@@ -660,8 +539,8 @@ timeout -s 9 60m ./conformance-tests $EXTRA_ARGS \
   -cleanup-on-start=false \
   -versions="$VERSIONS" \
   -providers=$provider \
+  -only-test-creation="${ONLY_TEST_CREATION}" \
   -exclude-distributions="${EXCLUDE_DISTRIBUTIONS}" \
   ${OPENSHIFT_ARG:-} \
-  -kubermatic-delete-cluster=false \
   -print-ginkgo-logs=true \
   -default-timeout-minutes=${DEFAULT_TIMEOUT_MINUTES}

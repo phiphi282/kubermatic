@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"k8s.io/apimachinery/pkg/runtime"
 	"net/http"
 
 	"github.com/go-kit/kit/endpoint"
@@ -14,6 +15,9 @@ import (
 	"github.com/kubermatic/kubermatic/api/pkg/handler/middleware"
 	"github.com/kubermatic/kubermatic/api/pkg/handler/v1/common"
 	"github.com/kubermatic/kubermatic/api/pkg/provider"
+
+	k8sjson "k8s.io/apimachinery/pkg/util/json"
+	"k8s.io/apimachinery/pkg/util/sets"
 )
 
 // addonReq defines HTTP request for getAddon and deleteAddon
@@ -120,6 +124,12 @@ func decodeAddonID(c context.Context, r *http.Request) (string, error) {
 	return addonID, nil
 }
 
+func ListAccessibleAddons(accessibleAddons sets.String) endpoint.Endpoint {
+	return func(ctx context.Context, request interface{}) (interface{}, error) {
+		return accessibleAddons.UnsortedList(), nil
+	}
+}
+
 func GetAddonEndpoint(projectProvider provider.ProjectProvider) endpoint.Endpoint {
 	return func(ctx context.Context, request interface{}) (interface{}, error) {
 		req := request.(addonReq)
@@ -140,7 +150,11 @@ func GetAddonEndpoint(projectProvider provider.ProjectProvider) endpoint.Endpoin
 			return nil, common.KubernetesErrorToHTTPError(err)
 		}
 
-		return convertInternalAddonToExternal(addon), nil
+		result, err := convertInternalAddonToExternal(addon)
+		if err != nil {
+			return nil, common.KubernetesErrorToHTTPError(err)
+		}
+		return result, nil
 	}
 }
 
@@ -164,7 +178,11 @@ func ListAddonEndpoint(projectProvider provider.ProjectProvider) endpoint.Endpoi
 			return nil, common.KubernetesErrorToHTTPError(err)
 		}
 
-		return convertInternalAddonsToExternal(addons), nil
+		result, err := convertInternalAddonsToExternal(addons)
+		if err != nil {
+			return nil, common.KubernetesErrorToHTTPError(err)
+		}
+		return result, nil
 	}
 }
 
@@ -183,12 +201,21 @@ func CreateAddonEndpoint(projectProvider provider.ProjectProvider) endpoint.Endp
 		}
 
 		addonProvider := ctx.Value(middleware.AddonProviderContextKey).(provider.AddonProvider)
-		addon, err := addonProvider.New(userInfo, cluster, req.Body.Name, &req.Body.Spec.Variables)
+		rawVars, err := convertExternalVariablesToInternal(req.Body.Spec.Variables)
 		if err != nil {
 			return nil, common.KubernetesErrorToHTTPError(err)
 		}
 
-		return convertInternalAddonToExternal(addon), nil
+		addon, err := addonProvider.New(userInfo, cluster, req.Body.Name, rawVars)
+		if err != nil {
+			return nil, common.KubernetesErrorToHTTPError(err)
+		}
+
+		result, err := convertInternalAddonToExternal(addon)
+		if err != nil {
+			return nil, common.KubernetesErrorToHTTPError(err)
+		}
+		return result, nil
 	}
 }
 
@@ -211,13 +238,22 @@ func PatchAddonEndpoint(projectProvider provider.ProjectProvider) endpoint.Endpo
 		if err != nil {
 			return nil, common.KubernetesErrorToHTTPError(err)
 		}
-		addon.Spec.Variables = req.Body.Spec.Variables
+		rawVars, err := convertExternalVariablesToInternal(req.Body.Spec.Variables)
+		if err != nil {
+			return nil, common.KubernetesErrorToHTTPError(err)
+		}
+		addon.Spec.Variables = *rawVars
+
 		addon, err = addonProvider.Update(userInfo, cluster, addon)
 		if err != nil {
 			return nil, common.KubernetesErrorToHTTPError(err)
 		}
 
-		return convertInternalAddonToExternal(addon), nil
+		result, err := convertInternalAddonToExternal(addon)
+		if err != nil {
+			return nil, common.KubernetesErrorToHTTPError(err)
+		}
+		return result, nil
 	}
 }
 
@@ -241,8 +277,8 @@ func DeleteAddonEndpoint(projectProvider provider.ProjectProvider) endpoint.Endp
 	}
 }
 
-func convertInternalAddonToExternal(internalAddon *kubermaticapiv1.Addon) *apiv1.Addon {
-	return &apiv1.Addon{
+func convertInternalAddonToExternal(internalAddon *kubermaticapiv1.Addon) (*apiv1.Addon, error) {
+	result := &apiv1.Addon{
 		ObjectMeta: apiv1.ObjectMeta{
 			ID:                internalAddon.Name,
 			Name:              internalAddon.Name,
@@ -256,17 +292,37 @@ func convertInternalAddonToExternal(internalAddon *kubermaticapiv1.Addon) *apiv1
 			}(),
 		},
 		Spec: apiv1.AddonSpec{
-			Variables: internalAddon.Spec.Variables,
+			IsDefault: internalAddon.Spec.IsDefault,
 		},
 	}
+	if len(internalAddon.Spec.Variables.Raw) > 0 {
+		if err := k8sjson.Unmarshal(internalAddon.Spec.Variables.Raw, &result.Spec.Variables); err != nil {
+			return nil, err
+		}
+	}
+	return result, nil
 }
 
-func convertInternalAddonsToExternal(internalAddons []*kubermaticapiv1.Addon) []*apiv1.Addon {
+func convertInternalAddonsToExternal(internalAddons []*kubermaticapiv1.Addon) ([]*apiv1.Addon, error) {
 	result := []*apiv1.Addon{}
 
 	for _, addon := range internalAddons {
-		result = append(result, convertInternalAddonToExternal(addon))
+		converted, err := convertInternalAddonToExternal(addon)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, converted)
 	}
 
-	return result
+	return result, nil
+}
+
+func convertExternalVariablesToInternal(external map[string]interface{}) (*runtime.RawExtension, error) {
+	result := &runtime.RawExtension{}
+	raw, err := k8sjson.Marshal(external)
+	if err != nil {
+		return nil, err
+	}
+	result.Raw = raw
+	return result, nil
 }

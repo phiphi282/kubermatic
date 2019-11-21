@@ -8,10 +8,12 @@ import (
 	"strings"
 	"testing"
 
+	"go.uber.org/zap"
+
 	kubermaticv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
+	"github.com/kubermatic/kubermatic/api/pkg/semver"
 	testhelper "github.com/kubermatic/kubermatic/api/pkg/test"
 
-	"github.com/kubermatic/kubermatic/api/pkg/provider"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -19,6 +21,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	autoscalingv1beta2 "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/apis/autoscaling.k8s.io/v1beta2"
 	"k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	ctrlruntimelog "sigs.k8s.io/controller-runtime/pkg/runtime/log"
@@ -64,7 +67,9 @@ func TestResources(t *testing.T) {
 		{
 			name: "Kubermatic API image is overwritten",
 			reconciler: Reconciler{
-				kubermaticImage: "my.corp/kubermatic",
+				kubermaticImage:          "my.corp/kubermatic",
+				log:                      zap.NewNop().Sugar(),
+				concurrentClusterUpdates: 10,
 			},
 			object: &appsv1.Deployment{
 				ObjectMeta: metav1.ObjectMeta{
@@ -85,15 +90,12 @@ func TestResources(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-
 			ctrlruntimelog.SetLogger(ctrlruntimelog.ZapLogger(true))
-			if err := kubermaticv1.SchemeBuilder.AddToScheme(scheme.Scheme); err != nil {
-				t.Fatalf("failed to add kubermatic scheme to mgr: %v", err)
-			}
 			if err := autoscalingv1beta2.AddToScheme(scheme.Scheme); err != nil {
 				t.Fatalf("failed to add the autoscaling.k8s.io scheme to mgr: %v", err)
 			}
 
+			tc.reconciler.recorder = &record.FakeRecorder{}
 			tc.reconciler.Client = fake.NewFakeClient(
 				&kubermaticv1.Cluster{
 					ObjectMeta: metav1.ObjectMeta{
@@ -106,6 +108,9 @@ func TestResources(t *testing.T) {
 						Cloud: kubermaticv1.CloudSpec{
 							DatacenterName: "alias-europe-west3-c",
 						},
+						ExposeStrategy: corev1.ServiceTypeNodePort,
+						Openshift:      &kubermaticv1.Openshift{},
+						Version:        *semver.NewSemverOrDie("4.1.9"),
 					},
 					Status: kubermaticv1.ClusterStatus{
 						NamespaceName: "test-cluster-ns",
@@ -125,11 +130,19 @@ func TestResources(t *testing.T) {
 					},
 				},
 			)
-			tc.reconciler.dcs = map[string]provider.DatacenterMeta{
-				"alias-europe-west3-c": {},
+			tc.reconciler.seedGetter = func() (*kubermaticv1.Seed, error) {
+				return &kubermaticv1.Seed{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "alias-europe-west3-c",
+					},
+					Spec: kubermaticv1.SeedSpec{
+						Datacenters: map[string]kubermaticv1.Datacenter{
+							"alias-europe-west3-c": {},
+						},
+					},
+				}, nil
 			}
 			tc.reconciler.externalURL = "dev.kubermatic.io"
-			tc.reconciler.dc = "alias-europe-west3-c"
 			tc.reconciler.oidc.CAFile = certLocation
 
 			if _, err := tc.reconciler.Reconcile(reconcile.Request{

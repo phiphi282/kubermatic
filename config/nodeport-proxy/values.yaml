@@ -9,12 +9,7 @@ nodePortProxy:
       tag: v1.11.1
 
   nodeSelector: {}
-
-  # The only reason all these fields are defined explicitly is so that
-  # we can properly merge any potential overwrites.
   affinity:
-    nodeAffinity: {}
-    podAffinity: {}
     podAntiAffinity:
       preferredDuringSchedulingIgnoredDuringExecution:
       - podAffinityTerm:
@@ -23,7 +18,6 @@ nodePortProxy:
               app: envoy
           topologyKey: kubernetes.io/hostname
         weight: 100
-      requiredDuringSchedulingIgnoredDuringExecution: []
   tolerations: []
 
   resources:
@@ -54,26 +48,11 @@ nodePortProxy:
     affinity: {}
     tolerations: []
 
-# stub to make templating easier
-nodePortPoxy:
-  image: {}
-  envoy:
-    image: {}
-  nodeSelector: {}
-  affinity:
-    podAntiAffinity: {}
-  tolerations: []
-  resources:
-    envoy:
-      requests: {}
-      limits: {}
-    envoyManager:
-      requests: {}
-      limits: {}
-    lbUpdater:
-      requests: {}
-      limits: {}
-  lbUpdater:
-    nodeSelector: {}
-    affinity: {}
-    tolerations: []
+
+  # If we're running on AWS, use an NLB. It has a fixed IP & we can use VPC endpoints
+  # https://docs.aws.amazon.com/de_de/eks/latest/userguide/load-balancing.html
+  service:
+    annotations:
+      "service.beta.kubernetes.io/aws-load-balancer-type": nlb
+      # On AWS default timeout is 60s, which means: kubectl logs -f will receive EOF after 60s.
+      "service.beta.kubernetes.io/aws-load-balancer-connection-idle-timeout": "3600"

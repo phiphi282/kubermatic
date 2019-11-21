@@ -18,6 +18,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/klog"
 	ctrlruntimeconfig "sigs.k8s.io/controller-runtime/pkg/client/config"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
@@ -42,6 +43,7 @@ const (
 )
 
 func main() {
+	klog.InitFlags(nil)
 	flag.BoolVar(&debug, "debug", false, "Use debug logging")
 	flag.StringVar(&listenAddress, "listen-address", ":8001", "Address to serve on")
 	flag.StringVar(&envoyNodeName, "envoy-node-name", "kube", "Name of the envoy nodes to apply the config to via xds")
@@ -65,8 +67,12 @@ func main() {
 		mainLog.ReportCaller = true
 	}
 
+	envoyLog := &envoyLogProxy{
+		upstream: mainLog.WithField("component", "envoycache"),
+	}
+
 	mainLog.Infof("Starting the server on '%s'...", listenAddress)
-	snapshotCache := envoycache.NewSnapshotCache(true, hasher{}, mainLog)
+	snapshotCache := envoycache.NewSnapshotCache(true, hasher{}, envoyLog)
 	srv := xds.NewServer(snapshotCache, nil)
 	grpcServer := grpc.NewServer()
 	listener, err := net.Listen("tcp", listenAddress)

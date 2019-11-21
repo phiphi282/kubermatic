@@ -8,11 +8,7 @@ spec:
   selector:
     matchLabels:
       app: scheduler
-  strategy:
-    rollingUpdate:
-      maxSurge: 1
-      maxUnavailable: 0
-    type: RollingUpdate
+  strategy: {}
   template:
     metadata:
       annotations:
@@ -94,7 +90,6 @@ spec:
             memory: 5Mi
         securityContext:
           privileged: true
-          procMount: Default
         volumeMounts:
         - mountPath: /etc/openvpn/pki/client
           name: openvpn-client-certificates
@@ -168,7 +163,11 @@ spec:
         - /bin/cp
         - /usr/local/bin/http-prober
         - /http-prober-bin/http-prober
+<<<<<<< HEAD
         image: quay.io/kubermatic/http-prober:v0.2
+=======
+        image: quay.io/kubermatic/http-prober:v0.3.1
+>>>>>>> v2.12.1
         name: copy-http-prober
         resources: {}
         volumeMounts:
@@ -177,18 +176,15 @@ spec:
       volumes:
       - name: openvpn-client-certificates
         secret:
-          defaultMode: 256
           secretName: openvpn-client-certificates
       - name: ca
         secret:
-          defaultMode: 256
           items:
           - key: ca.crt
             path: ca.crt
           secretName: ca
       - name: scheduler-kubeconfig
         secret:
-          defaultMode: 256
           secretName: scheduler-kubeconfig
       - emptyDir: {}
         name: http-prober-bin

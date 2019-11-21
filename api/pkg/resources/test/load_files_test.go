@@ -19,13 +19,14 @@ import (
 	clustercontroller "github.com/kubermatic/kubermatic/api/pkg/controller/cluster"
 	monitoringcontroller "github.com/kubermatic/kubermatic/api/pkg/controller/monitoring"
 	kubermaticv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
-	"github.com/kubermatic/kubermatic/api/pkg/provider"
 	"github.com/kubermatic/kubermatic/api/pkg/resources"
 	"github.com/kubermatic/kubermatic/api/pkg/resources/machine"
+	metricsserver "github.com/kubermatic/kubermatic/api/pkg/resources/metrics-server"
 	"github.com/kubermatic/kubermatic/api/pkg/resources/reconciling"
 	ksemver "github.com/kubermatic/kubermatic/api/pkg/semver"
+	testhelper "github.com/kubermatic/kubermatic/api/pkg/test"
 	"github.com/kubermatic/kubermatic/api/pkg/version"
-	"github.com/kubermatic/machine-controller/pkg/providerconfig"
+	providerconfig "github.com/kubermatic/machine-controller/pkg/providerconfig/types"
 
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1beta1 "k8s.io/api/batch/v1beta1"
@@ -83,7 +84,7 @@ func checkTestResult(t *testing.T, resFile string, testObj interface{}) {
 }
 
 func TestLoadFiles(t *testing.T) {
-	versions := []*version.MasterVersion{
+	versions := []*version.Version{
 		{
 			Version: semver.MustParse("1.10.0"),
 		},
@@ -134,14 +135,12 @@ func TestLoadFiles(t *testing.T) {
 			AWS: &kubermaticv1.AWSCloudSpec{
 				AccessKeyID:         "aws-access-key-id",
 				SecretAccessKey:     "aws-secret-access-key",
-				AvailabilityZone:    "aws-availability-zone",
 				InstanceProfileName: "aws-instance-profile-name",
 				RoleName:            "aws-role-name",
 				RouteTableID:        "aws-route-table-id",
 				SecurityGroupID:     "aws-security-group",
-				SubnetID:            "aws-subnet-id",
 				VPCID:               "aws-vpn-id",
-				RoleARN:             "aws-role-arn",
+				ControlPlaneRoleARN: "aws-role-arn",
 			},
 		},
 		"openstack": {
@@ -162,12 +161,12 @@ func TestLoadFiles(t *testing.T) {
 		},
 	}
 
-	dc := provider.DatacenterMeta{
-		Spec: provider.DatacenterSpec{
-			Azure: &provider.AzureSpec{
+	dc := &kubermaticv1.Datacenter{
+		Spec: kubermaticv1.DatacenterSpec{
+			Azure: &kubermaticv1.DatacenterSpecAzure{
 				Location: "az-location",
 			},
-			VSphere: &provider.VSphereSpec{
+			VSphere: &kubermaticv1.DatacenterSpecVSphere{
 				Endpoint:      "https://vs-endpoint.io",
 				AllowInsecure: false,
 				Datastore:     "vs-datastore",
@@ -175,19 +174,18 @@ func TestLoadFiles(t *testing.T) {
 				Cluster:       "vs-cluster",
 				RootPath:      "vs-cluster",
 			},
-			AWS: &provider.AWSSpec{
-				Images: provider.ImageList{
+			AWS: &kubermaticv1.DatacenterSpecAWS{
+				Images: kubermaticv1.ImageList{
 					providerconfig.OperatingSystemUbuntu: "ubuntu-ami",
 					providerconfig.OperatingSystemCentOS: "centos-ami",
 					providerconfig.OperatingSystemCoreos: "coreos-ami",
 				},
-				Region:        "us-central1",
-				ZoneCharacter: "a",
+				Region: "us-central1",
 			},
-			Digitalocean: &provider.DigitaloceanSpec{
+			Digitalocean: &kubermaticv1.DatacenterSpecDigitalocean{
 				Region: "fra1",
 			},
-			Openstack: &provider.OpenstackSpec{
+			Openstack: &kubermaticv1.DatacenterSpecOpenstack{
 				AuthURL:          "https://example.com:8000/v3",
 				AvailabilityZone: "zone1",
 				DNSServers:       []string{"8.8.8.8", "8.8.4.4"},
@@ -204,18 +202,23 @@ func TestLoadFiles(t *testing.T) {
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "de-test-01",
 						UID:  types.UID("1234567890"),
+						Labels: map[string]string{
+							"my-label": "my-value",
+						},
 					},
 					Spec: kubermaticv1.ClusterSpec{
-						Cloud:   cloudspec,
-						Version: *ksemver.NewSemverOrDie(ver.Version.String()),
+						ExposeStrategy: corev1.ServiceTypeLoadBalancer,
+						Cloud:          cloudspec,
+						Version:        *ksemver.NewSemverOrDie(ver.Version.String()),
 						ClusterNetwork: kubermaticv1.ClusterNetworkingConfig{
 							Services: kubermaticv1.NetworkRanges{
-								CIDRBlocks: []string{"10.10.10.0/24"},
+								CIDRBlocks: []string{"10.240.16.0/20"},
 							},
 							Pods: kubermaticv1.NetworkRanges{
 								CIDRBlocks: []string{"172.25.0.0/16"},
 							},
 							DNSDomain: "cluster.local",
+							ProxyMode: resources.IPVSProxyMode,
 						},
 						MachineNetworks: []kubermaticv1.MachineNetworkingConfig{
 							{
@@ -240,6 +243,13 @@ func TestLoadFiles(t *testing.T) {
 				}
 
 				dynamicClient := ctrlruntimefakeclient.NewFakeClient(
+					&corev1.Secret{
+						ObjectMeta: metav1.ObjectMeta{
+							ResourceVersion: "123456",
+							Name:            metricsserver.ServingCertSecretName,
+							Namespace:       cluster.Status.NamespaceName,
+						},
+					},
 					&corev1.Secret{
 						ObjectMeta: metav1.ObjectMeta{
 							ResourceVersion: "123456",
@@ -394,6 +404,20 @@ func TestLoadFiles(t *testing.T) {
 							Namespace:       cluster.Status.NamespaceName,
 						},
 					},
+					&corev1.Secret{
+						ObjectMeta: metav1.ObjectMeta{
+							ResourceVersion: "123456",
+							Name:            resources.KubernetesDashboardKubeconfigSecretName,
+							Namespace:       cluster.Status.NamespaceName,
+						},
+					},
+					&corev1.Secret{
+						ObjectMeta: metav1.ObjectMeta{
+							ResourceVersion: "123456",
+							Name:            resources.UserSSHKeys,
+							Namespace:       cluster.Status.NamespaceName,
+						},
+					},
 					&corev1.ConfigMap{
 						ObjectMeta: metav1.ObjectMeta{
 							ResourceVersion: "123456",
@@ -426,6 +450,13 @@ func TestLoadFiles(t *testing.T) {
 						ObjectMeta: metav1.ObjectMeta{
 							ResourceVersion: "123456",
 							Name:            resources.DNSResolverConfigMapName,
+							Namespace:       cluster.Status.NamespaceName,
+						},
+					},
+					&corev1.ConfigMap{
+						ObjectMeta: metav1.ObjectMeta{
+							ResourceVersion: "123456",
+							Name:            resources.AuditConfigMapName,
 							Namespace:       cluster.Status.NamespaceName,
 						},
 					},
@@ -529,8 +560,15 @@ func TestLoadFiles(t *testing.T) {
 					ctx,
 					dynamicClient,
 					cluster,
-					&dc,
-					"testdc",
+					dc,
+					&kubermaticv1.Seed{
+						ObjectMeta: metav1.ObjectMeta{Name: "testdc"},
+						Spec: kubermaticv1.SeedSpec{
+							ProxySettings: &kubermaticv1.ProxySettings{
+								HTTPProxy: kubermaticv1.NewProxyValue("http://my-corp"),
+							},
+						},
+					},
 					"",
 					"",
 					"192.0.2.0/24",
@@ -547,7 +585,9 @@ func TestLoadFiles(t *testing.T) {
 					"https://dev.kubermatic.io/dex",
 					"kubermaticIssuer",
 					true,
-					"quay.io/kubermatic/api")
+					"quay.io/kubermatic/api",
+					"quay.io/kubermatic/kubeletdnat-controller",
+					false)
 
 				var deploymentCreators []reconciling.NamedDeploymentCreatorGetter
 				deploymentCreators = append(deploymentCreators, clustercontroller.GetDeploymentCreators(data, true)...)
@@ -559,11 +599,6 @@ func TestLoadFiles(t *testing.T) {
 						t.Fatalf("failed to create Deployment: %v", err)
 					}
 					fixturePath := fmt.Sprintf("deployment-%s-%s-%s", prov, ver.Version.String(), res.Name)
-
-					// Verify that every Deployment has the ImagePullSecret set
-					if len(res.Spec.Template.Spec.ImagePullSecrets) == 0 {
-						t.Errorf("Deployment %s is missing the ImagePullSecret on the PodTemplate", res.Name)
-					}
 
 					verifyContainerResources(fmt.Sprintf("Deployment/%s", res.Name), res.Spec.Template, t)
 
@@ -584,16 +619,15 @@ func TestLoadFiles(t *testing.T) {
 					checkTestResult(t, fixturePath, res)
 				}
 
-				var serviceCreators []reconciling.NamedServiceCreatorGetter
-				serviceCreators = append(serviceCreators, clustercontroller.GetServiceCreators(data)...)
+				serviceCreators := clustercontroller.GetServiceCreators(data)
 				for _, creatorGetter := range serviceCreators {
-					_, create := creatorGetter()
+					name, create := creatorGetter()
 					res, err := create(&corev1.Service{})
 					if err != nil {
 						t.Fatalf("failed to create Service: %v", err)
 					}
 
-					fixturePath := fmt.Sprintf("service-%s-%s-%s", prov, ver.Version.String(), res.Name)
+					fixturePath := fmt.Sprintf("service-%s-%s-%s", prov, ver.Version.String(), name)
 					checkTestResult(t, fixturePath, res)
 				}
 
@@ -681,7 +715,7 @@ func verifyContainerResources(owner string, podTemplateSpec corev1.PodTemplateSp
 type Data struct {
 	Cluster    *kubermaticv1.Cluster
 	Node       *apiv1.Node
-	Datacenter provider.DatacenterMeta
+	Datacenter *kubermaticv1.Datacenter
 	Name       string
 	Keys       []*kubermaticv1.UserSSHKey
 }
@@ -738,16 +772,14 @@ func TestExecute(t *testing.T) {
 					},
 					Status: apiv1.NodeStatus{},
 				},
-				Datacenter: provider.DatacenterMeta{
+				Datacenter: &kubermaticv1.Datacenter{
 					Location: "Frankfurt",
-					Seed:     "europe-west3-c",
 					Country:  "DE",
-					Spec: provider.DatacenterSpec{
-						Digitalocean: &provider.DigitaloceanSpec{
+					Spec: kubermaticv1.DatacenterSpec{
+						Digitalocean: &kubermaticv1.DatacenterSpecDigitalocean{
 							Region: "fra1",
 						},
 					},
-					IsSeed: false,
 				},
 				Keys: []*kubermaticv1.UserSSHKey{
 					{
@@ -781,12 +813,10 @@ func TestExecute(t *testing.T) {
 								AccessKeyID:         "aws-access-key-id",
 								SecretAccessKey:     "aws-secret-access-key",
 								VPCID:               "aws-vpc-ic",
-								SubnetID:            "aws-subnet-id",
 								RoleName:            "aws-role-name",
 								RouteTableID:        "aws-route-table-id",
 								InstanceProfileName: "aws-instance-profile-name",
 								SecurityGroupID:     "aws-security-group-id",
-								AvailabilityZone:    "aws-availability-zone",
 							},
 						},
 					},
@@ -819,22 +849,19 @@ func TestExecute(t *testing.T) {
 					},
 					Status: apiv1.NodeStatus{},
 				},
-				Datacenter: provider.DatacenterMeta{
+				Datacenter: &kubermaticv1.Datacenter{
 					Location: "Frankfurt",
-					Seed:     "europe-west3-c",
 					Country:  "DE",
-					Spec: provider.DatacenterSpec{
-						AWS: &provider.AWSSpec{
+					Spec: kubermaticv1.DatacenterSpec{
+						AWS: &kubermaticv1.DatacenterSpecAWS{
 							Region: "fra1",
-							Images: provider.ImageList{
+							Images: kubermaticv1.ImageList{
 								providerconfig.OperatingSystemUbuntu: "ubuntu-ami",
 								providerconfig.OperatingSystemCentOS: "centos-ami",
 								providerconfig.OperatingSystemCoreos: "coreos-ami",
 							},
-							ZoneCharacter: "aws-zone-character",
 						},
 					},
-					IsSeed: false,
 				},
 				Keys: []*kubermaticv1.UserSSHKey{
 					{
@@ -915,12 +942,11 @@ func TestExecute(t *testing.T) {
 					},
 					Status: apiv1.NodeStatus{},
 				},
-				Datacenter: provider.DatacenterMeta{
+				Datacenter: &kubermaticv1.Datacenter{
 					Location: "Frankfurt",
-					Seed:     "europe-west3-c",
 					Country:  "DE",
-					Spec: provider.DatacenterSpec{
-						Openstack: &provider.OpenstackSpec{
+					Spec: kubermaticv1.DatacenterSpec{
+						Openstack: &kubermaticv1.DatacenterSpecOpenstack{
 							AuthURL:          "os-auth-url",
 							AvailabilityZone: "os-availability-zone",
 							Region:           "os-region",
@@ -931,7 +957,6 @@ func TestExecute(t *testing.T) {
 							}(42),
 						},
 					},
-					IsSeed: false,
 				},
 				Keys: []*kubermaticv1.UserSSHKey{
 					{
@@ -999,16 +1024,14 @@ func TestExecute(t *testing.T) {
 					},
 					Status: apiv1.NodeStatus{},
 				},
-				Datacenter: provider.DatacenterMeta{
+				Datacenter: &kubermaticv1.Datacenter{
 					Location: "westeurope",
-					Seed:     "europe-west3-c",
 					Country:  "NL",
-					Spec: provider.DatacenterSpec{
-						Azure: &provider.AzureSpec{
+					Spec: kubermaticv1.DatacenterSpec{
+						Azure: &kubermaticv1.DatacenterSpecAzure{
 							Location: "westeurope",
 						},
 					},
-					IsSeed: false,
 				},
 				Keys: []*kubermaticv1.UserSSHKey{
 					{
@@ -1065,17 +1088,15 @@ func TestExecute(t *testing.T) {
 					},
 					Status: apiv1.NodeStatus{},
 				},
-				Datacenter: provider.DatacenterMeta{
+				Datacenter: &kubermaticv1.Datacenter{
 					Location: "Frankfurt",
-					Seed:     "europe-west3-c",
 					Country:  "DE",
-					Spec: provider.DatacenterSpec{
-						Hetzner: &provider.HetznerSpec{
+					Spec: kubermaticv1.DatacenterSpec{
+						Hetzner: &kubermaticv1.DatacenterSpecHetzner{
 							Datacenter: "hetzner-datacenter",
 							Location:   "hetzner-location",
 						},
 					},
-					IsSeed: false,
 				},
 				Keys: []*kubermaticv1.UserSSHKey{
 					{
@@ -1134,12 +1155,11 @@ func TestExecute(t *testing.T) {
 					},
 					Status: apiv1.NodeStatus{},
 				},
-				Datacenter: provider.DatacenterMeta{
+				Datacenter: &kubermaticv1.Datacenter{
 					Location: "Frankfurt",
-					Seed:     "europe-west3-c",
 					Country:  "DE",
-					Spec: provider.DatacenterSpec{
-						VSphere: &provider.VSphereSpec{
+					Spec: kubermaticv1.DatacenterSpec{
+						VSphere: &kubermaticv1.DatacenterSpecVSphere{
 							Cluster:       "vsphere-cluster",
 							AllowInsecure: true,
 							Datastore:     "vsphere-datastore",
@@ -1147,7 +1167,6 @@ func TestExecute(t *testing.T) {
 							Datacenter:    "vsphere-datacenter",
 						},
 					},
-					IsSeed: false,
 				},
 				Keys: []*kubermaticv1.UserSSHKey{
 					{
@@ -1170,7 +1189,12 @@ func TestExecute(t *testing.T) {
 	for fixture, test := range tests {
 		//TODO: Each test above needs to be executed for every supported version
 		t.Run(test.name, func(t *testing.T) {
-			machine, err := machine.Machine(test.data.Cluster, test.data.Node, test.data.Datacenter, test.data.Keys)
+
+			credentialsData := testhelper.CredentialsData{
+				KubermaticCluster: test.data.Cluster,
+				Client:            ctrlruntimefakeclient.NewFakeClient(),
+			}
+			machine, err := machine.Machine(test.data.Cluster, test.data.Node, test.data.Datacenter, test.data.Keys, credentialsData)
 			if err != nil {
 				t.Fatalf("failed to generate machine: %v", err)
 			}

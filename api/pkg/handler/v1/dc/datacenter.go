@@ -5,81 +5,146 @@ import (
 	"fmt"
 	"net/http"
 	"sort"
+	"strings"
 
 	"github.com/go-kit/kit/endpoint"
 	"github.com/gorilla/mux"
 
 	apiv1 "github.com/kubermatic/kubermatic/api/pkg/api/v1"
+	kubermaticv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
+	"github.com/kubermatic/kubermatic/api/pkg/handler/middleware"
 	"github.com/kubermatic/kubermatic/api/pkg/log"
 	"github.com/kubermatic/kubermatic/api/pkg/provider"
 	"github.com/kubermatic/kubermatic/api/pkg/util/errors"
 )
 
 // ListEndpoint an HTTP endpoint that returns a list of apiv1.Datacenter
-func ListEndpoint(dcs map[string]provider.DatacenterMeta) endpoint.Endpoint {
+func ListEndpoint(seedsGetter provider.SeedsGetter) endpoint.Endpoint {
 	return func(ctx context.Context, request interface{}) (interface{}, error) {
-		var adcs []apiv1.Datacenter
-		var keys []string
-		for k := range dcs {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
-
-		for _, dcName := range keys {
-			dc := dcs[dcName]
-
-			spec, err := apiSpec(&dc)
-			if err != nil {
-				log.Logger.Errorf("api spec error in dc %q: %v", dcName, err)
-				continue
-			}
-
-			adc := apiv1.Datacenter{
-				Metadata: apiv1.LegacyObjectMeta{
-					Name:            dcName,
-					ResourceVersion: "1",
-				},
-				Spec: *spec,
-				Seed: dc.IsSeed,
-			}
-			adcs = append(adcs, adc)
+		seeds, err := seedsGetter()
+		if err != nil {
+			return nil, errors.New(http.StatusInternalServerError, fmt.Sprintf("failed to list seeds: %v", err))
 		}
 
-		return adcs, nil
+		userInfo, ok := ctx.Value(middleware.UserInfoContextKey).(*provider.UserInfo)
+		if !ok {
+			return nil, errors.New(http.StatusInternalServerError, "can not get user info")
+		}
+
+		// Get the DCs and immediately filter out the ones restricted by e-mail domain.
+		dcs, err := filterDCsByEmail(userInfo, getAPIDCsFromSeedMap(seeds))
+		if err != nil {
+			return apiv1.Datacenter{}, errors.New(http.StatusInternalServerError, fmt.Sprintf("failed to list datacenters: %v", err))
+		}
+		// Maintain a stable order. We do not check for duplicate names here
+		sort.SliceStable(dcs, func(i, j int) bool {
+			return dcs[i].Metadata.Name < dcs[j].Metadata.Name
+		})
+
+		return dcs, nil
 	}
 }
 
 // GetEndpoint an HTTP endpoint that returns a single apiv1.Datacenter object
-func GetEndpoint(dcs map[string]provider.DatacenterMeta) endpoint.Endpoint {
+func GetEndpoint(seedsGetter provider.SeedsGetter) endpoint.Endpoint {
 	return func(ctx context.Context, request interface{}) (interface{}, error) {
 		req := request.(LegacyDCReq)
-		return GetDatacenter(dcs, req.DC)
+
+		userInfo, ok := ctx.Value(middleware.UserInfoContextKey).(*provider.UserInfo)
+		if !ok {
+			return nil, errors.New(http.StatusInternalServerError, "can not get user info")
+		}
+
+		return GetDatacenter(userInfo, seedsGetter, req.DC)
 	}
 }
 
 // GetDatacenter a function that gives you a single apiv1.Datacenter object
-func GetDatacenter(dcs map[string]provider.DatacenterMeta, datacenterToGet string) (apiv1.Datacenter, error) {
-	dc, found := dcs[datacenterToGet]
-	if !found {
+func GetDatacenter(userInfo *provider.UserInfo, seedsGetter provider.SeedsGetter, datacenterToGet string) (apiv1.Datacenter, error) {
+	seeds, err := seedsGetter()
+	if err != nil {
+		return apiv1.Datacenter{}, errors.New(http.StatusInternalServerError, fmt.Sprintf("failed to list seeds: %v", err))
+	}
+
+	// Get the DCs and immediately filter out the ones restricted by e-mail domain.
+	dcs, err := filterDCsByEmail(userInfo, getAPIDCsFromSeedMap(seeds))
+	if err != nil {
+		return apiv1.Datacenter{}, errors.New(http.StatusInternalServerError, fmt.Sprintf("failed to list datacenters: %v", err))
+	}
+
+	// The datacenter endpoints return both node and seed dcs, so we have to iterate through
+	// everything
+	var foundDCs []apiv1.Datacenter
+	for _, unfilteredDC := range dcs {
+		if unfilteredDC.Metadata.Name == datacenterToGet {
+			foundDCs = append(foundDCs, unfilteredDC)
+		}
+	}
+
+	if n := len(foundDCs); n > 1 {
+		return apiv1.Datacenter{}, fmt.Errorf("did not find one but %d datacenters for name %q", n, datacenterToGet)
+	}
+	if len(foundDCs) == 0 {
 		return apiv1.Datacenter{}, errors.NewNotFound("datacenter", datacenterToGet)
 	}
 
-	spec, err := apiSpec(&dc)
-	if err != nil {
-		return apiv1.Datacenter{}, fmt.Errorf("api spec error in dc %q: %v", datacenterToGet, err)
-	}
-
-	return apiv1.Datacenter{
-		Metadata: apiv1.LegacyObjectMeta{
-			Name:            datacenterToGet,
-			ResourceVersion: "1",
-		},
-		Spec: *spec,
-		Seed: dc.IsSeed,
-	}, nil
+	return foundDCs[0], nil
 }
 
-func imagesMap(images provider.ImageList) map[string]string {
+func filterDCsByEmail(userInfo *provider.UserInfo, list []apiv1.Datacenter) ([]apiv1.Datacenter, error) {
+	if list == nil {
+		return nil, fmt.Errorf("filterDCsByEmail: the datacenter list can not be nil")
+	}
+	var dcList []apiv1.Datacenter
+
+	for _, dc := range list {
+		requiredEmailDomain := dc.Spec.RequiredEmailDomain
+		// find datacenter for specific email domain
+		if requiredEmailDomain != "" {
+			userDomain := strings.Split(userInfo.Email, "@")
+			if len(userDomain) == 2 && strings.EqualFold(userDomain[1], requiredEmailDomain) {
+				dcList = append(dcList, dc)
+			}
+		} else {
+			// find datacenter for "all" without RequiredEmailDomain field
+			dcList = append(dcList, dc)
+		}
+	}
+	return dcList, nil
+}
+
+func getAPIDCsFromSeedMap(seeds map[string]*kubermaticv1.Seed) []apiv1.Datacenter {
+	var foundDCs []apiv1.Datacenter
+	for _, seed := range seeds {
+		foundDCs = append(foundDCs, apiv1.Datacenter{
+			Metadata: apiv1.LegacyObjectMeta{
+				Name:            seed.Name,
+				ResourceVersion: "1",
+			},
+			Seed: true,
+		})
+
+		for datacenterName, datacenter := range seed.Spec.Datacenters {
+			spec, err := apiSpec(datacenter.DeepCopy())
+			if err != nil {
+				log.Logger.Errorf("api spec error in dc %q: %v", datacenterName, err)
+				continue
+			}
+			spec.Seed = seed.Name
+			foundDCs = append(foundDCs, apiv1.Datacenter{
+				Metadata: apiv1.LegacyObjectMeta{
+					Name:            datacenterName,
+					ResourceVersion: "1",
+				},
+				Spec: *spec,
+			})
+		}
+	}
+
+	return foundDCs
+}
+
+func imagesMap(images kubermaticv1.ImageList) map[string]string {
 	m := map[string]string{}
 	for os, image := range images {
 		m[string(os)] = image
@@ -87,8 +152,8 @@ func imagesMap(images provider.ImageList) map[string]string {
 	return m
 }
 
-func apiSpec(dc *provider.DatacenterMeta) (*apiv1.DatacenterSpec, error) {
-	p, err := provider.DatacenterCloudProviderName(&dc.Spec)
+func apiSpec(dc *kubermaticv1.Datacenter) (*apiv1.DatacenterSpec, error) {
+	p, err := provider.DatacenterCloudProviderName(dc.Spec.DeepCopy())
 	if err != nil {
 		return nil, err
 	}
@@ -96,7 +161,6 @@ func apiSpec(dc *provider.DatacenterMeta) (*apiv1.DatacenterSpec, error) {
 		Location: dc.Location,
 		Country:  dc.Country,
 		Provider: p,
-		Seed:     dc.Seed,
 	}
 
 	switch {
@@ -145,7 +209,11 @@ func apiSpec(dc *provider.DatacenterMeta) (*apiv1.DatacenterSpec, error) {
 			ZoneSuffixes: dc.Spec.GCP.ZoneSuffixes,
 			Regional:     dc.Spec.GCP.Regional,
 		}
+	case dc.Spec.Kubevirt != nil:
+		spec.Kubevirt = &apiv1.KubevirtDatacenterSpec{}
 	}
+
+	spec.RequiredEmailDomain = dc.Spec.RequiredEmailDomain
 
 	return spec, nil
 }

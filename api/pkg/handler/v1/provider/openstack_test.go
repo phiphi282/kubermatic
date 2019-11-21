@@ -15,10 +15,13 @@ import (
 	"k8s.io/apimachinery/pkg/util/diff"
 
 	apiv1 "github.com/kubermatic/kubermatic/api/pkg/api/v1"
+	kubermaticv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
 	"github.com/kubermatic/kubermatic/api/pkg/handler/test"
 	"github.com/kubermatic/kubermatic/api/pkg/handler/test/hack"
 	providerv1 "github.com/kubermatic/kubermatic/api/pkg/handler/v1/provider"
 	"github.com/kubermatic/kubermatic/api/pkg/provider"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 var (
@@ -132,19 +135,29 @@ func TeardownOpenstackServer() {
 	openstackServer.Close()
 }
 
-func buildOpenstackDatacenterMeta() map[string]provider.DatacenterMeta {
-	return map[string]provider.DatacenterMeta{
-		datacenterName: {
-			Location: "ap-northeast",
-			Country:  "JP",
-			IsSeed:   true,
-			Spec: provider.DatacenterSpec{
-				Openstack: &provider.OpenstackSpec{
-					Region:  region,
-					AuthURL: openstackServer.URL + "/v3/",
+func buildOpenstackDatacenter() provider.SeedsGetter {
+	return func() (map[string]*kubermaticv1.Seed, error) {
+		return map[string]*kubermaticv1.Seed{
+			"my-seed": {
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "my-seed",
+				},
+				Spec: kubermaticv1.SeedSpec{
+					Datacenters: map[string]kubermaticv1.Datacenter{
+						datacenterName: {
+							Location: "ap-northeast",
+							Country:  "JP",
+							Spec: kubermaticv1.DatacenterSpec{
+								Openstack: &kubermaticv1.DatacenterSpecOpenstack{
+									Region:  region,
+									AuthURL: openstackServer.URL + "/v3/",
+								},
+							},
+						},
+					},
 				},
 			},
-		},
+		}, nil
 	}
 }
 
@@ -176,7 +189,7 @@ func TestOpenstackEndpoints(t *testing.T) {
 		},
 		{
 			Name:       "test tenants endpoint with predefined credentials",
-			Credential: test.TestOSCredential,
+			Credential: test.TestFakeCredential,
 			URL:        "/api/v1/providers/openstack/tenants",
 			ExpectedResponse: `[
 				{"id":"456788", "name": "a project name"},
@@ -194,7 +207,7 @@ func TestOpenstackEndpoints(t *testing.T) {
 		},
 		{
 			Name:        "test subnets endpoint with predefined credentials",
-			Credential:  test.TestOSCredential,
+			Credential:  test.TestFakeCredential,
 			URL:         "/api/v1/providers/openstack/subnets",
 			QueryParams: map[string]string{"network_id": "foo"},
 			ExpectedResponse: `[
@@ -211,7 +224,7 @@ func TestOpenstackEndpoints(t *testing.T) {
 		},
 		{
 			Name:       "test networks endpoint with predefined credentials",
-			Credential: test.TestOSCredential,
+			Credential: test.TestFakeCredential,
 			URL:        "/api/v1/providers/openstack/networks",
 			ExpectedResponse: `[
 				{"id": "71c1e68c-171a-4aa2-aca5-50ea153a3718", "name": "net2", "external": false}
@@ -234,7 +247,7 @@ func TestOpenstackEndpoints(t *testing.T) {
 		},
 		{
 			Name:       "test sizes endpoint with predefined credentials",
-			Credential: test.TestOSCredential,
+			Credential: test.TestFakeCredential,
 			URL:        "/api/v1/providers/openstack/sizes",
 			ExpectedResponse: `[
 				{
@@ -267,17 +280,17 @@ func TestOpenstackEndpoints(t *testing.T) {
 
 			req.Header.Add("DatacenterName", datacenterName)
 			if len(tc.Credential) > 0 {
-				req.Header.Add("Credential", test.TestOSCredential)
+				req.Header.Add("Credential", test.TestFakeCredential)
 			} else {
 				req.Header.Add("Username", test.TestOSuserName)
 				req.Header.Add("Password", test.TestOSuserPass)
 				req.Header.Add("Domain", test.TestOSdomain)
 			}
 
-			apiUser := test.GetUser(test.UserEmail, test.UserID, test.UserName, false)
+			apiUser := test.GenDefaultAPIUser()
 
 			res := httptest.NewRecorder()
-			router, _, err := test.CreateTestEndpointAndGetClients(apiUser, buildOpenstackDatacenterMeta(), []runtime.Object{}, []runtime.Object{}, []runtime.Object{test.APIUserToKubermaticUser(apiUser)}, nil, nil, hack.NewTestRouting)
+			router, _, err := test.CreateTestEndpointAndGetClients(*apiUser, buildOpenstackDatacenter(), []runtime.Object{}, []runtime.Object{}, []runtime.Object{test.APIUserToKubermaticUser(*apiUser)}, nil, nil, hack.NewTestRouting)
 			if err != nil {
 				t.Fatalf("failed to create test endpoint due to %v\n", err)
 			}
@@ -292,7 +305,7 @@ func TestMeetsOpentackNodeSizeRequirement(t *testing.T) {
 	tests := []struct {
 		name                string
 		apiSize             apiv1.OpenstackSize
-		nodeSizeRequirement provider.OpenstackNodeSizeRequirements
+		nodeSizeRequirement kubermaticv1.OpenstackNodeSizeRequirements
 		meetsRequirement    bool
 	}{
 		{
@@ -301,7 +314,7 @@ func TestMeetsOpentackNodeSizeRequirement(t *testing.T) {
 				Memory: 2048,
 				VCPUs:  2,
 			},
-			nodeSizeRequirement: provider.OpenstackNodeSizeRequirements{
+			nodeSizeRequirement: kubermaticv1.OpenstackNodeSizeRequirements{
 				MinimumMemory: 4096,
 				MinimumVCPUs:  1,
 			},
@@ -313,7 +326,7 @@ func TestMeetsOpentackNodeSizeRequirement(t *testing.T) {
 				Memory: 2048,
 				VCPUs:  2,
 			},
-			nodeSizeRequirement: provider.OpenstackNodeSizeRequirements{
+			nodeSizeRequirement: kubermaticv1.OpenstackNodeSizeRequirements{
 				MinimumMemory: 1024,
 				MinimumVCPUs:  4,
 			},
@@ -325,7 +338,7 @@ func TestMeetsOpentackNodeSizeRequirement(t *testing.T) {
 				Memory: 2048,
 				VCPUs:  2,
 			},
-			nodeSizeRequirement: provider.OpenstackNodeSizeRequirements{
+			nodeSizeRequirement: kubermaticv1.OpenstackNodeSizeRequirements{
 				MinimumMemory: 1024,
 				MinimumVCPUs:  1,
 			},
@@ -337,7 +350,7 @@ func TestMeetsOpentackNodeSizeRequirement(t *testing.T) {
 				Memory: 2048,
 				VCPUs:  2,
 			},
-			nodeSizeRequirement: provider.OpenstackNodeSizeRequirements{},
+			nodeSizeRequirement: kubermaticv1.OpenstackNodeSizeRequirements{},
 			meetsRequirement:    true,
 		},
 		{
@@ -345,7 +358,7 @@ func TestMeetsOpentackNodeSizeRequirement(t *testing.T) {
 			apiSize: apiv1.OpenstackSize{
 				VCPUs: 2,
 			},
-			nodeSizeRequirement: provider.OpenstackNodeSizeRequirements{
+			nodeSizeRequirement: kubermaticv1.OpenstackNodeSizeRequirements{
 				MinimumVCPUs: 2,
 			},
 			meetsRequirement: true,
@@ -355,7 +368,7 @@ func TestMeetsOpentackNodeSizeRequirement(t *testing.T) {
 			apiSize: apiv1.OpenstackSize{
 				Memory: 2,
 			},
-			nodeSizeRequirement: provider.OpenstackNodeSizeRequirements{
+			nodeSizeRequirement: kubermaticv1.OpenstackNodeSizeRequirements{
 				MinimumMemory: 2,
 			},
 			meetsRequirement: true,

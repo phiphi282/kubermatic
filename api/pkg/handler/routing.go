@@ -7,30 +7,22 @@ import (
 	"github.com/go-kit/kit/log"
 	httptransport "github.com/go-kit/kit/transport/http"
 	prometheusapi "github.com/prometheus/client_golang/api"
+	"go.uber.org/zap"
 
 	"github.com/kubermatic/kubermatic/api/pkg/handler/auth"
 	"github.com/kubermatic/kubermatic/api/pkg/handler/middleware"
 	"github.com/kubermatic/kubermatic/api/pkg/handler/v1/common"
 	"github.com/kubermatic/kubermatic/api/pkg/provider"
 	"github.com/kubermatic/kubermatic/api/pkg/serviceaccount"
-	"github.com/kubermatic/kubermatic/api/pkg/version"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/util/sets"
 )
-
-// UpdateManager specifies a set of methods to handle cluster versions & updates
-type UpdateManager interface {
-	GetVersion(from, clusterType string) (*version.MasterVersion, error)
-	GetMasterVersions(clusterType string) ([]*version.MasterVersion, error)
-	GetDefault() (*version.MasterVersion, error)
-	AutomaticUpdate(from, clusterType string) (*version.MasterVersion, error)
-	GetPossibleUpdates(from, clusterType string) ([]*version.MasterVersion, error)
-}
 
 // Routing represents an object which binds endpoints to http handlers.
 type Routing struct {
-	datacenters                 map[string]provider.DatacenterMeta
-	cloudProviders              provider.CloudRegistry
+	log                         *zap.SugaredLogger
+	seedsGetter                 provider.SeedsGetter
 	sshKeyProvider              provider.SSHKeyProvider
 	userProvider                provider.UserProvider
 	serviceAccountProvider      provider.ServiceAccountProvider
@@ -41,8 +33,8 @@ type Routing struct {
 	oidcIssuerVerifier          auth.OIDCIssuerVerifier
 	tokenVerifiers              auth.TokenVerifier
 	tokenExtractors             auth.TokenExtractor
-	clusterProviders            map[string]provider.ClusterProvider
-	addonProviders              map[string]provider.AddonProvider
+	clusterProviderGetter       provider.ClusterProviderGetter
+	addonProviderGetter         provider.AddonProviderGetter
 	updateManager               common.UpdateManager
 	prometheusClient            prometheusapi.Client
 	projectMemberProvider       provider.ProjectMemberProvider
@@ -53,14 +45,16 @@ type Routing struct {
 	presetsManager              common.PresetsManager
 	keycloakFacade              keycloak.Facade
 	exposeStrategy              corev1.ServiceType
+	accessibleAddons            sets.String
+	userInfoGetter              provider.UserInfoGetter
 }
 
 // NewRouting creates a new Routing.
 func NewRouting(
-	datacenters map[string]provider.DatacenterMeta,
-	newClusterProviders map[string]provider.ClusterProvider,
-	cloudProviders map[string]provider.CloudProvider,
-	addonProviders map[string]provider.AddonProvider,
+	logger *zap.SugaredLogger,
+	seedsGetter provider.SeedsGetter,
+	clusterProviderGetter provider.ClusterProviderGetter,
+	addonProviderGetter provider.AddonProviderGetter,
 	newSSHKeyProvider provider.SSHKeyProvider,
 	userProvider provider.UserProvider,
 	serviceAccountProvider provider.ServiceAccountProvider,
@@ -80,18 +74,20 @@ func NewRouting(
 	presetsManager common.PresetsManager,
 	keycloakFacade keycloak.Facade,
 	exposeStrategy corev1.ServiceType,
+	accessibleAddons sets.String,
+	userInfoGetter provider.UserInfoGetter,
 ) Routing {
 	return Routing{
-		datacenters:                 datacenters,
-		clusterProviders:            newClusterProviders,
-		addonProviders:              addonProviders,
+		log:                         logger,
+		seedsGetter:                 seedsGetter,
+		clusterProviderGetter:       clusterProviderGetter,
+		addonProviderGetter:         addonProviderGetter,
 		sshKeyProvider:              newSSHKeyProvider,
 		userProvider:                userProvider,
 		serviceAccountProvider:      serviceAccountProvider,
 		serviceAccountTokenProvider: serviceAccountTokenProvider,
 		projectProvider:             projectProvider,
 		privilegedProjectProvider:   privilegedProject,
-		cloudProviders:              cloudProviders,
 		logger:                      log.NewLogfmtLogger(os.Stderr),
 		oidcIssuerVerifier:          oidcIssuerVerifier,
 		tokenVerifiers:              tokenVerifiers,
@@ -106,6 +102,8 @@ func NewRouting(
 		presetsManager:              presetsManager,
 		keycloakFacade:              keycloakFacade,
 		exposeStrategy:              exposeStrategy,
+		accessibleAddons:            accessibleAddons,
+		userInfoGetter:              userInfoGetter,
 	}
 }
 

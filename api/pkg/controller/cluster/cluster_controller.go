@@ -4,13 +4,13 @@ import (
 	"context"
 	"fmt"
 	"github.com/kubermatic/kubermatic/api/pkg/keycloak"
+	"time"
 
-	"github.com/golang/glog"
+	"go.uber.org/zap"
 
 	k8cuserclusterclient "github.com/kubermatic/kubermatic/api/pkg/cluster/client"
 	"github.com/kubermatic/kubermatic/api/pkg/clusterdeletion"
 	controllerutil "github.com/kubermatic/kubermatic/api/pkg/controller/util"
-	kubermaticscheme "github.com/kubermatic/kubermatic/api/pkg/crd/client/clientset/versioned/scheme"
 	kubermaticv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
 	"github.com/kubermatic/kubermatic/api/pkg/provider"
 
@@ -23,8 +23,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	autoscalingv1beta2 "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/apis/autoscaling.k8s.io/v1beta2"
-	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/client-go/util/retry"
 	ctrlruntimeclient "sigs.k8s.io/controller-runtime/pkg/client"
@@ -53,12 +53,12 @@ type Features struct {
 // Reconciler is a controller which is responsible for managing clusters
 type Reconciler struct {
 	ctrlruntimeclient.Client
+	log                     *zap.SugaredLogger
 	userClusterConnProvider userClusterConnectionProvider
 	workerName              string
 
 	externalURL string
-	dcs         map[string]provider.DatacenterMeta
-	dc          string
+	seedGetter  provider.SeedGetter
 
 	recorder record.EventRecorder
 
@@ -75,6 +75,8 @@ type Reconciler struct {
 	dockerPullConfigJSON                             []byte
 	nodeLocalDNSCacheEnabled                         bool
 	kubermaticImage                                  string
+	dnatControllerImage                              string
+	concurrentClusterUpdates                         int
 
 	oidcCAFile         string
 	oidcIssuerURL      string
@@ -88,11 +90,11 @@ type Reconciler struct {
 // NewController creates a cluster controller.
 func Add(
 	mgr manager.Manager,
+	log *zap.SugaredLogger,
 	numWorkers int,
 	workerName string,
 	externalURL string,
-	dc string,
-	dcs map[string]provider.DatacenterMeta,
+	seedGetter provider.SeedGetter,
 	userClusterConnProvider userClusterConnectionProvider,
 	overwriteRegistry string,
 	nodePortRange string,
@@ -106,19 +108,18 @@ func Add(
 	inClusterPrometheusScrapingConfigsFile string,
 	dockerPullConfigJSON []byte,
 	nodeLocalDNSCacheEnabled bool,
+	concurrentClusterUpdates int,
 
 	oidcCAFile string,
 	oidcIssuerURL string,
 	oidcIssuerClientID string,
 	kubermaticImage string,
 	keycloakFacade keycloak.Facade,
+	dnatControllerImage string,
 	features Features) error {
 
-	if err := kubermaticscheme.AddToScheme(scheme.Scheme); err != nil {
-		return fmt.Errorf("failed to add kubermatic scheme: %v", err)
-	}
-
 	reconciler := &Reconciler{
+		log:                     log.Named(ControllerName),
 		Client:                  mgr.GetClient(),
 		userClusterConnProvider: userClusterConnProvider,
 		workerName:              workerName,
@@ -138,10 +139,11 @@ func Add(
 		dockerPullConfigJSON:                             dockerPullConfigJSON,
 		nodeLocalDNSCacheEnabled:                         nodeLocalDNSCacheEnabled,
 		kubermaticImage:                                  kubermaticImage,
+		dnatControllerImage:                              dnatControllerImage,
+		concurrentClusterUpdates:                         concurrentClusterUpdates,
 
 		externalURL: externalURL,
-		dc:          dc,
-		dcs:         dcs,
+		seedGetter:  seedGetter,
 
 		oidcCAFile:         oidcCAFile,
 		oidcIssuerURL:      oidcIssuerURL,
@@ -181,77 +183,82 @@ func Add(
 func (r *Reconciler) Reconcile(request reconcile.Request) (reconcile.Result, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	log := r.log.With("request", request)
+	log.Debug("Processing")
 
 	cluster := &kubermaticv1.Cluster{}
 	if err := r.Get(ctx, request.NamespacedName, cluster); err != nil {
 		if kubeapierrors.IsNotFound(err) {
-			glog.V(4).Infof("Couldn't find cluster %q", request.NamespacedName.String())
+			log.Debug("Could not find cluster")
 			return reconcile.Result{}, nil
 		}
 		return reconcile.Result{}, err
 	}
+	log = log.With("cluster", cluster.Name)
 
 	if cluster.Spec.Pause {
-		glog.V(4).Infof("skipping paused cluster %s", cluster.Name)
+		log.Debug("Skipping because the cluster is paused")
 		return reconcile.Result{}, nil
 	}
 
 	if cluster.Labels[kubermaticv1.WorkerNameLabelKey] != r.workerName {
+		log.Debugw(
+			"Skipping because the cluster has a different worker name set",
+			"cluster-worker-name", cluster.Labels[kubermaticv1.WorkerNameLabelKey],
+		)
 		return reconcile.Result{}, nil
 	}
 
 	if cluster.Annotations["kubermatic.io/openshift"] != "" {
+		log.Debug("Skipping because the cluster is an OpenShift cluster")
 		return reconcile.Result{}, nil
 	}
 
-	// Add a wrapping here so we can emit an event on error
-	result, err := r.reconcile(ctx, cluster)
-	if err != nil {
-		glog.Errorf("Failed to reconcile cluster %s: %v", cluster.Name, err)
-		r.recorder.Eventf(cluster, corev1.EventTypeWarning, "ReconcilingError", "%v", err)
+	// only reconcile this cluster if there are not yet too many updates running
+	if available, err := controllerutil.ClusterAvailableForReconciling(ctx, r, cluster, r.concurrentClusterUpdates); !available || err != nil {
+		log.Infow("Concurrency limit reached, checking again in 10 seconds", "concurrency-limit", r.concurrentClusterUpdates)
+		return reconcile.Result{
+			RequeueAfter: 10 * time.Second,
+		}, err
 	}
+
+	successfullyReconciled := true
+	// Add a wrapping here so we can emit an event on error
+	var errs []error
+	result, err := r.reconcile(ctx, log, cluster)
+	if err != nil {
+		successfullyReconciled = false
+		log.Errorw("Reconciling failed", zap.Error(err))
+		r.recorder.Event(cluster, corev1.EventTypeWarning, "ReconcilingError", err.Error())
+		errs = append(errs, err)
+	}
+
 	if result == nil {
 		result = &reconcile.Result{}
 	}
-	return *result, err
+
+	if err := controllerutil.SetSeedResourcesUpToDateCondition(ctx, cluster, r.Client, successfullyReconciled); err != nil {
+		log.Errorw("failed to update clusters status conditions", zap.Error(err))
+		errs = append(errs, err)
+	}
+
+	return *result, utilerrors.NewAggregate(errs)
 }
 
-func (r *Reconciler) reconcile(ctx context.Context, cluster *kubermaticv1.Cluster) (*reconcile.Result, error) {
-	glog.V(4).Infof("Reconciling cluster %s", cluster.Name)
-
+func (r *Reconciler) reconcile(ctx context.Context, log *zap.SugaredLogger, cluster *kubermaticv1.Cluster) (*reconcile.Result, error) {
 	if cluster.DeletionTimestamp != nil {
-		if cluster.Status.Phase != kubermaticv1.DeletingClusterStatusPhase {
-			err := r.updateCluster(ctx, cluster, func(c *kubermaticv1.Cluster) {
-				c.Status.Phase = kubermaticv1.DeletingClusterStatusPhase
-			})
+		log.Debug("Cleaning up cluster")
+
+		// Defer getting the client to make sure we only request it if we actually need it
+		userClusterClientGetter := func() (ctrlruntimeclient.Client, error) {
+			client, err := r.userClusterConnProvider.GetClient(cluster)
 			if err != nil {
-				return nil, err
+				return nil, fmt.Errorf("failed to get user cluster client: %v", err)
 			}
+			return client, nil
 		}
-
-		userClusterClient, err := r.userClusterConnProvider.GetClient(cluster)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get user cluster client: %v", err)
-		}
-		return clusterdeletion.New(r.Client, userClusterClient).CleanupCluster(ctx, cluster)
-	}
-
-	if cluster.Status.Phase == kubermaticv1.NoneClusterStatusPhase {
-		err := r.updateCluster(ctx, cluster, func(c *kubermaticv1.Cluster) {
-			c.Status.Phase = kubermaticv1.ValidatingClusterStatusPhase
-		})
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	if cluster.Status.Phase == kubermaticv1.ValidatingClusterStatusPhase {
-		err := r.updateCluster(ctx, cluster, func(c *kubermaticv1.Cluster) {
-			c.Status.Phase = kubermaticv1.LaunchingClusterStatusPhase
-		})
-		if err != nil {
-			return nil, err
-		}
+		// Always requeue a cluster after we executed the cleanup.
+		return &reconcile.Result{RequeueAfter: 10 * time.Second}, clusterdeletion.New(r.Client, userClusterClientGetter).CleanupCluster(ctx, log, cluster)
 	}
 
 	res, err := r.reconcileCluster(ctx, cluster)

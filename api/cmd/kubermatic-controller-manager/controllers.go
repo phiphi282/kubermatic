@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"io/ioutil"
 	"strings"
@@ -12,30 +13,35 @@ import (
 	backupcontroller "github.com/kubermatic/kubermatic/api/pkg/controller/backup"
 	cloudcontroller "github.com/kubermatic/kubermatic/api/pkg/controller/cloud"
 	"github.com/kubermatic/kubermatic/api/pkg/controller/cluster"
+	"github.com/kubermatic/kubermatic/api/pkg/controller/clustercomponentdefaulter"
 	"github.com/kubermatic/kubermatic/api/pkg/controller/monitoring"
 	openshiftcontroller "github.com/kubermatic/kubermatic/api/pkg/controller/openshift"
 	updatecontroller "github.com/kubermatic/kubermatic/api/pkg/controller/update"
-	"github.com/kubermatic/kubermatic/api/pkg/provider"
-	"github.com/kubermatic/kubermatic/api/pkg/provider/cloud"
+	"github.com/kubermatic/kubermatic/api/pkg/controller/usersshkeys"
+	kubermaticv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
 	"github.com/kubermatic/kubermatic/api/pkg/util/workerlabel"
 	"github.com/kubermatic/kubermatic/api/pkg/version"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/yaml"
+	utilpointer "k8s.io/utils/pointer"
 )
 
 // allControllers stores the list of all controllers that we want to run,
 // each entry holds the name of the controller and the corresponding
 // start function that will essentially run the controller
 var allControllers = map[string]controllerCreator{
-	cluster.ControllerName:             createClusterController,
-	"Update":                           createUpdateController,
-	"Addon":                            createAddonController,
-	"AddonInstaller":                   createAddonInstallerController,
-	"Backup":                           createBackupController,
-	"Monitoring":                       createMonitoringController,
-	cloudcontroller.ControllerName:     createCloudController,
-	openshiftcontroller.ControllerName: createOpenshiftController,
+	cluster.ControllerName:                   createClusterController,
+	updatecontroller.ControllerName:          createUpdateController,
+	addon.ControllerName:                     createAddonController,
+	addoninstaller.ControllerName:            createAddonInstallerController,
+	backupcontroller.ControllerName:          createBackupController,
+	monitoring.ControllerName:                createMonitoringController,
+	cloudcontroller.ControllerName:           createCloudController,
+	openshiftcontroller.ControllerName:       createOpenshiftController,
+	clustercomponentdefaulter.ControllerName: createClusterComponentDefaulter,
+	usersshkeys.ControllerName:               createUserSSHKeyController,
 }
 
 type controllerCreator func(*controllerContext) error
@@ -49,14 +55,37 @@ func createAllControllers(ctrlCtx *controllerContext) error {
 	return nil
 }
 
-func createCloudController(ctrlCtx *controllerContext) error {
-	dcs, err := provider.LoadDatacentersMeta(ctrlCtx.runOptions.dcFile)
-	if err != nil {
-		return err
-	}
-	cloudProvider := cloud.Providers(dcs)
+func createClusterComponentDefaulter(ctrlCtx *controllerContext) error {
 	predicates := workerlabel.Predicates(ctrlCtx.runOptions.workerName)
-	if err := cloudcontroller.Add(ctrlCtx.mgr, ctrlCtx.runOptions.workerCount, cloudProvider, predicates); err != nil {
+	defaultCompontentsOverrides := kubermaticv1.ComponentSettings{
+		Apiserver: kubermaticv1.APIServerSettings{
+			DeploymentSettings:          kubermaticv1.DeploymentSettings{Replicas: utilpointer.Int32Ptr(int32(ctrlCtx.runOptions.apiServerDefaultReplicas))},
+			EndpointReconcilingDisabled: utilpointer.BoolPtr(ctrlCtx.runOptions.apiServerEndpointReconcilingDisabled),
+		},
+		ControllerManager: kubermaticv1.DeploymentSettings{
+			Replicas: utilpointer.Int32Ptr(int32(ctrlCtx.runOptions.controllerManagerDefaultReplicas))},
+		Scheduler: kubermaticv1.DeploymentSettings{
+			Replicas: utilpointer.Int32Ptr(int32(ctrlCtx.runOptions.schedulerDefaultReplicas))},
+	}
+	return clustercomponentdefaulter.Add(
+		context.Background(),
+		ctrlCtx.log,
+		ctrlCtx.mgr,
+		ctrlCtx.runOptions.workerCount,
+		defaultCompontentsOverrides,
+		predicates,
+	)
+}
+
+func createCloudController(ctrlCtx *controllerContext) error {
+	predicates := workerlabel.Predicates(ctrlCtx.runOptions.workerName)
+	if err := cloudcontroller.Add(
+		ctrlCtx.mgr,
+		ctrlCtx.log,
+		ctrlCtx.runOptions.workerCount,
+		ctrlCtx.seedGetter,
+		predicates,
+	); err != nil {
 		return fmt.Errorf("failed to add cloud controller to mgr: %v", err)
 	}
 	return nil
@@ -65,10 +94,11 @@ func createCloudController(ctrlCtx *controllerContext) error {
 func createOpenshiftController(ctrlCtx *controllerContext) error {
 	if err := openshiftcontroller.Add(
 		ctrlCtx.mgr,
+		ctrlCtx.log,
 		ctrlCtx.runOptions.workerCount,
 		ctrlCtx.runOptions.workerName,
-		ctrlCtx.runOptions.dc,
-		ctrlCtx.dcs,
+		ctrlCtx.seedGetter,
+		ctrlCtx.clientProvider,
 		ctrlCtx.runOptions.overwriteRegistry,
 		ctrlCtx.runOptions.nodeAccessNetwork,
 		ctrlCtx.runOptions.etcdDiskSize,
@@ -81,10 +111,12 @@ func createOpenshiftController(ctrlCtx *controllerContext) error {
 			IssuerURL:    ctrlCtx.runOptions.oidcIssuerURL,
 		},
 		ctrlCtx.runOptions.kubermaticImage,
+		ctrlCtx.runOptions.dnatControllerImage,
 		openshiftcontroller.Features{
 			EtcdDataCorruptionChecks: ctrlCtx.runOptions.featureGates.Enabled(EtcdDataCorruptionChecks),
 			VPA:                      ctrlCtx.runOptions.featureGates.Enabled(VerticalPodAutoscaler),
-		}); err != nil {
+		},
+		ctrlCtx.runOptions.concurrentClusterUpdate); err != nil {
 		return fmt.Errorf("failed to add openshift controller to mgr: %v", err)
 	}
 	return nil
@@ -93,11 +125,11 @@ func createOpenshiftController(ctrlCtx *controllerContext) error {
 func createClusterController(ctrlCtx *controllerContext) error {
 	return cluster.Add(
 		ctrlCtx.mgr,
+		ctrlCtx.log,
 		ctrlCtx.runOptions.workerCount,
 		ctrlCtx.runOptions.workerName,
 		ctrlCtx.runOptions.externalURL,
-		ctrlCtx.runOptions.dc,
-		ctrlCtx.dcs,
+		ctrlCtx.seedGetter,
 		ctrlCtx.clientProvider,
 		ctrlCtx.runOptions.overwriteRegistry,
 		ctrlCtx.runOptions.nodePortRange,
@@ -111,11 +143,13 @@ func createClusterController(ctrlCtx *controllerContext) error {
 		ctrlCtx.runOptions.inClusterPrometheusScrapingConfigsFile,
 		ctrlCtx.dockerPullConfigJSON,
 		strings.Contains(ctrlCtx.runOptions.kubernetesAddonsList, "nodelocal-dns-cache"),
+		ctrlCtx.runOptions.concurrentClusterUpdate,
 		ctrlCtx.runOptions.oidcCAFile,
 		ctrlCtx.runOptions.oidcIssuerURL,
 		ctrlCtx.runOptions.oidcIssuerClientID,
 		ctrlCtx.runOptions.kubermaticImage,
 		ctrlCtx.keycloakFacade,
+		ctrlCtx.runOptions.dnatControllerImage,
 		cluster.Features{
 			VPA:                          ctrlCtx.runOptions.featureGates.Enabled(VerticalPodAutoscaler),
 			EtcdDataCorruptionChecks:     ctrlCtx.runOptions.featureGates.Enabled(EtcdDataCorruptionChecks),
@@ -150,11 +184,6 @@ func createBackupController(ctrlCtx *controllerContext) error {
 }
 
 func createMonitoringController(ctrlCtx *controllerContext) error {
-	dcs, err := provider.LoadDatacentersMeta(ctrlCtx.runOptions.dcFile)
-	if err != nil {
-		return err
-	}
-
 	dockerPullConfigJSON, err := ioutil.ReadFile(ctrlCtx.runOptions.dockerPullConfigJSONFile)
 	if err != nil {
 		return fmt.Errorf("failed to load ImagePullSecret from %s: %v", ctrlCtx.runOptions.dockerPullConfigJSONFile, err)
@@ -167,8 +196,7 @@ func createMonitoringController(ctrlCtx *controllerContext) error {
 		ctrlCtx.runOptions.workerName,
 		ctrlCtx.clientProvider,
 
-		ctrlCtx.runOptions.dc,
-		dcs,
+		ctrlCtx.seedGetter,
 		ctrlCtx.runOptions.overwriteRegistry,
 		ctrlCtx.runOptions.nodePortRange,
 		ctrlCtx.runOptions.nodeAccessNetwork,
@@ -181,6 +209,7 @@ func createMonitoringController(ctrlCtx *controllerContext) error {
 		dockerPullConfigJSON,
 		strings.Contains(ctrlCtx.runOptions.kubernetesAddonsList, "nodelocal-dns-cache"),
 
+		ctrlCtx.runOptions.concurrentClusterUpdate,
 		monitoring.Features{
 			VPA: ctrlCtx.runOptions.featureGates.Enabled(VerticalPodAutoscaler),
 		},
@@ -217,10 +246,23 @@ func createUpdateController(ctrlCtx *controllerContext) error {
 		return fmt.Errorf("failed to create update manager: %v", err)
 	}
 
-	return updatecontroller.Add(ctrlCtx.mgr, ctrlCtx.runOptions.workerCount, ctrlCtx.runOptions.workerName, updateManager)
+	return updatecontroller.Add(ctrlCtx.mgr, ctrlCtx.runOptions.workerCount, ctrlCtx.runOptions.workerName, updateManager,
+		ctrlCtx.clientProvider, ctrlCtx.log)
 }
 
 func createAddonController(ctrlCtx *controllerContext) error {
+	kubernetesAddons := strings.Split(ctrlCtx.runOptions.kubernetesAddonsList, ",")
+	kubernetesAddonsSet := sets.String{}
+	for _, a := range kubernetesAddons {
+		kubernetesAddonsSet.Insert(strings.TrimSpace(a))
+	}
+
+	openshiftAddons := strings.Split(ctrlCtx.runOptions.openshiftAddonsList, ",")
+	openshiftAddonsSet := sets.String{}
+	for _, a := range openshiftAddons {
+		openshiftAddonsSet.Insert(strings.TrimSpace(a))
+	}
+
 	return addon.Add(
 		ctrlCtx.mgr,
 		ctrlCtx.log,
@@ -234,6 +276,8 @@ func createAddonController(ctrlCtx *controllerContext) error {
 				"NodeAccessNetwork": ctrlCtx.runOptions.nodeAccessNetwork,
 			},
 		},
+		kubernetesAddonsSet,
+		openshiftAddonsSet,
 		ctrlCtx.runOptions.kubernetesAddonsPath,
 		ctrlCtx.runOptions.openshiftAddonsPath,
 		ctrlCtx.runOptions.overwriteRegistry,
@@ -242,7 +286,6 @@ func createAddonController(ctrlCtx *controllerContext) error {
 }
 
 func createAddonInstallerController(ctrlCtx *controllerContext) error {
-
 	kubernetesAddons := strings.Split(ctrlCtx.runOptions.kubernetesAddonsList, ",")
 	for i, a := range kubernetesAddons {
 		kubernetesAddons[i] = strings.TrimSpace(a)
@@ -260,4 +303,12 @@ func createAddonInstallerController(ctrlCtx *controllerContext) error {
 		ctrlCtx.runOptions.workerName,
 		kubernetesAddons,
 		openshiftAddons)
+}
+
+func createUserSSHKeyController(ctrlCtx *controllerContext) error {
+	return usersshkeys.Add(
+		ctrlCtx.mgr,
+		ctrlCtx.log,
+		ctrlCtx.runOptions.workerName,
+		ctrlCtx.runOptions.workerCount)
 }

@@ -3,7 +3,6 @@ package rbac
 import (
 	"strings"
 
-	"github.com/golang/glog"
 	"github.com/prometheus/client_golang/prometheus"
 
 	kubermaticv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
@@ -12,6 +11,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/runtime"
+	"k8s.io/klog"
 )
 
 // Metrics contains metrics that this controller will collect and expose
@@ -38,6 +38,7 @@ func NewMetrics() *Metrics {
 
 // ControllerAggregator type holds controllers for managing RBAC for projects and theirs resources
 type ControllerAggregator struct {
+	workerCount            int
 	rbacProjectController  *projectController
 	rbacResourceController *resourcesController
 
@@ -56,7 +57,7 @@ type projectResource struct {
 }
 
 // New creates a new controller aggregator for managing RBAC for resources
-func New(metrics *Metrics, allClusterProviders []*ClusterProvider) (*ControllerAggregator, error) {
+func New(metrics *Metrics, allClusterProviders []*ClusterProvider, workerCount int) (*ControllerAggregator, error) {
 	projectResources := []projectResource{
 		{
 			gvr: schema.GroupVersionResource{
@@ -95,8 +96,8 @@ func New(metrics *Metrics, allClusterProviders []*ClusterProvider) (*ControllerA
 			kind:      "Secret",
 			namespace: "kubermatic",
 			shouldEnqueue: func(obj metav1.Object) bool {
-				// do not reconcile secrets without "sa-token" prefix
-				return strings.HasPrefix(obj.GetName(), "sa-token")
+				// do not reconcile secrets without "sa-token" and "credential" prefix
+				return shouldEnqueueSecret(obj.GetName())
 			},
 		},
 
@@ -114,8 +115,6 @@ func New(metrics *Metrics, allClusterProviders []*ClusterProvider) (*ControllerA
 		},
 	}
 
-	prometheus.MustRegister(metrics.Workers)
-
 	projectRBACCtrl, err := newProjectRBACController(metrics, allClusterProviders, projectResources)
 	if err != nil {
 		return nil, err
@@ -127,19 +126,35 @@ func New(metrics *Metrics, allClusterProviders []*ClusterProvider) (*ControllerA
 	}
 
 	return &ControllerAggregator{
+		workerCount:            workerCount,
 		rbacProjectController:  projectRBACCtrl,
 		rbacResourceController: resourcesRBACCtrl,
 		metrics:                metrics,
 	}, nil
 }
 
-// Run starts the controller's worker routines. This method is blocking and ends when stopCh gets closed
-func (a *ControllerAggregator) Run(workerCount int, stopCh <-chan struct{}) {
+// Run starts the controller's worker routines. It is an implementation of
+// sigs.k8s.io/controller-runtime/pkg/manager.Runnable
+func (a *ControllerAggregator) Start(stopCh <-chan struct{}) error {
 	defer runtime.HandleCrash()
 
-	go a.rbacProjectController.run(workerCount, stopCh)
-	go a.rbacResourceController.run(workerCount, stopCh)
+	go a.rbacProjectController.run(a.workerCount, stopCh)
+	go a.rbacResourceController.run(a.workerCount, stopCh)
 
-	glog.Info("RBAC generator aggregator controller started")
+	klog.Info("RBAC generator aggregator controller started")
 	<-stopCh
+	klog.Info("RBAC generator aggregator controller finished")
+
+	return nil
+}
+
+func shouldEnqueueSecret(name string) bool {
+
+	supportedPrefixes := []string{"sa-token", "credential"}
+	for _, prefix := range supportedPrefixes {
+		if strings.HasPrefix(name, prefix) {
+			return true
+		}
+	}
+	return false
 }

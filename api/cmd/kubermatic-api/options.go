@@ -9,25 +9,29 @@ import (
 	kubermaticlog "github.com/kubermatic/kubermatic/api/pkg/log"
 	"github.com/kubermatic/kubermatic/api/pkg/provider"
 	"github.com/kubermatic/kubermatic/api/pkg/serviceaccount"
+	"k8s.io/apimachinery/pkg/util/sets"
 
 	corev1 "k8s.io/api/core/v1"
 )
 
 type serverRunOptions struct {
-	listenAddress    string
-	kubeconfig       string
-	internalAddr     string
-	prometheusURL    string
-	masterResources  string
-	dcFile           string
-	workerName       string
-	versionsFile     string
-	updatesFile      string
-	swaggerFile      string
-	domain           string
-	exposeStrategy   corev1.ServiceType
-	log              kubermaticlog.Options
-	accessibleAddons map[string]bool
+	listenAddress      string
+	kubeconfig         string
+	internalAddr       string
+	prometheusURL      string
+	masterResources    string
+	dcFile             string
+	workerName         string
+	versionsFile       string
+	updatesFile        string
+	presetsFile        string
+	swaggerFile        string
+	domain             string
+	exposeStrategy     corev1.ServiceType
+	dynamicDatacenters bool
+	namespace          string
+	log                kubermaticlog.Options
+	accessibleAddons   sets.String
 
 	// OIDC configuration
 	oidcURL                        string
@@ -48,21 +52,24 @@ type serverRunOptions struct {
 
 func newServerRunOptions() (serverRunOptions, error) {
 	s := serverRunOptions{}
-	var rawFeatureGates string
-	var rawExposeStrategy string
-	var rawAccessibleAddons string
+	var (
+		rawFeatureGates     string
+		rawExposeStrategy   string
+		rawAccessibleAddons string
+	)
 
 	flag.StringVar(&s.listenAddress, "address", ":8080", "The address to listen on")
 	flag.StringVar(&s.kubeconfig, "kubeconfig", "", "Path to the kubeconfig.")
 	flag.StringVar(&s.internalAddr, "internal-address", "127.0.0.1:8085", "The address on which the internal handler should be exposed")
 	flag.StringVar(&s.prometheusURL, "prometheus-url", "http://prometheus.monitoring.svc.local:web", "The URL on which this API can talk to Prometheus")
 	flag.StringVar(&s.masterResources, "master-resources", "", "The path to the master resources (Required).")
-	flag.StringVar(&s.dcFile, "datacenters", "datacenters.yaml", "The datacenters.yaml file path")
+	flag.StringVar(&s.dcFile, "datacenters", "", "The datacenters.yaml file path")
 	flag.StringVar(&s.workerName, "worker-name", "", "Create clusters only processed by worker-name cluster controller")
 	flag.StringVar(&s.versionsFile, "versions", "versions.yaml", "The versions.yaml file path")
 	flag.StringVar(&s.updatesFile, "updates", "updates.yaml", "The updates.yaml file path")
-	flag.StringVar(&rawAccessibleAddons, "accessible-addons", "dashboard,default-storage-class,node-exporter", "Comma-separated list of user cluster addons to expose via the API")
+	flag.StringVar(&s.presetsFile, "presets", "", "The optional file path for a file containing presets")
 	flag.StringVar(&s.swaggerFile, "swagger", "./cmd/kubermatic-api/swagger.json", "The swagger.json file path")
+	flag.StringVar(&rawAccessibleAddons, "accessible-addons", "dashboard,default-storage-class,node-exporter", "Comma-separated list of user cluster addons to expose via the API")
 	flag.StringVar(&s.oidcURL, "oidc-url", "", "URL of the OpenID token issuer. Example: http://auth.int.kubermatic.io")
 	flag.BoolVar(&s.oidcSkipTLSVerify, "oidc-skip-tls-verify", false, "Skip TLS verification for the token issuer")
 	flag.StringVar(&s.oidcAuthenticatorClientID, "oidc-authenticator-client-id", "", "Authenticator client ID")
@@ -76,6 +83,8 @@ func newServerRunOptions() (serverRunOptions, error) {
 	flag.StringVar(&s.domain, "domain", "localhost", "A domain name on which the server is deployed")
 	flag.StringVar(&s.serviceAccountSigningKey, "service-account-signing-key", "", "Signing key authenticates the service account's token value using HMAC. It is recommended to use a key with 32 bytes or longer.")
 	flag.StringVar(&rawExposeStrategy, "expose-strategy", "NodePort", "The strategy to expose the controlplane with, either \"NodePort\" which creates NodePorts with a \"nodeport-proxy.k8s.io/expose: true\" annotation or \"LoadBalancer\", which creates a LoadBalancer")
+	flag.BoolVar(&s.dynamicDatacenters, "dynamic-datacenters", false, "Whether to enable dynamic datacenters")
+	flag.StringVar(&s.namespace, "namespace", "kubermatic", "The namespace kubermatic runs in, uses to determine where to look for datacenter custom resources")
 	flag.BoolVar(&s.log.Debug, "log-debug", false, "Enables debug logging")
 	flag.StringVar(&s.log.Format, "log-format", string(kubermaticlog.FormatJSON), "Log format. Available are: "+kubermaticlog.AvailableFormats.String())
 	flag.Parse()
@@ -95,10 +104,8 @@ func newServerRunOptions() (serverRunOptions, error) {
 		return s, fmt.Errorf("--expose-strategy must be either `NodePort` or `LoadBalancer`, got %q", rawExposeStrategy)
 	}
 
-	s.accessibleAddons = map[string]bool{}
-	for _, addon := range strings.Split(rawAccessibleAddons, ",") {
-		s.accessibleAddons[addon] = true
-	}
+	s.accessibleAddons = sets.NewString(strings.Split(rawAccessibleAddons, ",")...)
+	s.accessibleAddons.Delete("")
 
 	return s, nil
 }
@@ -140,9 +147,9 @@ type providers struct {
 	privilegedProject                     provider.PrivilegedProjectProvider
 	projectMember                         provider.ProjectMemberProvider
 	memberMapper                          provider.ProjectMemberMapper
-	cloud                                 provider.CloudRegistry
 	eventRecorderProvider                 provider.EventRecorderProvider
-	clusters                              map[string]provider.ClusterProvider
-	datacenters                           map[string]provider.DatacenterMeta
-	addons                                map[string]provider.AddonProvider
+	clusterProviderGetter                 provider.ClusterProviderGetter
+	seedsGetter                           provider.SeedsGetter
+	addons                                provider.AddonProviderGetter
+	userInfoGetter                        provider.UserInfoGetter
 }

@@ -2,17 +2,18 @@ package openshift
 
 import (
 	"flag"
-	"fmt"
-	"io/ioutil"
 	"net"
+	"os"
 	"testing"
 
+	testhelper "github.com/kubermatic/kubermatic/api/pkg/test"
 	"github.com/kubermatic/machine-controller/pkg/apis/plugin"
-	"github.com/pmezard/go-difflib/difflib"
+	providerconfig "github.com/kubermatic/machine-controller/pkg/providerconfig/types"
 
+	clusterv1alpha1 "github.com/kubermatic/machine-controller/pkg/apis/cluster/v1alpha1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
-	clusterv1alpha1 "sigs.k8s.io/cluster-api/pkg/apis/cluster/v1alpha1"
 )
 
 var update = flag.Bool("update", false, "Update test fixtures")
@@ -24,19 +25,55 @@ func TestUserdataGeneration(t *testing.T) {
 		spec              clusterv1alpha1.MachineSpec
 	}{
 		{
-			name:              "simple-aws",
-			cloudProviderName: "aws",
+			name:              "aws-v4.1.7",
+			cloudProviderName: string(providerconfig.CloudProviderAWS),
 			spec: clusterv1alpha1.MachineSpec{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "my-aws-node",
+				},
 				ProviderSpec: clusterv1alpha1.ProviderSpec{
 					Value: &runtime.RawExtension{Raw: []byte("{}")},
 				},
 				Versions: clusterv1alpha1.MachineVersionInfo{
-					Kubelet: "1.2.3",
+					Kubelet: "v4.1.7",
+				},
+			},
+		},
+		{
+			name:              "aws-v4.2.0",
+			cloudProviderName: string(providerconfig.CloudProviderAWS),
+			spec: clusterv1alpha1.MachineSpec{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "my-aws-node",
+				},
+				ProviderSpec: clusterv1alpha1.ProviderSpec{
+					Value: &runtime.RawExtension{Raw: []byte("{}")},
+				},
+				Versions: clusterv1alpha1.MachineVersionInfo{
+					Kubelet: "v4.2.0",
+				},
+			},
+		},
+		{
+			name:              "vsphere-v4.1.7",
+			cloudProviderName: string(providerconfig.CloudProviderVsphere),
+			spec: clusterv1alpha1.MachineSpec{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "my-vsphere-node",
+				},
+				ProviderSpec: clusterv1alpha1.ProviderSpec{
+					Value: &runtime.RawExtension{Raw: []byte("{}")},
+				},
+				Versions: clusterv1alpha1.MachineVersionInfo{
+					Kubelet: "v4.1.7",
 				},
 			},
 		},
 	}
 
+	if err := os.Setenv(DockerCFGEnvKey, `{"registry": {"user": "user", "pass": "pss"}}`); err != nil {
+		t.Fatalf("failed to set dockercfg: %v", err)
+	}
 	for _, test := range tests {
 		kubeconfig := &clientcmdapi.Config{
 			Clusters: map[string]*clientcmdapi.Cluster{
@@ -56,11 +93,14 @@ func TestUserdataGeneration(t *testing.T) {
 			p := Provider{}
 
 			req := plugin.UserDataRequest{
-				MachineSpec:           test.spec,
-				Kubeconfig:            kubeconfig,
-				CloudConfig:           "dummy-cloud-config",
-				CloudProviderName:     test.cloudProviderName,
-				DNSIPs:                []net.IP{net.ParseIP("8.8.8.8")},
+				MachineSpec:       test.spec,
+				Kubeconfig:        kubeconfig,
+				CloudConfig:       "dummy-cloud-config",
+				CloudProviderName: test.cloudProviderName,
+				DNSIPs: []net.IP{
+					net.ParseIP("8.8.8.8"),
+					net.ParseIP("1.2.3.4"),
+				},
 				ExternalCloudProvider: false,
 				HTTPProxy:             "",
 				NoProxy:               "",
@@ -73,33 +113,7 @@ func TestUserdataGeneration(t *testing.T) {
 				t.Fatalf("failed to call p.Userdata: %v", err)
 			}
 
-			fixturePath := fmt.Sprintf("testdata/%s.yaml", test.name)
-			if *update {
-				if err := ioutil.WriteFile(fixturePath, []byte(userdata), 0644); err != nil {
-					t.Fatalf("failed to update fixture %q: %v", fixturePath, err)
-				}
-			}
-
-			expected, err := ioutil.ReadFile(fixturePath)
-			if err != nil {
-				t.Fatalf("failed to read fixture %q: %v", fixturePath, err)
-			}
-
-			diff := difflib.UnifiedDiff{
-				A:        difflib.SplitLines(string(expected)),
-				B:        difflib.SplitLines(userdata),
-				FromFile: "Fixture",
-				ToFile:   "Current",
-				Context:  3,
-			}
-			diffStr, err := difflib.GetUnifiedDiffString(diff)
-			if err != nil {
-				t.Fatalf("failed to generate diff: %v", err)
-			}
-
-			if string(expected) != userdata {
-				t.Errorf("Userdata file does not match the fixture anymore. You can update the fixture by running the tests with the `-update` flag. Diff: %s", diffStr)
-			}
+			testhelper.CompareOutput(t, test.name, userdata, *update, ".yaml")
 		})
 	}
 }

@@ -79,8 +79,12 @@ spec:
               fieldPath: status.podIP
         - name: ETCDCTL_API
           value: "3"
+<<<<<<< HEAD
         image: gcr.io/etcd-development/etcd:v3.4.1
         imagePullPolicy: IfNotPresent
+=======
+        image: gcr.io/etcd-development/etcd:v3.3.15
+>>>>>>> v2.12.1
         name: etcd
         ports:
         - containerPort: 2379
@@ -117,8 +121,6 @@ spec:
           requests:
             cpu: 50m
             memory: 256Mi
-        terminationMessagePath: /dev/termination-log
-        terminationMessagePolicy: File
         volumeMounts:
         - mountPath: /var/run/etcd
           name: data
@@ -134,18 +136,15 @@ spec:
       volumes:
       - name: etcd-tls-certificate
         secret:
-          defaultMode: 256
           secretName: etcd-tls-certificate
       - name: ca
         secret:
-          defaultMode: 256
           items:
           - key: ca.crt
             path: ca.crt
           secretName: ca
       - name: apiserver-etcd-client-certificate
         secret:
-          defaultMode: 256
           secretName: apiserver-etcd-client-certificate
   updateStrategy:
     type: RollingUpdate

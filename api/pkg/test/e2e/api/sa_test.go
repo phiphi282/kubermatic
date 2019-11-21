@@ -35,7 +35,7 @@ func TestCreateSA(t *testing.T) {
 			if err != nil {
 				t.Fatalf("can not create project due error: %v", err)
 			}
-			teardown := CleanUpProject(project.ID, 10)
+			teardown := cleanUpProject(project.ID, 1)
 			defer teardown(t)
 
 			sa, err := apiRunner.CreateServiceAccount(rand.String(10), tc.group, project.ID)
@@ -73,9 +73,9 @@ func TestTokenAccessForProject(t *testing.T) {
 			apiRunner := CreateAPIRunner(masterToken, t)
 			project, err := apiRunner.CreateProject(rand.String(10))
 			if err != nil {
-				t.Fatalf("can not create project due error: %v", err)
+				t.Fatalf("can not create project due error: %v", GetErrorResponse(err))
 			}
-			teardown := CleanUpProject(project.ID, 10)
+			teardown := cleanUpProject(project.ID, 1)
 			defer teardown(t)
 
 			sa, err := apiRunner.CreateServiceAccount(rand.String(10), tc.group, project.ID)
@@ -121,9 +121,9 @@ func TestTokenAccessForProject(t *testing.T) {
 			// check access to not owned project
 			notOwnedProject, err := apiRunner.CreateProject(rand.String(10))
 			if err != nil {
-				t.Fatalf("can not create project due error: %v", err)
+				t.Fatalf("can not create project due error: %v", GetErrorResponse(err))
 			}
-			teardownNotOwnedProject := CleanUpProject(notOwnedProject.ID, 10)
+			teardownNotOwnedProject := cleanUpProject(notOwnedProject.ID, 1)
 			defer teardownNotOwnedProject(t)
 
 			_, err = apiRunnerWithSAToken.GetProject(notOwnedProject.ID, 1)

@@ -11,8 +11,12 @@ spec:
       cloudProviderSpec:
         accessKeyId: ""
         ami: aws-ami
+<<<<<<< HEAD
         assignPublicIP: null
         availabilityZone: fra1aws-zone-character
+=======
+        availabilityZone: ""
+>>>>>>> v2.12.1
         diskSize: 25
         diskType: standard
         instanceProfile: aws-instance-profile-name
@@ -21,11 +25,12 @@ spec:
         secretAccessKey: ""
         securityGroupIDs:
         - aws-security-group-id
-        subnetId: aws-subnet-id
+        subnetId: ""
         tags:
           AWSExampleTagKey1: AWSExampleTagValue1
           AWSExampleTagKey2: AWSExampleTagValue2
           kubernetes.io/cluster/awscluster-1a2b3c4d5e: ""
+          system/cluster: awscluster-1a2b3c4d5e
         vpcId: aws-vpc-ic
       operatingSystem: ubuntu
       operatingSystemSpec:

@@ -25,23 +25,23 @@ type Client struct {
 }
 
 /*
-ListAWSCredentials Lists credential names for AWS
+ListAWSSizes lists available a w s sizes
 */
-func (a *Client) ListAWSCredentials(params *ListAWSCredentialsParams, authInfo runtime.ClientAuthInfoWriter) (*ListAWSCredentialsOK, error) {
+func (a *Client) ListAWSSizes(params *ListAWSSizesParams, authInfo runtime.ClientAuthInfoWriter) (*ListAWSSizesOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
-		params = NewListAWSCredentialsParams()
+		params = NewListAWSSizesParams()
 	}
 
 	result, err := a.transport.Submit(&runtime.ClientOperation{
-		ID:                 "listAWSCredentials",
+		ID:                 "listAWSSizes",
 		Method:             "GET",
-		PathPattern:        "/api/v1/providers/aws/credentials",
+		PathPattern:        "/api/v1/providers/aws/sizes",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json"},
-		Schemes:            []string{"http", "https"},
+		Schemes:            []string{"https"},
 		Params:             params,
-		Reader:             &ListAWSCredentialsReader{formats: a.formats},
+		Reader:             &ListAWSSizesReader{formats: a.formats},
 		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
@@ -49,7 +49,123 @@ func (a *Client) ListAWSCredentials(params *ListAWSCredentialsParams, authInfo r
 	if err != nil {
 		return nil, err
 	}
-	return result.(*ListAWSCredentialsOK), nil
+	return result.(*ListAWSSizesOK), nil
+
+}
+
+/*
+ListAWSSizesNoCredentials Lists available AWS sizes
+*/
+func (a *Client) ListAWSSizesNoCredentials(params *ListAWSSizesNoCredentialsParams, authInfo runtime.ClientAuthInfoWriter) (*ListAWSSizesNoCredentialsOK, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewListAWSSizesNoCredentialsParams()
+	}
+
+	result, err := a.transport.Submit(&runtime.ClientOperation{
+		ID:                 "listAWSSizesNoCredentials",
+		Method:             "GET",
+		PathPattern:        "/api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/providers/aws/sizes",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json"},
+		Schemes:            []string{"https"},
+		Params:             params,
+		Reader:             &ListAWSSizesNoCredentialsReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.(*ListAWSSizesNoCredentialsOK), nil
+
+}
+
+/*
+ListAWSSubnets Lists available AWS subnets
+*/
+func (a *Client) ListAWSSubnets(params *ListAWSSubnetsParams, authInfo runtime.ClientAuthInfoWriter) (*ListAWSSubnetsOK, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewListAWSSubnetsParams()
+	}
+
+	result, err := a.transport.Submit(&runtime.ClientOperation{
+		ID:                 "listAWSSubnets",
+		Method:             "GET",
+		PathPattern:        "/api/v1/providers/aws/{dc}/subnets",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json"},
+		Schemes:            []string{"https"},
+		Params:             params,
+		Reader:             &ListAWSSubnetsReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.(*ListAWSSubnetsOK), nil
+
+}
+
+/*
+ListAWSSubnetsNoCredentials Lists available AWS subnets
+*/
+func (a *Client) ListAWSSubnetsNoCredentials(params *ListAWSSubnetsNoCredentialsParams, authInfo runtime.ClientAuthInfoWriter) (*ListAWSSubnetsNoCredentialsOK, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewListAWSSubnetsNoCredentialsParams()
+	}
+
+	result, err := a.transport.Submit(&runtime.ClientOperation{
+		ID:                 "listAWSSubnetsNoCredentials",
+		Method:             "GET",
+		PathPattern:        "/api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/providers/aws/subnets",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json"},
+		Schemes:            []string{"https"},
+		Params:             params,
+		Reader:             &ListAWSSubnetsNoCredentialsReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.(*ListAWSSubnetsNoCredentialsOK), nil
+
+}
+
+/*
+ListAWSVPCS Lists available AWS vpc's
+*/
+func (a *Client) ListAWSVPCS(params *ListAWSVPCSParams, authInfo runtime.ClientAuthInfoWriter) (*ListAWSVPCSOK, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewListAWSVPCSParams()
+	}
+
+	result, err := a.transport.Submit(&runtime.ClientOperation{
+		ID:                 "listAWSVPCS",
+		Method:             "GET",
+		PathPattern:        "/api/v1/providers/aws/{dc}/vpcs",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json"},
+		Schemes:            []string{"https"},
+		Params:             params,
+		Reader:             &ListAWSVPCSReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.(*ListAWSVPCSOK), nil
 
 }
 

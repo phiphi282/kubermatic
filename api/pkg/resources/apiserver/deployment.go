@@ -2,13 +2,14 @@ package apiserver
 
 import (
 	"fmt"
-	"github.com/golang/glog"
 	"github.com/kubermatic/kubermatic/api/pkg/keycloak"
+	"k8s.io/klog"
 	"strings"
 
 	kubermaticv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
 	"github.com/kubermatic/kubermatic/api/pkg/resources"
 	"github.com/kubermatic/kubermatic/api/pkg/resources/etcd"
+	"github.com/kubermatic/kubermatic/api/pkg/resources/etcd/etcdrunning"
 	"github.com/kubermatic/kubermatic/api/pkg/resources/reconciling"
 	"github.com/kubermatic/kubermatic/api/pkg/resources/vpnsidecar"
 
@@ -38,6 +39,22 @@ const (
 	defaultNodePortRange = "30000-32767"
 )
 
+func AuditConfigMapCreator() reconciling.NamedConfigMapCreatorGetter {
+	return func() (string, reconciling.ConfigMapCreator) {
+		return resources.AuditConfigMapName, func(cm *corev1.ConfigMap) (*corev1.ConfigMap, error) {
+			if cm.Data == nil {
+				cm.Data = map[string]string{
+					"policy.yaml": `apiVersion: audit.k8s.io/v1
+kind: Policy
+rules:
+- level: Metadata
+`}
+			}
+			return cm, nil
+		}
+	}
+}
+
 // DeploymentCreator returns the function to create and update the API server deployment
 func DeploymentCreator(data *resources.TemplateData, enableDexCA bool) reconciling.NamedDeploymentCreatorGetter {
 	return func() (string, reconciling.DeploymentCreator) {
@@ -52,17 +69,6 @@ func DeploymentCreator(data *resources.TemplateData, enableDexCA bool) reconcili
 
 			dep.Spec.Selector = &metav1.LabelSelector{
 				MatchLabels: resources.BaseAppLabel(name, nil),
-			}
-			dep.Spec.Strategy.Type = appsv1.RollingUpdateStatefulSetStrategyType
-			dep.Spec.Strategy.RollingUpdate = &appsv1.RollingUpdateDeployment{
-				MaxSurge: &intstr.IntOrString{
-					Type:   intstr.Int,
-					IntVal: 1,
-				},
-				MaxUnavailable: &intstr.IntOrString{
-					Type:   intstr.Int,
-					IntVal: 0,
-				},
 			}
 			dep.Spec.Template.Spec.ImagePullSecrets = []corev1.LocalObjectReference{{Name: resources.ImagePullSecretName}}
 
@@ -95,23 +101,7 @@ func DeploymentCreator(data *resources.TemplateData, enableDexCA bool) reconcili
 			}
 			dep.Spec.Template.Spec.Volumes = volumes
 			dep.Spec.Template.Spec.InitContainers = []corev1.Container{
-				{
-					Name:  "etcd-running",
-					Image: data.ImageRegistry(resources.RegistryGCR) + "/etcd-development/etcd:" + etcd.ImageTag,
-					Command: []string{
-						"/bin/sh",
-						"-ec",
-						// Write a key to etcd. If we have quorum it will succeed.
-						fmt.Sprintf("until ETCDCTL_API=3 /usr/local/bin/etcdctl --cacert=/etc/etcd/pki/client/ca.crt --cert=/etc/etcd/pki/client/apiserver-etcd-client.crt --key=/etc/etcd/pki/client/apiserver-etcd-client.key --dial-timeout=2s --endpoints='%s' put kubermatic/quorum-check something; do echo waiting for etcd; sleep 2; done;", strings.Join(etcdEndpoints, ",")),
-					},
-					VolumeMounts: []corev1.VolumeMount{
-						{
-							Name:      resources.ApiserverEtcdClientCertificateSecretName,
-							MountPath: "/etc/etcd/pki/client",
-							ReadOnly:  true,
-						},
-					},
-				},
+				etcdrunning.Container(etcdEndpoints, data),
 			}
 
 			openvpnSidecar, err := vpnsidecar.OpenVPNSidecarContainer(data, "openvpn-client")
@@ -127,8 +117,12 @@ func DeploymentCreator(data *resources.TemplateData, enableDexCA bool) reconcili
 			if err != nil {
 				return nil, fmt.Errorf("failed to get dnat-controller sidecar: %v", err)
 			}
-
-			flags, err := getApiserverFlags(data, etcdEndpoints, enableDexCA, data.KeycloakFacade)
+			auditLogEnabled := data.Cluster().Spec.AuditLogging != nil && data.Cluster().Spec.AuditLogging.Enabled
+			endpointReconcilingDisabled := false
+			if data.Cluster().Spec.ComponentsOverride.Apiserver.EndpointReconcilingDisabled != nil {
+				endpointReconcilingDisabled = *data.Cluster().Spec.ComponentsOverride.Apiserver.EndpointReconcilingDisabled
+			}
+			flags, err := getApiserverFlags(data, etcdEndpoints, enableDexCA, auditLogEnabled, endpointReconcilingDisabled, data.KeycloakFacade)
 			if err != nil {
 				return nil, err
 			}
@@ -138,6 +132,11 @@ func DeploymentCreator(data *resources.TemplateData, enableDexCA bool) reconcili
 				resourceRequirements = data.Cluster().Spec.ComponentsOverride.Apiserver.Resources
 			}
 
+			envVars, err := GetEnvVars(data)
+			if err != nil {
+				return nil, err
+			}
+
 			dep.Spec.Template.Spec.Containers = []corev1.Container{
 				*openvpnSidecar,
 				*dnatControllerSidecar,
@@ -145,7 +144,7 @@ func DeploymentCreator(data *resources.TemplateData, enableDexCA bool) reconcili
 					Name:      name,
 					Image:     data.ImageRegistry(resources.RegistryGCR) + "/google_containers/hyperkube-amd64:v" + data.Cluster().Spec.Version.String(),
 					Command:   []string{"/hyperkube", "kube-apiserver"},
-					Env:       getEnvVars(data.Cluster()),
+					Env:       envVars,
 					Args:      flags,
 					Resources: *resourceRequirements,
 					Ports: []corev1.ContainerPort{
@@ -185,6 +184,34 @@ func DeploymentCreator(data *resources.TemplateData, enableDexCA bool) reconcili
 				},
 			}
 
+			if data.Cluster().Spec.AuditLogging != nil && data.Cluster().Spec.AuditLogging.Enabled {
+				dep.Spec.Template.Spec.Containers = append(dep.Spec.Template.Spec.Containers,
+					corev1.Container{
+						Name:    "audit-logs",
+						Image:   "docker.io/fluent/fluent-bit:1.2.2",
+						Command: []string{"/fluent-bit/bin/fluent-bit"},
+						Args:    []string{"-i", "tail", "-p", "path=/var/log/kubernetes/audit/audit.log", "-p", "db=/var/log/kubernetes/audit/fluentbit.db", "-o", "stdout"},
+						VolumeMounts: []corev1.VolumeMount{
+							{
+								Name:      resources.AuditLogVolumeName,
+								MountPath: "/var/log/kubernetes/audit",
+								ReadOnly:  false,
+							},
+						},
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceMemory: resource.MustParse("10Mi"),
+								corev1.ResourceCPU:    resource.MustParse("5m"),
+							},
+							Limits: corev1.ResourceList{
+								corev1.ResourceMemory: resource.MustParse("60Mi"),
+								corev1.ResourceCPU:    resource.MustParse("50m"),
+							},
+						},
+					},
+				)
+			}
+
 			dep.Spec.Template.Spec.Affinity = resources.HostnameAntiAffinity(name, data.Cluster().Name)
 
 			return dep, nil
@@ -192,7 +219,7 @@ func DeploymentCreator(data *resources.TemplateData, enableDexCA bool) reconcili
 	}
 }
 
-func getApiserverFlags(data *resources.TemplateData, etcdEndpoints []string, enableDexCA bool, keycloakFacade keycloak.Facade) ([]string, error) {
+func getApiserverFlags(data *resources.TemplateData, etcdEndpoints []string, enableDexCA, auditLogEnabled, endpointReconcilingDisabled bool, keycloakFacade keycloak.Facade) ([]string, error) {
 	nodePortRange := data.NodePortRange()
 	if nodePortRange == "" {
 		nodePortRange = defaultNodePortRange
@@ -236,7 +263,7 @@ func getApiserverFlags(data *resources.TemplateData, etcdEndpoints []string, ena
 		"--audit-log-maxage", "30",
 		"--audit-log-maxbackup", "3",
 		"--audit-log-maxsize", "100",
-		"--audit-log-path", "/var/log/audit.log",
+		"--audit-log-path", "/var/log/kubernetes/audit/audit.log",
 		"--tls-cert-file", "/etc/kubernetes/tls/apiserver-tls.crt",
 		"--tls-private-key-file", "/etc/kubernetes/tls/apiserver-tls.key",
 		"--proxy-client-cert-file", "/etc/kubernetes/pki/front-proxy/client/" + resources.ApiserverProxyClientCertificateCertSecretKey,
@@ -249,6 +276,14 @@ func getApiserverFlags(data *resources.TemplateData, etcdEndpoints []string, ena
 		"--requestheader-extra-headers-prefix", "X-Remote-Extra-",
 		"--requestheader-group-headers", "X-Remote-Group",
 		"--requestheader-username-headers", "X-Remote-User",
+	}
+
+	if auditLogEnabled {
+		flags = append(flags, "--audit-policy-file", "/etc/kubernetes/audit/policy.yaml")
+	}
+
+	if endpointReconcilingDisabled {
+		flags = append(flags, "--endpoint-reconciler-type=none")
 	}
 
 	if data.Cluster().Spec.Cloud.GCP != nil {
@@ -267,7 +302,7 @@ func getApiserverFlags(data *resources.TemplateData, etcdEndpoints []string, ena
 		flags = append(flags, strings.Join(featureGates, ","))
 	}
 
-	cloudProviderName := GetKubernetesCloudProviderName(data.Cluster())
+	cloudProviderName := data.GetKubernetesCloudProviderName()
 	if cloudProviderName != "" {
 		flags = append(flags, "--cloud-provider", cloudProviderName)
 		flags = append(flags, "--cloud-config", "/etc/kubernetes/cloud/config")
@@ -280,10 +315,10 @@ func getApiserverFlags(data *resources.TemplateData, etcdEndpoints []string, ena
 		if err != nil {
 			if _, ok := err.(*keycloak.RealmNotFoundError); ok {
 				// TODO create event?
-				glog.Errorf("Cluster %s sys11 auth: realm not found: %s", data.Cluster().Name, data.Cluster().Spec.Sys11Auth.Realm)
+				klog.Errorf("Cluster %s sys11 auth: realm not found: %s", data.Cluster().Name, data.Cluster().Spec.Sys11Auth.Realm)
 			} else if _, ok := err.(*keycloak.ClientNotFoundError); ok {
 				// TODO create event?
-				glog.Errorf("Cluster %s sys11 auth: metakube-cluster client not found in realm", data.Cluster().Name)
+				klog.Errorf("Cluster %s sys11 auth: metakube-cluster client not found in realm", data.Cluster().Name)
 			} else {
 				return nil, err
 			}
@@ -306,32 +341,19 @@ func getApiserverFlags(data *resources.TemplateData, etcdEndpoints []string, ena
 			flags = append(flags, "--oidc-required-claim", oidcSettings.RequiredClaim)
 		}
 	} else if enableDexCA {
-		flags = append(flags, "--oidc-issuer-url", data.OIDCIssuerURL())
-		flags = append(flags, "--oidc-client-id", data.OIDCIssuerClientID())
-		flags = append(flags, "--oidc-username-claim", "email")
+		flags = append(flags,
+			"--oidc-issuer-url", data.OIDCIssuerURL(),
+			"--oidc-client-id", data.OIDCIssuerClientID(),
+			"--oidc-username-claim", "email",
+			"--oidc-groups-prefix", "oidc:",
+			"--oidc-groups-claim", "groups",
+		)
 		if len(data.OIDCCAFile()) > 0 {
 			flags = append(flags, "--oidc-ca-file", "/etc/kubernetes/dex/ca/caBundle.pem")
 		}
 	}
 
 	return flags, nil
-}
-
-func GetKubernetesCloudProviderName(cluster *kubermaticv1.Cluster) string {
-	if cluster.Spec.Cloud.AWS != nil {
-		return "aws"
-	}
-	if cluster.Spec.Cloud.Openstack != nil {
-		return "openstack"
-	}
-	if cluster.Spec.Cloud.VSphere != nil {
-		return "vsphere"
-	}
-	if cluster.Spec.Cloud.Azure != nil {
-		return "azure"
-	}
-
-	return ""
 }
 
 func getVolumeMounts(enableDexCA bool) []corev1.VolumeMount {
@@ -381,6 +403,16 @@ func getVolumeMounts(enableDexCA bool) []corev1.VolumeMount {
 			MountPath: "/etc/kubernetes/pki/front-proxy/ca",
 			ReadOnly:  true,
 		},
+		{
+			Name:      resources.AuditConfigMapName,
+			MountPath: "/etc/kubernetes/audit",
+			ReadOnly:  true,
+		},
+		{
+			Name:      resources.AuditLogVolumeName,
+			MountPath: "/var/log/kubernetes/audit",
+			ReadOnly:  false,
+		},
 	}
 
 	if enableDexCA {
@@ -400,8 +432,7 @@ func getVolumes() []corev1.Volume {
 			Name: resources.ApiserverTLSSecretName,
 			VolumeSource: corev1.VolumeSource{
 				Secret: &corev1.SecretVolumeSource{
-					SecretName:  resources.ApiserverTLSSecretName,
-					DefaultMode: resources.Int32(resources.DefaultOwnerReadOnlyMode),
+					SecretName: resources.ApiserverTLSSecretName,
 				},
 			},
 		},
@@ -409,8 +440,7 @@ func getVolumes() []corev1.Volume {
 			Name: resources.TokensSecretName,
 			VolumeSource: corev1.VolumeSource{
 				Secret: &corev1.SecretVolumeSource{
-					SecretName:  resources.TokensSecretName,
-					DefaultMode: resources.Int32(resources.DefaultOwnerReadOnlyMode),
+					SecretName: resources.TokensSecretName,
 				},
 			},
 		},
@@ -418,8 +448,7 @@ func getVolumes() []corev1.Volume {
 			Name: resources.OpenVPNClientCertificatesSecretName,
 			VolumeSource: corev1.VolumeSource{
 				Secret: &corev1.SecretVolumeSource{
-					SecretName:  resources.OpenVPNClientCertificatesSecretName,
-					DefaultMode: resources.Int32(resources.DefaultOwnerReadOnlyMode),
+					SecretName: resources.OpenVPNClientCertificatesSecretName,
 				},
 			},
 		},
@@ -427,8 +456,7 @@ func getVolumes() []corev1.Volume {
 			Name: resources.KubeletClientCertificatesSecretName,
 			VolumeSource: corev1.VolumeSource{
 				Secret: &corev1.SecretVolumeSource{
-					SecretName:  resources.KubeletClientCertificatesSecretName,
-					DefaultMode: resources.Int32(resources.DefaultOwnerReadOnlyMode),
+					SecretName: resources.KubeletClientCertificatesSecretName,
 				},
 			},
 		},
@@ -436,8 +464,7 @@ func getVolumes() []corev1.Volume {
 			Name: resources.CASecretName,
 			VolumeSource: corev1.VolumeSource{
 				Secret: &corev1.SecretVolumeSource{
-					SecretName:  resources.CASecretName,
-					DefaultMode: resources.Int32(resources.DefaultOwnerReadOnlyMode),
+					SecretName: resources.CASecretName,
 					Items: []corev1.KeyToPath{
 						{
 							Path: resources.CACertSecretKey,
@@ -451,8 +478,7 @@ func getVolumes() []corev1.Volume {
 			Name: resources.ServiceAccountKeySecretName,
 			VolumeSource: corev1.VolumeSource{
 				Secret: &corev1.SecretVolumeSource{
-					SecretName:  resources.ServiceAccountKeySecretName,
-					DefaultMode: resources.Int32(resources.DefaultOwnerReadOnlyMode),
+					SecretName: resources.ServiceAccountKeySecretName,
 				},
 			},
 		},
@@ -463,7 +489,6 @@ func getVolumes() []corev1.Volume {
 					LocalObjectReference: corev1.LocalObjectReference{
 						Name: resources.CloudConfigConfigMapName,
 					},
-					DefaultMode: resources.Int32(420),
 				},
 			},
 		},
@@ -471,8 +496,7 @@ func getVolumes() []corev1.Volume {
 			Name: resources.ApiserverEtcdClientCertificateSecretName,
 			VolumeSource: corev1.VolumeSource{
 				Secret: &corev1.SecretVolumeSource{
-					SecretName:  resources.ApiserverEtcdClientCertificateSecretName,
-					DefaultMode: resources.Int32(resources.DefaultOwnerReadOnlyMode),
+					SecretName: resources.ApiserverEtcdClientCertificateSecretName,
 				},
 			},
 		},
@@ -480,8 +504,7 @@ func getVolumes() []corev1.Volume {
 			Name: resources.ApiserverFrontProxyClientCertificateSecretName,
 			VolumeSource: corev1.VolumeSource{
 				Secret: &corev1.SecretVolumeSource{
-					SecretName:  resources.ApiserverFrontProxyClientCertificateSecretName,
-					DefaultMode: resources.Int32(resources.DefaultOwnerReadOnlyMode),
+					SecretName: resources.ApiserverFrontProxyClientCertificateSecretName,
 				},
 			},
 		},
@@ -489,8 +512,7 @@ func getVolumes() []corev1.Volume {
 			Name: resources.FrontProxyCASecretName,
 			VolumeSource: corev1.VolumeSource{
 				Secret: &corev1.SecretVolumeSource{
-					SecretName:  resources.FrontProxyCASecretName,
-					DefaultMode: resources.Int32(resources.DefaultOwnerReadOnlyMode),
+					SecretName: resources.FrontProxyCASecretName,
 				},
 			},
 		},
@@ -498,33 +520,57 @@ func getVolumes() []corev1.Volume {
 			Name: resources.KubeletDnatControllerKubeconfigSecretName,
 			VolumeSource: corev1.VolumeSource{
 				Secret: &corev1.SecretVolumeSource{
-					SecretName:  resources.KubeletDnatControllerKubeconfigSecretName,
-					DefaultMode: resources.Int32(resources.DefaultAllReadOnlyMode),
+					SecretName: resources.KubeletDnatControllerKubeconfigSecretName,
 				},
+			},
+		},
+		{
+			Name: resources.AuditConfigMapName,
+			VolumeSource: corev1.VolumeSource{
+				ConfigMap: &corev1.ConfigMapVolumeSource{
+					LocalObjectReference: corev1.LocalObjectReference{
+						Name: resources.AuditConfigMapName,
+					},
+					Optional: new(bool),
+				},
+			},
+		},
+		{
+			Name: resources.AuditLogVolumeName,
+			VolumeSource: corev1.VolumeSource{
+				EmptyDir: &corev1.EmptyDirVolumeSource{},
 			},
 		},
 	}
 }
 
-func getEnvVars(cluster *kubermaticv1.Cluster) []corev1.EnvVar {
+type kubeAPIServerEnvData interface {
+	resources.CredentialsData
+	Seed() *kubermaticv1.Seed
+}
+
+func GetEnvVars(data kubeAPIServerEnvData) ([]corev1.EnvVar, error) {
+	credentials, err := resources.GetCredentials(data)
+	if err != nil {
+		return nil, err
+	}
+	cluster := data.Cluster()
+
 	var vars []corev1.EnvVar
 	if cluster.Spec.Cloud.AWS != nil {
-		vars = append(vars, corev1.EnvVar{Name: "AWS_ACCESS_KEY_ID", Value: cluster.Spec.Cloud.AWS.AccessKeyID})
-		vars = append(vars, corev1.EnvVar{Name: "AWS_SECRET_ACCESS_KEY", Value: cluster.Spec.Cloud.AWS.SecretAccessKey})
+		vars = append(vars, corev1.EnvVar{Name: "AWS_ACCESS_KEY_ID", Value: credentials.AWS.AccessKeyID})
+		vars = append(vars, corev1.EnvVar{Name: "AWS_SECRET_ACCESS_KEY", Value: credentials.AWS.SecretAccessKey})
 		vars = append(vars, corev1.EnvVar{Name: "AWS_VPC_ID", Value: cluster.Spec.Cloud.AWS.VPCID})
-		vars = append(vars, corev1.EnvVar{Name: "AWS_AVAILABILITY_ZONE", Value: cluster.Spec.Cloud.AWS.AvailabilityZone})
 	}
-	return vars
+	return append(vars, resources.GetHTTPProxyEnvVarsFromSeed(data.Seed(), data.Cluster().Address.InternalName)...), nil
 }
 
 func getDexCASecretVolume() corev1.Volume {
-
 	return corev1.Volume{
 		Name: resources.DexCASecretName,
 		VolumeSource: corev1.VolumeSource{
 			Secret: &corev1.SecretVolumeSource{
-				SecretName:  resources.DexCASecretName,
-				DefaultMode: resources.Int32(resources.DefaultOwnerReadOnlyMode),
+				SecretName: resources.DexCASecretName,
 			},
 		},
 	}

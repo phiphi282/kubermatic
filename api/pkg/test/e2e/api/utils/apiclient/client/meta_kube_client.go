@@ -12,13 +12,23 @@ import (
 	strfmt "github.com/go-openapi/strfmt"
 
 	"github.com/kubermatic/kubermatic/api/pkg/test/e2e/api/utils/apiclient/client/addon"
+<<<<<<< HEAD:api/pkg/test/e2e/api/utils/apiclient/client/meta_kube_client.go
+=======
+	"github.com/kubermatic/kubermatic/api/pkg/test/e2e/api/utils/apiclient/client/aws"
+>>>>>>> v2.12.1:api/pkg/test/e2e/api/utils/apiclient/client/kubermatic_client.go
 	"github.com/kubermatic/kubermatic/api/pkg/test/e2e/api/utils/apiclient/client/azure"
 	"github.com/kubermatic/kubermatic/api/pkg/test/e2e/api/utils/apiclient/client/credentials"
 	"github.com/kubermatic/kubermatic/api/pkg/test/e2e/api/utils/apiclient/client/datacenter"
 	"github.com/kubermatic/kubermatic/api/pkg/test/e2e/api/utils/apiclient/client/digitalocean"
 	"github.com/kubermatic/kubermatic/api/pkg/test/e2e/api/utils/apiclient/client/gcp"
+<<<<<<< HEAD:api/pkg/test/e2e/api/utils/apiclient/client/meta_kube_client.go
+=======
+	"github.com/kubermatic/kubermatic/api/pkg/test/e2e/api/utils/apiclient/client/hetzner"
+	"github.com/kubermatic/kubermatic/api/pkg/test/e2e/api/utils/apiclient/client/metric"
+>>>>>>> v2.12.1:api/pkg/test/e2e/api/utils/apiclient/client/kubermatic_client.go
 	"github.com/kubermatic/kubermatic/api/pkg/test/e2e/api/utils/apiclient/client/openstack"
 	"github.com/kubermatic/kubermatic/api/pkg/test/e2e/api/utils/apiclient/client/operations"
+	"github.com/kubermatic/kubermatic/api/pkg/test/e2e/api/utils/apiclient/client/packet"
 	"github.com/kubermatic/kubermatic/api/pkg/test/e2e/api/utils/apiclient/client/project"
 	"github.com/kubermatic/kubermatic/api/pkg/test/e2e/api/utils/apiclient/client/serviceaccounts"
 	"github.com/kubermatic/kubermatic/api/pkg/test/e2e/api/utils/apiclient/client/tokens"
@@ -33,7 +43,11 @@ var Default = NewHTTPClient(nil)
 const (
 	// DefaultHost is the default Host
 	// found in Meta (info) section of spec file
+<<<<<<< HEAD:api/pkg/test/e2e/api/utils/apiclient/client/meta_kube_client.go
 	DefaultHost string = "metakube.syseleven.de"
+=======
+	DefaultHost string = "cloud.kubermatic.io"
+>>>>>>> v2.12.1:api/pkg/test/e2e/api/utils/apiclient/client/kubermatic_client.go
 	// DefaultBasePath is the default BasePath
 	// found in Meta (info) section of spec file
 	DefaultBasePath string = "/"
@@ -72,6 +86,11 @@ func New(transport runtime.ClientTransport, formats strfmt.Registry) *MetaKube {
 
 	cli.Addon = addon.New(transport, formats)
 
+<<<<<<< HEAD:api/pkg/test/e2e/api/utils/apiclient/client/meta_kube_client.go
+=======
+	cli.Aws = aws.New(transport, formats)
+
+>>>>>>> v2.12.1:api/pkg/test/e2e/api/utils/apiclient/client/kubermatic_client.go
 	cli.Azure = azure.New(transport, formats)
 
 	cli.Credentials = credentials.New(transport, formats)
@@ -82,9 +101,18 @@ func New(transport runtime.ClientTransport, formats strfmt.Registry) *MetaKube {
 
 	cli.Gcp = gcp.New(transport, formats)
 
+<<<<<<< HEAD:api/pkg/test/e2e/api/utils/apiclient/client/meta_kube_client.go
+=======
+	cli.Hetzner = hetzner.New(transport, formats)
+
+	cli.Metric = metric.New(transport, formats)
+
+>>>>>>> v2.12.1:api/pkg/test/e2e/api/utils/apiclient/client/kubermatic_client.go
 	cli.Openstack = openstack.New(transport, formats)
 
 	cli.Operations = operations.New(transport, formats)
+
+	cli.Packet = packet.New(transport, formats)
 
 	cli.Project = project.New(transport, formats)
 
@@ -140,10 +168,19 @@ func (cfg *TransportConfig) WithSchemes(schemes []string) *TransportConfig {
 	return cfg
 }
 
+<<<<<<< HEAD:api/pkg/test/e2e/api/utils/apiclient/client/meta_kube_client.go
 // MetaKube is a client for meta kube
 type MetaKube struct {
 	Addon *addon.Client
 
+=======
+// Kubermatic is a client for kubermatic
+type Kubermatic struct {
+	Addon *addon.Client
+
+	Aws *aws.Client
+
+>>>>>>> v2.12.1:api/pkg/test/e2e/api/utils/apiclient/client/kubermatic_client.go
 	Azure *azure.Client
 
 	Credentials *credentials.Client
@@ -154,9 +191,18 @@ type MetaKube struct {
 
 	Gcp *gcp.Client
 
+<<<<<<< HEAD:api/pkg/test/e2e/api/utils/apiclient/client/meta_kube_client.go
+=======
+	Hetzner *hetzner.Client
+
+	Metric *metric.Client
+
+>>>>>>> v2.12.1:api/pkg/test/e2e/api/utils/apiclient/client/kubermatic_client.go
 	Openstack *openstack.Client
 
 	Operations *operations.Client
+
+	Packet *packet.Client
 
 	Project *project.Client
 
@@ -179,6 +225,11 @@ func (c *MetaKube) SetTransport(transport runtime.ClientTransport) {
 
 	c.Addon.SetTransport(transport)
 
+<<<<<<< HEAD:api/pkg/test/e2e/api/utils/apiclient/client/meta_kube_client.go
+=======
+	c.Aws.SetTransport(transport)
+
+>>>>>>> v2.12.1:api/pkg/test/e2e/api/utils/apiclient/client/kubermatic_client.go
 	c.Azure.SetTransport(transport)
 
 	c.Credentials.SetTransport(transport)
@@ -189,9 +240,18 @@ func (c *MetaKube) SetTransport(transport runtime.ClientTransport) {
 
 	c.Gcp.SetTransport(transport)
 
+<<<<<<< HEAD:api/pkg/test/e2e/api/utils/apiclient/client/meta_kube_client.go
+=======
+	c.Hetzner.SetTransport(transport)
+
+	c.Metric.SetTransport(transport)
+
+>>>>>>> v2.12.1:api/pkg/test/e2e/api/utils/apiclient/client/kubermatic_client.go
 	c.Openstack.SetTransport(transport)
 
 	c.Operations.SetTransport(transport)
+
+	c.Packet.SetTransport(transport)
 
 	c.Project.SetTransport(transport)
 

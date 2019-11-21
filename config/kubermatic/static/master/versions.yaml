@@ -5,7 +5,14 @@ versions:
 # Kubernetes 1.15
 - version: "v1.15.5"
   default: false
-# OpenShift 3.11
-- version: "v3.11"
+# Kubernetes 1.16
+- version: "v1.16.2"
+  default: false
+# OpenShift 4.1.9
+- version: "v4.1.9"
+  default: false
+  type: "openshift"
+# OpenShift 4.1.18
+- version: "v4.1.18"
   default: true
   type: "openshift"

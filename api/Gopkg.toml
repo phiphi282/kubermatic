@@ -51,10 +51,6 @@ required = [
   version = "v1.0.1"
 
 [[constraint]]
-  name = "github.com/golang/glog"
-  branch = "master"
-
-[[constraint]]
   name = "github.com/gorilla/handlers"
   version = "v1.3.0"
 
@@ -71,12 +67,8 @@ required = [
   branch = "master"
 
 [[constraint]]
-  name = "gopkg.in/yaml.v2"
-  branch = "v2"
-
-[[constraint]]
   name = "github.com/aws/aws-sdk-go"
-  version = "1.10.24"
+  version = "v1.22.0"
 
 [[constraint]]
   name = "github.com/gophercloud/gophercloud"
@@ -118,6 +110,10 @@ required = [
   name = "k8s.io/apiserver"
   branch = "release-1.13"
 
+[[override]]
+  name = "k8s.io/metrics"
+  branch = "release-1.13"
+
 [[constraint]]
   name = "k8s.io/autoscaler"
   # VPA release 0.4.0 https://github.com/kubernetes/autoscaler/releases/tag/vertical-pod-autoscaler-0.4.0
@@ -125,11 +121,7 @@ required = [
 
 [[override]]
   name = "github.com/kubermatic/machine-controller"
-  version = "v1.5.7"
-
-[[override]]
-  name = "kubevirt.io/containerized-data-importer"
-  source = "github.com/kubevirt/containerized-data-importer"
+	version = "v1.7.0"
 
 [[override]]
   name = "sigs.k8s.io/controller-runtime"
@@ -137,7 +129,7 @@ required = [
 
 [[override]]
   name = "github.com/prometheus/client_golang"
-  version = "v0.9.2"
+  version = "v1.1.0"
 
 # For container-linux-config-transpiler
 [[override]]
@@ -199,6 +191,10 @@ required = [
 
 [[constraint]]
   name = "github.com/heptiolabs/healthcheck"
+  branch = "master"
+
+[[constraint]]
+  name = "github.com/cristim/ec2-instances-info"
   branch = "master"
 
 [[constraint]]

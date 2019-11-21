@@ -18,49 +18,46 @@ import (
 
 	"github.com/go-openapi/runtime"
 	"github.com/onsi/ginkgo/reporters"
-	"github.com/sirupsen/logrus"
+	"go.uber.org/zap"
 
 	kubermaticapiv1 "github.com/kubermatic/kubermatic/api/pkg/api/v1"
 	clusterclient "github.com/kubermatic/kubermatic/api/pkg/cluster/client"
 	kubermaticv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
 	"github.com/kubermatic/kubermatic/api/pkg/provider"
 	"github.com/kubermatic/kubermatic/api/pkg/resources"
-	"github.com/kubermatic/kubermatic/api/pkg/resources/machine"
 	apiclient "github.com/kubermatic/kubermatic/api/pkg/test/e2e/api/utils/apiclient/client"
 	projectclient "github.com/kubermatic/kubermatic/api/pkg/test/e2e/api/utils/apiclient/client/project"
 	apimodels "github.com/kubermatic/kubermatic/api/pkg/test/e2e/api/utils/apiclient/models"
 
+	clusterv1alpha1 "github.com/kubermatic/machine-controller/pkg/apis/cluster/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/rand"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/util/retry"
-	clusterv1alpha1 "sigs.k8s.io/cluster-api/pkg/apis/cluster/v1alpha1"
 	ctrlruntimeclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-var (
-	podIsReady = func(p *corev1.Pod) bool {
-		for _, c := range p.Status.Conditions {
-			if c.Type == corev1.PodReady && c.Status == corev1.ConditionTrue {
-				return true
-			}
+func podIsReady(p *corev1.Pod) bool {
+	for _, c := range p.Status.Conditions {
+		if c.Type == corev1.PodReady {
+			return c.Status == corev1.ConditionTrue
 		}
-		return false
 	}
-)
+	return false
+}
 
 type testScenario interface {
 	Name() string
 	Cluster(secrets secrets) *apimodels.CreateClusterSpec
-	Nodes(num int, secrets secrets) *kubermaticapiv1.NodeDeployment
+	NodeDeployments(num int, secrets secrets) ([]apimodels.NodeDeployment, error)
+	OS() apimodels.OperatingSystemSpec
 }
 
-func newRunner(scenarios []testScenario, opts *Opts) *testRunner {
+func newRunner(scenarios []testScenario, opts *Opts, log *zap.SugaredLogger) *testRunner {
 	return &testRunner{
 		scenarios:                    scenarios,
 		controlPlaneReadyWaitTimeout: opts.controlPlaneReadyWaitTimeout,
@@ -68,7 +65,7 @@ func newRunner(scenarios []testScenario, opts *Opts) *testRunner {
 		secrets:                      opts.secrets,
 		namePrefix:                   opts.namePrefix,
 		clusterClientProvider:        opts.clusterClientProvider,
-		dcs:                          opts.dcs,
+		seed:                         opts.seed,
 		nodeCount:                    opts.nodeCount,
 		repoRoot:                     opts.repoRoot,
 		reportsRoot:                  opts.reportsRoot,
@@ -77,11 +74,13 @@ func newRunner(scenarios []testScenario, opts *Opts) *testRunner {
 		workerName:                   opts.workerName,
 		homeDir:                      opts.homeDir,
 		seedClusterClient:            opts.seedClusterClient,
-		log:                          opts.log,
+		log:                          log,
 		existingClusterLabel:         opts.existingClusterLabel,
 		openshift:                    opts.openshift,
+		openshiftPullSecret:          opts.openshiftPullSecret,
 		printGinkoLogs:               opts.printGinkoLogs,
 		onlyTestCreation:             opts.onlyTestCreation,
+		pspEnabled:                   opts.pspEnabled,
 		kubermatcProjectID:           opts.kubermatcProjectID,
 		kubermaticClient:             opts.kubermaticClient,
 		kubermaticAuthenticator:      opts.kubermaticAuthenticator,
@@ -89,19 +88,21 @@ func newRunner(scenarios []testScenario, opts *Opts) *testRunner {
 }
 
 type testRunner struct {
-	ctx              context.Context
-	scenarios        []testScenario
-	secrets          secrets
-	namePrefix       string
-	repoRoot         string
-	reportsRoot      string
-	PublicKeys       [][]byte
-	workerName       string
-	homeDir          string
-	log              *logrus.Entry
-	openshift        bool
-	printGinkoLogs   bool
-	onlyTestCreation bool
+	ctx                 context.Context
+	scenarios           []testScenario
+	secrets             secrets
+	namePrefix          string
+	repoRoot            string
+	reportsRoot         string
+	PublicKeys          [][]byte
+	workerName          string
+	homeDir             string
+	log                 *zap.SugaredLogger
+	openshift           bool
+	openshiftPullSecret string
+	printGinkoLogs      bool
+	onlyTestCreation    bool
+	pspEnabled          bool
 
 	controlPlaneReadyWaitTimeout time.Duration
 	deleteClusterAfterTests      bool
@@ -110,7 +111,7 @@ type testRunner struct {
 
 	seedClusterClient     ctrlruntimeclient.Client
 	clusterClientProvider clusterclient.UserClusterConnectionProvider
-	dcs                   map[string]provider.DatacenterMeta
+	seed                  *kubermaticv1.Seed
 
 	// The label to use to select an existing cluster to test against instead of
 	// creating a new one
@@ -149,10 +150,7 @@ func (t *testResult) Passed() bool {
 
 func (r *testRunner) worker(id int, scenarios <-chan testScenario, results chan<- testResult) {
 	for s := range scenarios {
-		scenarioLog := r.log.WithFields(logrus.Fields{
-			"scenario": s.Name(),
-			"worker":   id,
-		})
+		scenarioLog := r.log.With("scenario", s.Name(), "worker", id)
 		scenarioLog.Info("Starting to test scenario...")
 
 		report, err := r.executeScenario(scenarioLog, s)
@@ -175,12 +173,12 @@ func (r *testRunner) Run() error {
 	scenariosCh := make(chan testScenario, len(r.scenarios))
 	resultsCh := make(chan testResult, len(r.scenarios))
 
-	r.log.Infoln("Test suite:")
+	r.log.Info("Test suite:")
 	for _, scenario := range r.scenarios {
-		r.log.Infoln(scenario.Name())
+		r.log.Info(scenario.Name())
 		scenariosCh <- scenario
 	}
-	r.log.Infoln(fmt.Sprintf("Total: %d tests", len(r.scenarios)))
+	r.log.Info(fmt.Sprintf("Total: %d tests", len(r.scenarios)))
 
 	for i := 1; i <= r.clusterParallelCount; i++ {
 		go r.worker(i, scenariosCh, resultsCh)
@@ -222,14 +220,45 @@ func (r *testRunner) Run() error {
 	return nil
 }
 
-func (r *testRunner) executeScenario(log *logrus.Entry, scenario testScenario) (*reporters.JUnitTestSuite, error) {
+func (r *testRunner) executeScenario(log *zap.SugaredLogger, scenario testScenario) (*reporters.JUnitTestSuite, error) {
 	var err error
 	var cluster *kubermaticv1.Cluster
 
-	if r.existingClusterLabel == "" {
-		cluster, err = r.createCluster(log, scenario)
+	report := &reporters.JUnitTestSuite{
+		Name: scenario.Name(),
+	}
+	totalStart := time.Now()
+
+	// We'll store the report there and all kinds of logs
+	scenarioFolder := path.Join(r.reportsRoot, scenario.Name())
+	if err := os.MkdirAll(scenarioFolder, os.ModePerm); err != nil {
+		return nil, fmt.Errorf("failed to create the scenario folder '%s': %v", scenarioFolder, err)
+	}
+
+	// We need the closure to defer the evaluation of the time.Since(totalStart) call
+	defer func() { log.Infof("Finished testing cluster after %s", time.Since(totalStart)) }()
+	// Always write junit to disk
+	defer func() {
+		report.Time = time.Since(totalStart).Seconds()
+		b, err := xml.Marshal(report)
 		if err != nil {
-			return nil, fmt.Errorf("failed to create cluster: %v", err)
+			log.Errorw("failed to marshal junit", zap.Error(err))
+			return
+		}
+		if err := ioutil.WriteFile(path.Join(r.reportsRoot, fmt.Sprintf("junit.%s.xml", scenario.Name())), b, 0644); err != nil {
+			log.Errorw("failed to write junit", zap.Error(err))
+		}
+	}()
+
+	if r.existingClusterLabel == "" {
+		if err := junitReporterWrapper(
+			"[Kubermatic] Create cluster",
+			report,
+			func() error {
+				cluster, err = r.createCluster(log, scenario)
+				return err
+			}); err != nil {
+			return report, fmt.Errorf("failed to create cluster: %v", err)
 		}
 	} else {
 		selector, err := labels.Parse(r.existingClusterLabel)
@@ -247,23 +276,32 @@ func (r *testRunner) executeScenario(log *logrus.Entry, scenario testScenario) (
 		cluster = &clusterList.Items[0]
 	}
 
-	cluster, err = r.waitForControlPlane(log, cluster.Name)
-	if err != nil {
-		return nil, fmt.Errorf("failed waiting for control plane to become ready: %v", err)
-	}
-
 	// We must store the name here because the cluster object may be nil on error
 	clusterName := cluster.Name
-	err = retry.RetryOnConflict(retry.DefaultBackoff, func() error {
-		if err := r.seedClusterClient.Get(context.Background(), types.NamespacedName{Name: clusterName}, cluster); err != nil {
+	if err := junitReporterWrapper(
+		"[Kubermatic] Wait for controlplane",
+		report,
+		func() error {
+			cluster, err = r.waitForControlPlane(log, clusterName)
 			return err
-		}
-		cluster.Finalizers = append(cluster.Finalizers, kubermaticapiv1.InClusterPVCleanupFinalizer, kubermaticapiv1.InClusterLBCleanupFinalizer)
+		},
+		func() string { return r.controlplaneWaitFailureStdout(clusterName) }); err != nil {
+		return report, fmt.Errorf("failed waiting for control plane to become ready: %v", err)
+	}
 
-		return r.seedClusterClient.Update(context.Background(), cluster)
-
-	})
-	if err != nil {
+	if err := junitReporterWrapper(
+		"[Kubermatic] Add LB and PV Finalizers",
+		report,
+		func() error {
+			return retry.RetryOnConflict(retry.DefaultBackoff, func() error {
+				if err := r.seedClusterClient.Get(context.Background(), types.NamespacedName{Name: clusterName}, cluster); err != nil {
+					return err
+				}
+				cluster.Finalizers = append(cluster.Finalizers, kubermaticapiv1.InClusterPVCleanupFinalizer, kubermaticapiv1.InClusterLBCleanupFinalizer)
+				return r.seedClusterClient.Update(context.Background(), cluster)
+			})
+		},
+	); err != nil {
 		return nil, fmt.Errorf("failed to add PV and LB cleanup finalizers: %v", err)
 	}
 
@@ -272,31 +310,18 @@ func (r *testRunner) executeScenario(log *logrus.Entry, scenario testScenario) (
 		return nil, fmt.Errorf("failed to get cloud provider name from cluster: %v", err)
 	}
 
-	log = log.WithFields(logrus.Fields{
-		"cluster":        cluster.Name,
-		"cloud-provider": providerName,
-		"version":        cluster.Spec.Version,
-	})
+	log = log.With("cluster", cluster.Name, "cloud-provider", providerName, "version", cluster.Spec.Version)
 
-	dc, found := r.dcs[cluster.Spec.Cloud.DatacenterName]
-	if !found {
-		return nil, fmt.Errorf("invalid cloud datacenter specified '%s'. Not found in datacenters list", cluster.Spec.Cloud.DatacenterName)
-	}
-
-	if r.deleteClusterAfterTests {
-		defer func() {
-			if err := tryToDeleteClusterWithRetries(log, cluster, r.clusterClientProvider, r.seedClusterClient); err != nil {
-				log.Errorf("failed to delete cluster: %v", err)
-				log.Errorf("Please manually cleanup the cluster. Either by restarting with `-cleanup-on-start=true` or by doing the cleanup by hand: %v", err)
-			}
-		}()
+	_, exists := r.seed.Spec.Datacenters[cluster.Spec.Cloud.DatacenterName]
+	if !exists {
+		return nil, fmt.Errorf("datacenter %q doesn't exist", cluster.Spec.Cloud.DatacenterName)
 	}
 
 	kubeconfigFilename, err := r.getKubeconfig(log, cluster)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get kubeconfig: %v", err)
 	}
-	log = log.WithFields(logrus.Fields{"kubeconfig": kubeconfigFilename})
+	log = log.With("kubeconfig", kubeconfigFilename)
 
 	cloudConfigFilename, err := r.getCloudConfig(log, cluster)
 	if err != nil {
@@ -308,34 +333,129 @@ func (r *testRunner) executeScenario(log *logrus.Entry, scenario testScenario) (
 		return nil, fmt.Errorf("failed to get the client for the cluster: %v", err)
 	}
 
-	nodeDeployment := scenario.Nodes(r.nodeCount, r.secrets)
-	if err := r.setupNodes(log, scenario.Name(), cluster, userClusterClient, nodeDeployment, dc); err != nil {
-		return nil, fmt.Errorf("failed to setup nodes: %v", err)
+	if err := junitReporterWrapper(
+		"[Kubermatic] Create NodeDeployments",
+		report,
+		func() error {
+			return r.createNodeDeployments(log, scenario, clusterName)
+		},
+	); err != nil {
+		return report, fmt.Errorf("failed to setup nodes: %v", err)
 	}
 
-	if err := r.waitUntilAllPodsAreReady(log, userClusterClient); err != nil {
-		return nil, fmt.Errorf("failed to wait until all pods are running after creating the cluster: %v", err)
+	var overallTimeout = 10 * time.Minute
+	var timeoutLeft time.Duration
+	if cluster.Annotations["kubermatic.io/openshift"] == "true" {
+		// Openshift installs a lot more during node provisioning, hence this may take longer
+		overallTimeout = 15 * time.Minute
+	}
+
+	if err := junitReporterWrapper(
+		"[Kubermatic] Wait for machines to get a node",
+		report,
+		func() error {
+			var err error
+			timeoutLeft, err = waitForMachinesToJoinCluster(log, userClusterClient, overallTimeout)
+			return err
+		},
+	); err != nil {
+		return report, fmt.Errorf("failed to wait for machines to get a node: %v", err)
+	}
+
+	if err := junitReporterWrapper(
+		"[Kubermatic] Wait for nodes to be ready",
+		report,
+		func() error {
+			// Getting ready just implies starting the CNI deamonset, so that should
+			// be quick.
+			var err error
+			timeoutLeft, err = waitForNodesToBeReady(log, userClusterClient, timeoutLeft)
+			return err
+		},
+	); err != nil {
+		return report, fmt.Errorf("failed to wait for all nodes to be ready: %v", err)
+	}
+
+	if err := junitReporterWrapper(
+		"[Kubermatic] Wait for Pods inside usercluster to be ready",
+		report,
+		func() error {
+			return r.waitUntilAllPodsAreReady(log, userClusterClient, timeoutLeft)
+		},
+	); err != nil {
+		return nil, fmt.Errorf("failed to wait for all pods to get ready: %v", err)
 	}
 
 	if r.onlyTestCreation {
-		return &reporters.JUnitTestSuite{
-			Name: "cluster creation",
-			TestCases: []reporters.JUnitTestCase{
-				{
-					Name: "cluster creation",
-				},
-			},
-		}, nil
+		return report, nil
 	}
 
-	report, err := r.testCluster(log, scenario.Name(), cluster, userClusterClient, nodeDeployment, dc, kubeconfigFilename, cloudConfigFilename)
-	if err != nil {
-		return nil, fmt.Errorf("failed to test cluster: %v", err)
+	if !r.onlyTestCreation {
+		if err := r.testCluster(log, scenario, cluster, userClusterClient, kubeconfigFilename, cloudConfigFilename, report); err != nil {
+			return report, fmt.Errorf("failed to test cluster: %v", err)
+		}
 	}
-	if report == nil {
-		return nil, errors.New("no report generated")
+
+	if !r.deleteClusterAfterTests {
+		return report, nil
 	}
-	return report, nil
+
+	return report, r.deleteCluster(report, cluster, log)
+}
+
+func (r *testRunner) deleteCluster(report *reporters.JUnitTestSuite, cluster *kubermaticv1.Cluster, log *zap.SugaredLogger) error {
+
+	deleteParms := &projectclient.DeleteClusterParams{
+		ProjectID: r.kubermatcProjectID,
+		Dc:        r.seed.Name,
+	}
+	deleteTimeout := 15 * time.Minute
+	if cluster.Spec.Cloud.Azure != nil {
+		// 15 Minutes are not enough for Azure
+		deleteTimeout = 30 * time.Minute
+	}
+	deleteParms.SetTimeout(15 * time.Second)
+	if err := junitReporterWrapper(
+		"[Kubermatic] Delete cluster",
+		report,
+		func() error {
+			selector, err := labels.Parse(fmt.Sprintf("worker-name=%s", r.workerName))
+			if err != nil {
+				return fmt.Errorf("failed to parse selector: %v", err)
+			}
+			return wait.PollImmediate(5*time.Second, deleteTimeout, func() (bool, error) {
+				clusterList := &kubermaticv1.ClusterList{}
+				listOpts := &ctrlruntimeclient.ListOptions{LabelSelector: selector}
+				if err := r.seedClusterClient.List(r.ctx, listOpts, clusterList); err != nil {
+					log.Errorw("Listing clusters failed", zap.Error(err))
+					return false, nil
+				}
+				// Success!
+				if len(clusterList.Items) == 0 {
+					return true, nil
+				}
+				// Should never happen
+				if len(clusterList.Items) > 1 {
+					return false, fmt.Errorf("expected to find zero or one cluster, got %d", len(clusterList.Items))
+				}
+				// Cluster is currently being deleted
+				if clusterList.Items[0].DeletionTimestamp != nil {
+					return false, nil
+				}
+				// Issue Delete call
+				log.With("cluster", clusterList.Items[0].Name).Info("Issuing DELETE call for cluster")
+				deleteParms.ClusterID = clusterList.Items[0].Name
+				_, err := r.kubermaticClient.Project.DeleteCluster(deleteParms, r.kubermaticAuthenticator)
+				log.Infow("Issued cluster delete call", zap.Error(errors.New(fmtSwaggerError(err))))
+				return false, nil
+			})
+		},
+	); err != nil {
+		log.Errorw("failed to delete cluster", zap.Error(err))
+		return err
+	}
+
+	return nil
 }
 
 func retryNAttempts(maxAttempts int, f func(attempt int) error) error {
@@ -351,141 +471,94 @@ func retryNAttempts(maxAttempts int, f func(attempt int) error) error {
 }
 
 func (r *testRunner) testCluster(
-	log *logrus.Entry,
-	scenarioName string,
+	log *zap.SugaredLogger,
+	scenario testScenario,
 	cluster *kubermaticv1.Cluster,
 	userClusterClient ctrlruntimeclient.Client,
-	nd *kubermaticapiv1.NodeDeployment,
-	dc provider.DatacenterMeta,
 	kubeconfigFilename string,
 	cloudConfigFilename string,
-) (*reporters.JUnitTestSuite, error) {
+	report *reporters.JUnitTestSuite,
+) error {
 	const maxTestAttempts = 3
 	var err error
-	totalStart := time.Now()
 	log.Info("Starting to test cluster...")
-	defer log.Infof("Finished testing cluster after %s", time.Since(totalStart))
-
-	// We'll store the report there and all kinds of logs
-	scenarioFolder := path.Join(r.reportsRoot, scenarioName)
-	if err := os.MkdirAll(scenarioFolder, os.ModePerm); err != nil {
-		return nil, fmt.Errorf("failed to create the scenario folder '%s': %v", scenarioFolder, err)
-	}
-
-	report := &reporters.JUnitTestSuite{
-		Name: scenarioName,
-	}
-
-	testCase := reporters.JUnitTestCase{
-		Name:      "[Kubermatic] Test cluster becomes ready, nodes join and kubermatic-managed pods get ready",
-		ClassName: "Kubermatic custom tests",
-	}
-	report.TestCases = append(report.TestCases, testCase)
-	report.Tests++
 
 	if r.openshift {
 		// Openshift supports neither the conformance tests nor PVs/LBs yet :/
-		return report, nil
+		return nil
 	}
 
-	ginkgoRuns, err := r.getGinkgoRuns(log, scenarioName, kubeconfigFilename, cloudConfigFilename, cluster, nd, dc)
+	ginkgoRuns, err := r.getGinkgoRuns(log, scenario, kubeconfigFilename, cloudConfigFilename, cluster)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get Ginkgo runs: %v", err)
+		return fmt.Errorf("failed to get Ginkgo runs: %v", err)
 	}
 	for _, run := range ginkgoRuns {
-
-		ginkgoRes, err := r.executeGinkgoRunWithRetries(log, run, userClusterClient)
-		if err != nil {
-			// Ginkgo failed hard. We don't have any JUnit reports to append, so we appenda custom one to indicate the hard failure
-			report.TestCases = append(report.TestCases, reporters.JUnitTestCase{
-				Name:           "[Ginkgo] Run ginkgo tests",
-				ClassName:      "Ginkgo",
-				FailureMessage: &reporters.JUnitFailureMessage{Message: fmt.Sprintf("%v", err)},
-			})
-
+		if err := junitReporterWrapper(
+			fmt.Sprintf("[Ginkgo] Run ginkgo tests %q", run.name),
+			report,
+			func() error {
+				ginkgoRes, err := r.executeGinkgoRunWithRetries(log, run, userClusterClient)
+				if ginkgoRes != nil {
+					// We append the report from Ginkgo to our scenario wide report
+					appendReport(report, ginkgoRes.report)
+				}
+				return err
+			},
+		); err != nil {
 			// We still wan't to run potential next runs
 			continue
 		}
 
-		// We have a valid report from Ginkgo. It might contain failed tests, but that's ok here.
-		// The executor if this scenario will later on interpret the junit report and decides for a return code.
-		// We append the report from Ginkgo to our scenario wide report
-		report = combineReports("Kubernetes Conformance tests", report, ginkgoRes.report)
 	}
 
 	// Do a simple PVC test - with retries
 	if supportsStorage(cluster) {
-		testStart := time.Now()
-		testCase := reporters.JUnitTestCase{
-			Name:      "[CloudProvider] Test PVC support with the existing StorageClass",
-			ClassName: "Kubermatic custom tests",
-		}
-		err := retryNAttempts(maxTestAttempts, func(attempt int) error { return r.testPVC(log, userClusterClient, attempt) })
-		if err != nil {
-			report.Errors++
-			testCase.FailureMessage = &reporters.JUnitFailureMessage{Message: err.Error()}
+		if err := junitReporterWrapper(
+			"[Kubermatic] [CloudProvider] Test PersistentVolumes",
+			report,
+			func() error {
+				return retryNAttempts(maxTestAttempts,
+					func(attempt int) error { return r.testPVC(log, userClusterClient, attempt) })
+			},
+		); err != nil {
 			log.Errorf("Failed to verify that PVC's work: %v", err)
 		}
-		testCase.Time = time.Since(testStart).Seconds()
-		report.TestCases = append(report.TestCases, testCase)
-		report.Tests++
 	}
 
 	// Do a simple LB test - with retries
 	if supportsLBs(cluster) {
-		testStart := time.Now()
-		testCase := reporters.JUnitTestCase{
-			Name:      "[CloudProvider] Test LB support",
-			ClassName: "Kubermatic custom tests",
-		}
-		err := retryNAttempts(maxTestAttempts, func(attempt int) error { return r.testLB(log, userClusterClient, attempt) })
-		if err != nil {
-			report.Errors++
-			testCase.FailureMessage = &reporters.JUnitFailureMessage{Message: err.Error()}
+		if err := junitReporterWrapper(
+			"[Kubermatic] [CloudProvider] Test LoadBalancers",
+			report,
+			func() error {
+				return retryNAttempts(maxTestAttempts,
+					func(attempt int) error { return r.testLB(log, userClusterClient, attempt) })
+			},
+		); err != nil {
 			log.Errorf("Failed to verify that LB's work: %v", err)
 		}
-		testCase.Time = time.Since(testStart).Seconds()
-		report.TestCases = append(report.TestCases, testCase)
-		report.Tests++
 	}
 
 	// Do user cluster RBAC controller test - with retries
-	{
-		testStart := time.Now()
-		testCase := reporters.JUnitTestCase{
-			Name:      "Test user cluster RBAC controller",
-			ClassName: "Kubermatic custom tests",
-		}
-		err = retryNAttempts(maxTestAttempts, func(attempt int) error {
-			return r.testUserclusterControllerRBAC(log, cluster, userClusterClient, r.seedClusterClient)
-		})
-		if err != nil {
-			report.Errors++
-			testCase.FailureMessage = &reporters.JUnitFailureMessage{Message: err.Error()}
-			log.Errorf("Failed to verify that user cluster RBAC controller work: %v", err)
-		}
-		testCase.Time = time.Since(testStart).Seconds()
-		report.TestCases = append(report.TestCases, testCase)
-		report.Tests++
+	if err := junitReporterWrapper(
+		"[Kubermatic] Test user cluster RBAC controller",
+		report,
+		func() error {
+			return retryNAttempts(maxTestAttempts,
+				func(attempt int) error {
+					return r.testUserclusterControllerRBAC(log, cluster, userClusterClient, r.seedClusterClient)
+				})
+		}); err != nil {
+		log.Errorf("Failed to verify that user cluster RBAC controller work: %v", err)
 	}
 
-	report.Time = time.Since(totalStart).Seconds()
-	b, err := xml.Marshal(report)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal combined report file: %v", err)
-	}
-
-	if err := ioutil.WriteFile(path.Join(r.reportsRoot, fmt.Sprintf("junit.%s.xml", scenarioName)), b, 0644); err != nil {
-		return nil, fmt.Errorf("failed to write combined report file: %v", err)
-	}
-
-	return report, nil
+	return nil
 }
 
 // executeGinkgoRunWithRetries executes the passed GinkgoRun and retries if it failed hard(Failed to execute the Ginkgo binary for example)
 // Or if the JUnit report from Ginkgo contains failed tests.
 // Only if Ginkgo failed hard, an error will be returned. If some tests still failed after retrying the run, the report will reflect that.
-func (r *testRunner) executeGinkgoRunWithRetries(log *logrus.Entry, run *ginkgoRun, client ctrlruntimeclient.Client) (ginkgoRes *ginkgoResult, err error) {
+func (r *testRunner) executeGinkgoRunWithRetries(log *zap.SugaredLogger, run *ginkgoRun, client ctrlruntimeclient.Client) (ginkgoRes *ginkgoResult, err error) {
 	const maxAttempts = 3
 
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
@@ -518,121 +591,60 @@ func (r *testRunner) executeGinkgoRunWithRetries(log *logrus.Entry, run *ginkgoR
 	return ginkgoRes, err
 }
 
-func (r *testRunner) setupNodes(parentLog *logrus.Entry, scenarioName string, cluster *kubermaticv1.Cluster, userClusterClient ctrlruntimeclient.Client, nodeDeployment *kubermaticapiv1.NodeDeployment, dc provider.DatacenterMeta) error {
-	ctx := context.Background()
-	log := parentLog.WithFields(logrus.Fields{
-		"nd-node-count": nodeDeployment.Spec.Replicas,
-		"node-count":    r.nodeCount,
-	})
-
-	log.Info("Creating machineDeployment...")
-	client, err := r.clusterClientProvider.GetClient(cluster)
-	if err != nil {
-		return fmt.Errorf("failed to get the machine client for the cluster: %v", err)
+func (r *testRunner) createNodeDeployments(log *zap.SugaredLogger, scenario testScenario, clusterName string) error {
+	log.Info("Creating NodeDeployments via kubermatic API")
+	var nodeDeployments []apimodels.NodeDeployment
+	var err error
+	if err := wait.PollImmediate(10*time.Second, time.Minute, func() (bool, error) {
+		nodeDeployments, err = scenario.NodeDeployments(r.nodeCount, r.secrets)
+		if err != nil {
+			log.Info("Getting NodeDeployments from scenario failed", zap.Error(err))
+			return false, nil
+		}
+		return true, nil
+	}); err != nil {
+		return fmt.Errorf("didn't get NodeDeployments from scenario within a minute: %v", err)
 	}
 
-	var keys []*kubermaticv1.UserSSHKey
-	for _, data := range r.PublicKeys {
-		keys = append(keys, &kubermaticv1.UserSSHKey{
-			Spec: kubermaticv1.SSHKeySpec{
-				PublicKey: string(data),
-			},
-		})
-	}
+	for _, nd := range nodeDeployments {
+		params := &projectclient.CreateNodeDeploymentParams{
+			ProjectID: r.kubermatcProjectID,
+			ClusterID: clusterName,
+			Dc:        r.seed.Name,
+			Body:      &nd,
+		}
+		params.SetTimeout(15 * time.Second)
 
-	// When there are machines not owned by a MachineDeployment, we must decrement
-	// the nodeDeployments replicas by their count, this is needed in upgrade tests
-	if err := retryNAttempts(defaultAPIRetries, func(_ int) error {
-		if r.existingClusterLabel == "" {
-			return nil
-		}
-		machineList := &clusterv1alpha1.MachineList{}
-		if err := client.List(ctx, &ctrlruntimeclient.ListOptions{Namespace: metav1.NamespaceSystem}, machineList); err != nil {
-			return fmt.Errorf("failed to list machines: %v", err)
-		}
-		log.Infof("Found %d already existing Machines from a former run", len(machineList.Items))
-		machinesWithoutOwner := int32(0)
-		for _, m := range machineList.Items {
-			if len(m.OwnerReferences) > 0 {
-				continue
+		if err := retryNAttempts(defaultAPIRetries, func(attempt int) error {
+			if _, err := r.kubermaticClient.Project.CreateNodeDeployment(params, r.kubermaticAuthenticator); err != nil {
+				log.Warnf("[Attempt %d/%d] Failed to create NodeDeployment %s: %v. Retrying", attempt, defaultAPIRetries, nd.Name, fmtSwaggerError(err))
+				return err
 			}
-			log.WithFields(logrus.Fields{"machine": m.Name}).Infof("Found machine without OwnerReference.")
-			machinesWithoutOwner++
-		}
-		log.Infof(
-			"Reducing the number of replicas for the new MachineDeployment by %d so we end up with a total of %d Nodes, due to %d already existing Machines from a former test run",
-			machinesWithoutOwner,
-			nodeDeployment.Spec.Replicas,
-			machinesWithoutOwner,
-		)
-		nodeDeployment.Spec.Replicas = nodeDeployment.Spec.Replicas - machinesWithoutOwner
-		return nil
-	}); err != nil {
-		return fmt.Errorf("failed to get existing machines in order to adjust NodeDeployment: %v", err)
-	}
-	// Explicitly set name. machine.MachineDeployment sets generateName if the name
-	// is unset but need a deterministic name because we retry creation and dont
-	// want to accidentally create multiple MachineDeployments
-	nodeDeployment.Name = fmt.Sprintf("md-%s", scenarioName)
-	machineDeployment, err := machine.Deployment(cluster, nodeDeployment, dc, keys)
-	if err != nil {
-		return fmt.Errorf("failed to get MachineDeployment from NodeDeployment: %v", err)
-	}
-
-	log = log.WithField("machineDeployment", machineDeployment.Name)
-	if err := retryNAttempts(defaultAPIRetries, func(attempt int) error {
-		if err := client.Create(ctx, machineDeployment); err != nil {
-			if kerrors.IsAlreadyExists(err) {
-				return nil
-			}
-			log.Warnf("[Attempt %d/%d] Failed to create MachineDeployment: %v. Retrying", attempt, defaultAPIRetries, err)
-			time.Sleep(defaultUserClusterPollInterval)
-			return err
-		}
-		return nil
-	}); err != nil {
-		return fmt.Errorf("failed to create MachineDeployment %s after %d attempts: %v", machineDeployment.Name, defaultAPIRetries, err)
-	}
-
-	// Make sure replicas matches nodeDeployment replicas, this may differ on the second run on upgrade tests
-	// We dont explicitly catch that, as we ignore kerrors.IsAlreadyExists when creating the machineDeployment
-	// This is a very poor persons replication of `EnsureResources`, the problem is we want to use the apis `machine.Deployment`
-	// func which always returns a new MachineDeployment
-	if err := retryNAttempts(defaultAPIRetries, func(_ int) error {
-		mdName := machineDeployment.Name
-		if err := client.Get(ctx, types.NamespacedName{Namespace: metav1.NamespaceSystem, Name: mdName}, machineDeployment); err != nil {
-			return fmt.Errorf("failed to get MachineDeployment %q: %v", mdName, err)
-		}
-		if *machineDeployment.Spec.Replicas == nodeDeployment.Spec.Replicas {
-			log.Debugf("Found an existing MachineDeployment with %d replicas. Not going to update the replicas", nodeDeployment.Spec.Replicas)
 			return nil
+		}); err != nil {
+			return fmt.Errorf("failed to create NodeDeployment %s via kubermatic api after %d attempts: %q", nd.Name, defaultAPIRetries, fmtSwaggerError(err))
 		}
-
-		// Create a copy to avoid changing the ND when changing the MD
-		replicas := nodeDeployment.Spec.Replicas
-		log.Infof(
-			"Found an existing MachineDeployment with %d replicas. Updating to %d replicas",
-			*machineDeployment.Spec.Replicas,
-			replicas,
-		)
-		machineDeployment.Spec.Replicas = &replicas
-		return client.Update(ctx, machineDeployment)
-	}); err != nil {
-		return fmt.Errorf("failed to ensure machineDeployment has desired number of replicas: %v", err)
 	}
-	log.Infof("Successfully created %d machine(s)!", *machineDeployment.Spec.Replicas)
 
-	if err := r.waitForReadyNodes(log, userClusterClient, r.nodeCount); err != nil {
-		return fmt.Errorf("failed waiting for nodes to become ready: %v", err)
-	}
+	log.Info("Successfully created NodeDeployments via Kubermatic API")
 	return nil
 }
 
-func (r *testRunner) getKubeconfig(log *logrus.Entry, cluster *kubermaticv1.Cluster) (string, error) {
+func (r *testRunner) getKubeconfig(log *zap.SugaredLogger, cluster *kubermaticv1.Cluster) (string, error) {
 	log.Debug("Getting kubeconfig...")
-	kubeconfig, err := r.clusterClientProvider.GetAdminKubeconfig(cluster)
-	if err != nil {
-		return "", fmt.Errorf("failed to load kubeconfig from cluster client provider: %v", err)
+	var kubeconfig []byte
+	// Needed for Openshift where we have to create a SA and bindings inside the cluster
+	// which can only be done after the APIServer is up and ready
+	if err := wait.PollImmediate(time.Second, time.Minute, func() (bool, error) {
+		var err error
+		kubeconfig, err = r.clusterClientProvider.GetAdminKubeconfig(cluster)
+		if err != nil {
+			log.Debugw("Failed to get Kubeconfig", zap.Error(err))
+			return false, nil
+		}
+		return true, nil
+	}); err != nil {
+		return "", fmt.Errorf("failed to wait for kubeconfig: %v", err)
 	}
 	filename := path.Join(r.homeDir, fmt.Sprintf("%s-kubeconfig", cluster.Name))
 	if err := ioutil.WriteFile(filename, kubeconfig, 0644); err != nil {
@@ -643,7 +655,7 @@ func (r *testRunner) getKubeconfig(log *logrus.Entry, cluster *kubermaticv1.Clus
 	return filename, nil
 }
 
-func (r *testRunner) getCloudConfig(log *logrus.Entry, cluster *kubermaticv1.Cluster) (string, error) {
+func (r *testRunner) getCloudConfig(log *zap.SugaredLogger, cluster *kubermaticv1.Cluster) (string, error) {
 	log.Debug("Getting cloud-config...")
 
 	var cmData string
@@ -669,12 +681,15 @@ func (r *testRunner) getCloudConfig(log *logrus.Entry, cluster *kubermaticv1.Clu
 	return filename, nil
 }
 
-func (r *testRunner) createCluster(log *logrus.Entry, scenario testScenario) (*kubermaticv1.Cluster, error) {
+func (r *testRunner) createCluster(log *zap.SugaredLogger, scenario testScenario) (*kubermaticv1.Cluster, error) {
 	log.Info("Creating cluster via kubermatic API")
 
 	cluster := scenario.Cluster(r.secrets)
 	if r.openshift {
 		cluster.Cluster.Type = "openshift"
+		cluster.Cluster.Spec.Openshift = &apimodels.Openshift{
+			ImagePullSecret: r.openshiftPullSecret,
+		}
 	}
 	// The cluster name must be unique per project.
 	// We build up a understandable name with the various cli parameters & add a random string in the end to ensure
@@ -688,87 +703,56 @@ func (r *testRunner) createCluster(log *logrus.Entry, scenario testScenario) (*k
 	cluster.Cluster.Name += scenario.Name() + "-"
 	cluster.Cluster.Name += rand.String(8)
 
+	cluster.Cluster.Spec.UsePodSecurityPolicyAdmissionPlugin = r.pspEnabled
+
 	params := &projectclient.CreateClusterParams{
 		ProjectID: r.kubermatcProjectID,
-		Dc:        "prow-build-cluster",
+		Dc:        r.seed.Name,
 		Body:      cluster,
 	}
 	params.SetTimeout(15 * time.Second)
-
-	if _, err := r.kubermaticClient.Project.CreateCluster(params, r.kubermaticAuthenticator); err != nil {
-		return nil, fmt.Errorf("failed to create cluster via kubermatic api: %q", fmtSwaggerError(err))
-	}
 
 	crCluster := &kubermaticv1.Cluster{}
 	selector, err := labels.Parse(fmt.Sprintf("worker-name=%s", r.workerName))
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse selector: %v", err)
 	}
-	if err := wait.Poll(time.Second, 15*time.Second, func() (bool, error) {
+
+	var errs []error
+	if err := wait.PollImmediate(5*time.Second, 45*time.Second, func() (bool, error) {
 		// For some reason the cluster doesn't have the name we set via ID on creation
 		clusterList := &kubermaticv1.ClusterList{}
 		opts := &ctrlruntimeclient.ListOptions{LabelSelector: selector}
 		if err := r.seedClusterClient.List(r.ctx, opts, clusterList); err != nil {
 			return false, err
 		}
-		if len(clusterList.Items) != 1 {
+		numFoundClusters := len(clusterList.Items)
+
+		switch {
+		case numFoundClusters < 1:
+			if _, err := r.kubermaticClient.Project.CreateCluster(params, r.kubermaticAuthenticator); err != nil {
+				// Log the error but don't return it, we want to retry
+				errs = append(errs, err)
+				log.Errorf("failed to create cluster via kubermatic api: %q, %v", fmtSwaggerError(err), err)
+			}
+			// Always return here, our clusterList is not up to date anymore
 			return false, nil
+		case numFoundClusters > 1:
+			return false, fmt.Errorf("had more than one cluster (%d) with our worker-name, how is this possible?! ", numFoundClusters)
+		default:
+			crCluster = &clusterList.Items[0]
+			return true, err
 		}
-		crCluster = &clusterList.Items[0]
-		return true, err
 	}); err != nil {
-		return nil, fmt.Errorf("failed to get cluster after creating it: %v", err)
+		errs = append(errs, err)
+		return nil, fmt.Errorf("cluster creation failed: %v", errs)
 	}
 
 	log.Info("Successfully created cluster via Kubermatic API")
 	return crCluster, nil
 }
 
-func (r *testRunner) waitForReadyNodes(log *logrus.Entry, client ctrlruntimeclient.Client, num int) error {
-	log.Info("Waiting for nodes to become ready...")
-	started := time.Now()
-
-	nodeIsReady := func(n corev1.Node) bool {
-		for _, condition := range n.Status.Conditions {
-			if condition.Type == corev1.NodeReady {
-				if condition.Status == corev1.ConditionTrue {
-					return true
-				}
-			}
-		}
-		return false
-	}
-
-	err := wait.Poll(nodesReadyPollPeriod, defaultTimeout, func() (done bool, err error) {
-		ctx := context.Background()
-		nodeList := &corev1.NodeList{}
-		if err := client.List(ctx, &ctrlruntimeclient.ListOptions{}, nodeList); err != nil {
-			log.Debugf("failed to list nodes while waiting for them to be ready. %v. Will retry", err)
-			return false, nil
-		}
-
-		if len(nodeList.Items) != num {
-			return false, nil
-		}
-
-		for _, node := range nodeList.Items {
-			if !nodeIsReady(node) {
-				return false, nil
-			}
-		}
-
-		return true, nil
-	})
-
-	if err != nil {
-		return err
-	}
-
-	log.Infof("Nodes got ready after %.2f seconds", time.Since(started).Seconds())
-	return nil
-}
-
-func (r *testRunner) waitForControlPlane(log *logrus.Entry, clusterName string) (*kubermaticv1.Cluster, error) {
+func (r *testRunner) waitForControlPlane(log *zap.SugaredLogger, clusterName string) (*kubermaticv1.Cluster, error) {
 	log.Debug("Waiting for control plane to become ready...")
 	started := time.Now()
 	namespacedClusterName := types.NamespacedName{Name: clusterName}
@@ -801,13 +785,6 @@ func (r *testRunner) waitForControlPlane(log *logrus.Entry, clusterName string) 
 	})
 	// Timeout or other error
 	if err != nil {
-		// Be helpful and log what is not ready
-		if err := r.logNotReadyControlPlaneComponents(clusterName); err != nil {
-			r.log.Infof("failed to log not ready control plane pods: %v", err)
-		}
-		if err := r.logNotReadyControlPlanePods(clusterName); err != nil {
-			r.log.Infof("failed to log not ready control plane pods: %v", err)
-		}
 		return nil, err
 	}
 
@@ -821,11 +798,11 @@ func (r *testRunner) waitForControlPlane(log *logrus.Entry, clusterName string) 
 	return cluster, nil
 }
 
-func (r *testRunner) waitUntilAllPodsAreReady(log *logrus.Entry, userClusterClient ctrlruntimeclient.Client) error {
+func (r *testRunner) waitUntilAllPodsAreReady(log *zap.SugaredLogger, userClusterClient ctrlruntimeclient.Client, timeout time.Duration) error {
 	log.Debug("Waiting for all pods to be ready...")
 	started := time.Now()
 
-	err := wait.Poll(defaultUserClusterPollInterval, defaultTimeout, func() (done bool, err error) {
+	err := wait.Poll(defaultUserClusterPollInterval, timeout, func() (done bool, err error) {
 		podList := &corev1.PodList{}
 		if err := userClusterClient.List(context.Background(), &ctrlruntimeclient.ListOptions{}, podList); err != nil {
 			log.Warnf("failed to load pod list while waiting until all pods are running: %v", err)
@@ -865,17 +842,24 @@ type ginkgoRun struct {
 }
 
 func (r *testRunner) getGinkgoRuns(
-	log *logrus.Entry,
-	scenarioName,
+	log *zap.SugaredLogger,
+	scenario testScenario,
 	kubeconfigFilename,
 	cloudConfigFilename string,
 	cluster *kubermaticv1.Cluster,
-	nd *kubermaticapiv1.NodeDeployment,
-	dc provider.DatacenterMeta,
 ) ([]*ginkgoRun, error) {
 	kubeconfigFilename = path.Clean(kubeconfigFilename)
 	repoRoot := path.Clean(r.repoRoot)
 	MajorMinor := fmt.Sprintf("%d.%d", cluster.Spec.Version.Major(), cluster.Spec.Version.Minor())
+
+	nodeNumberTotal := int32(r.nodeCount)
+
+	ginkgoSkipParallel := `\[Serial\]`
+	if cluster.Spec.Version.Minor() == 16 {
+		// These require the nodes NodePort to be available from the tester, which is not the case for us.
+		// TODO: Maybe add an option to allow the NodePorts in the SecurityGroup?
+		ginkgoSkipParallel += "|Services should be able to change the type from ExternalName to NodePort|Services should be able to create a functioning NodePort service"
+	}
 
 	runs := []struct {
 		name          string
@@ -886,8 +870,8 @@ func (r *testRunner) getGinkgoRuns(
 		{
 			name:          "parallel",
 			ginkgoFocus:   `\[Conformance\]`,
-			ginkgoSkip:    `\[Serial\]`,
-			parallelTests: int(nd.Spec.Replicas) * 10,
+			ginkgoSkip:    ginkgoSkipParallel,
+			parallelTests: int(nodeNumberTotal) * 10,
 		},
 		{
 			name:          "serial",
@@ -901,7 +885,7 @@ func (r *testRunner) getGinkgoRuns(
 	var ginkgoRuns []*ginkgoRun
 	for _, run := range runs {
 
-		reportsDir := path.Join("/tmp", scenarioName, run.name)
+		reportsDir := path.Join("/tmp", scenario.Name(), run.name)
 		env := []string{
 			fmt.Sprintf("HOME=%s", r.homeDir),
 			fmt.Sprintf("AWS_SSH_KEY=%s", path.Join(r.homeDir, ".ssh", "google_compute_engine")),
@@ -924,19 +908,21 @@ func (r *testRunner) getGinkgoRuns(
 			fmt.Sprintf("--report-prefix=%s", run.name),
 			fmt.Sprintf("--kubectl-path=%s", path.Join(binRoot, "kubectl")),
 			fmt.Sprintf("--kubeconfig=%s", kubeconfigFilename),
-			fmt.Sprintf("--num-nodes=%d", nd.Spec.Replicas),
+			fmt.Sprintf("--num-nodes=%d", nodeNumberTotal),
 			fmt.Sprintf("--cloud-config-file=%s", cloudConfigFilename),
 		}
 
 		args = append(args, "--provider=local")
 
-		if nd.Spec.Template.OperatingSystem.Ubuntu != nil {
+		osSpec := scenario.OS()
+		switch {
+		case osSpec.Ubuntu != nil:
 			args = append(args, "--node-os-distro=ubuntu")
 			env = append(env, "KUBE_SSH_USER=ubuntu")
-		} else if nd.Spec.Template.OperatingSystem.CentOS != nil {
+		case osSpec.Centos != nil:
 			args = append(args, "--node-os-distro=centos")
 			env = append(env, "KUBE_SSH_USER=centos")
-		} else if nd.Spec.Template.OperatingSystem.ContainerLinux != nil {
+		case osSpec.ContainerLinux != nil:
 			args = append(args, "--node-os-distro=coreos")
 			env = append(env, "KUBE_SSH_USER=core")
 		}
@@ -954,9 +940,9 @@ func (r *testRunner) getGinkgoRuns(
 	return ginkgoRuns, nil
 }
 
-func executeGinkgoRun(parentLog *logrus.Entry, run *ginkgoRun, client ctrlruntimeclient.Client) (*ginkgoResult, error) {
+func executeGinkgoRun(parentLog *zap.SugaredLogger, run *ginkgoRun, client ctrlruntimeclient.Client) (*ginkgoResult, error) {
 	started := time.Now()
-	log := parentLog.WithField("reports-dir", run.reportsDir)
+	log := parentLog.With("reports-dir", run.reportsDir)
 
 	if err := deleteAllNonDefaultNamespaces(log, client); err != nil {
 		return nil, fmt.Errorf("failed to cleanup namespaces before the Ginkgo run: %v", err)
@@ -976,7 +962,7 @@ func executeGinkgoRun(parentLog *logrus.Entry, run *ginkgoRun, client ctrlruntim
 		return nil, fmt.Errorf("failed to open logfile: %v", err)
 	}
 	defer file.Close()
-	log = log.WithField("ginkgo-log", file.Name())
+	log = log.With("ginkgo-log", file.Name())
 
 	writer := bufio.NewWriter(file)
 	defer writer.Flush()
@@ -1055,42 +1041,98 @@ func supportsLBs(cluster *kubermaticv1.Cluster) bool {
 		cluster.Spec.Cloud.GCP != nil
 }
 
-func (r *testRunner) logNotReadyControlPlanePods(clusterName string) error {
-	cluster := &kubermaticv1.Cluster{}
-	ctx := context.Background()
-	if err := r.seedClusterClient.Get(ctx, types.NamespacedName{Name: clusterName}, cluster); err != nil {
-		return err
-	}
-
-	controlPlanePods := &corev1.PodList{}
-	listOpts := &ctrlruntimeclient.ListOptions{Namespace: cluster.Status.NamespaceName}
-	if err := r.seedClusterClient.List(ctx, listOpts, controlPlanePods); err != nil {
-		return err
-	}
-
-	notReadyControlPlanePods := sets.NewString()
-	for _, pod := range controlPlanePods.Items {
-		if !podIsReady(&pod) {
-			notReadyControlPlanePods.Insert(pod.Name)
+func (r *testRunner) controlplaneWaitFailureStdout(clusterName string) string {
+	// Closure to be able to properly distinguish errors from the rest
+	res, err := func() (string, error) {
+		cluster := &kubermaticv1.Cluster{}
+		ctx := context.Background()
+		if err := r.seedClusterClient.Get(ctx, types.NamespacedName{Name: clusterName}, cluster); err != nil {
+			return "", fmt.Errorf("failed to get cluster %q: %v", clusterName, err)
 		}
+
+		var ret string
+		clusterHealthStatus, err := json.Marshal(cluster.Status.ExtendedHealth)
+		if err == nil {
+			ret = fmt.Sprintf("ClusterHealthStatus: '%s'", clusterHealthStatus)
+		}
+
+		controlPlanePods := &corev1.PodList{}
+		listOpts := &ctrlruntimeclient.ListOptions{Namespace: cluster.Status.NamespaceName}
+		if err := r.seedClusterClient.List(ctx, listOpts, controlPlanePods); err != nil {
+			return ret, fmt.Errorf("failed to list pods: %v", err)
+		}
+
+		notReadyControlPlanePods := sets.NewString()
+		for _, pod := range controlPlanePods.Items {
+			if !podIsReady(&pod) {
+				notReadyControlPlanePods.Insert(pod.Name)
+			}
+		}
+		// TODO: Getting events and logs for not ready pods would be pretty nifty
+		return fmt.Sprintf("%s\nNot ready pods: %v", ret, notReadyControlPlanePods.List()), nil
+	}()
+	if err != nil {
+		return fmt.Sprintf("Encountered error getting controlplane timeout output: %v\n%s", err, res)
 	}
-	r.log.Infof("Failed because these control plane pods didn't get ready: %v", notReadyControlPlanePods.List())
-	return nil
+	return res
 }
 
-func (r *testRunner) logNotReadyControlPlaneComponents(clusterName string) error {
-	cluster := &kubermaticv1.Cluster{}
-	ctx := context.Background()
-	if err := r.seedClusterClient.Get(ctx, types.NamespacedName{Name: clusterName}, cluster); err != nil {
-		return err
-	}
+// waitForMachinesToJoinCluster waits for machines to join the cluster. It does so by checking
+// if the machines have a nodeRef. It does not check if the nodeRef is valid.
+// All errors are swallowed, only the timeout error is returned.
+func waitForMachinesToJoinCluster(log *zap.SugaredLogger, client ctrlruntimeclient.Client, timeout time.Duration) (time.Duration, error) {
+	startTime := time.Now()
+	err := wait.Poll(10*time.Second, timeout, func() (bool, error) {
+		machineList := &clusterv1alpha1.MachineList{}
+		if err := client.List(context.Background(), &ctrlruntimeclient.ListOptions{}, machineList); err != nil {
+			log.Warnw("Failed to list machines", zap.Error(err))
+			return false, nil
+		}
+		for _, machine := range machineList.Items {
+			if !machineHasNodeRef(machine) {
+				log.Infow("Machine has no nodeRef yet", "machine", machine.Name)
+				return false, nil
+			}
+		}
+		log.Infow("All machines got a Node", "duration-in-seconds", time.Since(startTime).Seconds())
+		return true, nil
+	})
+	return timeout - time.Since(startTime), err
+}
 
-	clusterHealthStatus, err := json.Marshal(cluster.Status.ExtendedHealth)
-	if err != nil {
-		return fmt.Errorf("failed to marshal cluster health status: %v", err)
+func machineHasNodeRef(machine clusterv1alpha1.Machine) bool {
+	return machine.Status.NodeRef != nil && machine.Status.NodeRef.Name != ""
+}
+
+// WaitForNodesToBeReady waits for all nodes to be ready. It does so by checking the Nodes "Ready"
+// condition. It swallows all errors except for the timeout.
+func waitForNodesToBeReady(log *zap.SugaredLogger, client ctrlruntimeclient.Client, timeout time.Duration) (time.Duration, error) {
+	startTime := time.Now()
+	err := wait.Poll(10*time.Second, timeout, func() (bool, error) {
+		nodeList := &corev1.NodeList{}
+		if err := client.List(context.Background(), &ctrlruntimeclient.ListOptions{}, nodeList); err != nil {
+			log.Warnw("Failed to list nodes", zap.Error(err))
+			return false, nil
+		}
+		for _, node := range nodeList.Items {
+			if !nodeIsReady(node) {
+				log.Infow("Node is not ready", "node", node.Name)
+				return false, nil
+			}
+		}
+		log.Infow("All nodes got ready", "duration-in-seconds", time.Since(startTime).Seconds())
+		return true, nil
+	})
+	return timeout - time.Since(startTime), err
+}
+
+func nodeIsReady(node corev1.Node) bool {
+	for _, c := range node.Status.Conditions {
+		if c.Type == corev1.NodeReady {
+			return c.Status == corev1.ConditionTrue
+		}
 	}
-	r.log.Infof("ClusterHealthStatus: %q", string(clusterHealthStatus))
-	return nil
+	return false
 }
 
 func printFileUnbuffered(filename string) error {
@@ -1112,4 +1154,38 @@ func fmtSwaggerError(err error) string {
 		return fmt.Sprintf("failed to marshal response(%v): %v", err, newErr)
 	}
 	return string(rawData)
+}
+
+// junitReporterWrapper is a convenience func to get junit results for a step
+// It will create a report, append it to the passed in testsuite and propagate
+// the error of the executor back up
+// TODO: Should we add optional retrying here to limit the amount of wrappers we need?
+func junitReporterWrapper(
+	testCaseName string,
+	report *reporters.JUnitTestSuite,
+	executor func() error,
+	extraErrOutputFn ...func() string,
+) error {
+	junitTestCase := reporters.JUnitTestCase{
+		Name:      testCaseName,
+		ClassName: testCaseName,
+	}
+
+	startTime := time.Now()
+	err := executor()
+	junitTestCase.Time = time.Since(startTime).Seconds()
+	if err != nil {
+		junitTestCase.FailureMessage = &reporters.JUnitFailureMessage{Message: err.Error()}
+		report.Failures++
+		for _, extraOut := range extraErrOutputFn {
+			extraOutString := extraOut()
+			err = fmt.Errorf("%v\n%s", err, extraOutString)
+			junitTestCase.FailureMessage.Message += "\n" + extraOutString
+		}
+	}
+
+	report.TestCases = append(report.TestCases, junitTestCase)
+	report.Tests++
+
+	return err
 }

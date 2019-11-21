@@ -16,6 +16,7 @@ spec:
       annotations:
         kubermatic/scrape: 'true'
         kubermatic/scrape_port: '8085'
+        checksum/tls: {{ include (print $.Template.BasePath "/seed-validating-webhook.yaml") . | sha256sum }}
         checksum/master-files: {{ include (print $.Template.BasePath "/master-files-secret.yaml") . | sha256sum }}
         checksum/datecenters: {{ include (print $.Template.BasePath "/datacenter-yaml-secret.yaml") . | sha256sum }}
         checksum/backup-container-configmap: {{ include (print $.Template.BasePath "/backup-container-configmap.yaml") . | sha256sum }}
@@ -58,13 +59,16 @@ spec:
         command:
         - kubermatic-controller-manager
         args:
-        - -v=2
-        - -logtostderr
         - -external-url={{ .Values.kubermatic.domain }}
         - -datacenter-name={{ .Values.kubermatic.controller.datacenterName }}
         - -etcd-disk-size={{ .Values.kubermatic.etcd.diskSize }}
         - -master-resources=/opt/master-files
+        {{- if .Values.kubermatic.datacenters }}
         - -datacenters=/opt/datacenter/datacenters.yaml
+        {{- end }}
+        {{- if .Values.kubermatic.dynamicDatacenters }}
+        - -dynamic-datacenters=true
+        {{- end }}
         - -versions=/opt/master-files/versions.yaml
         - -updates=/opt/master-files/updates.yaml
         - -internal-address=0.0.0.0:8085
@@ -111,8 +115,28 @@ spec:
         {{- if .Values.kubermatic.kubermaticImage }}
         - -kubermatic-image={{ .Values.kubermatic.kubermaticImage }}
         {{- end }}
+        {{- if .Values.kubermatic.dnatcontrollerImage }}
+        - -dnatcontroller-image={{ .Values.kubermatic.dnatcontrollerImage  }}
+        {{- end }}
+        - -apiserver-default-replicas={{ .Values.kubermatic.apiserverDefaultReplicas }}
+        - -controller-manager-default-replicas={{ .Values.kubermatic.controllerManagerDefaultReplicas}}
+        - -scheduler-default-replicas={{ .Values.kubermatic.schedulerDefaultReplicas}}
+        - -max-parallel-reconcile={{ .Values.kubermatic.maxParallelReconcile}}
+        - -namespace=$(NAMESPACE)
+        - -seed-admissionwebhook-cert-file=/opt/seed-webhook-serving-cert/serverCert.pem
+        - -seed-admissionwebhook-key-file=/opt/seed-webhook-serving-cert/serverKey.pem
+        {{- if .Values.kubermatic.apiserverEndpointReconcilingDisabled }}
+        - -apiserver-reconciling-disabled-by-default=true
+        {{- else }}
+        - -apiserver-reconciling-disabled-by-default=false
+        {{- end }}
         image: '{{ .Values.kubermatic.controller.image.repository }}:{{ .Values.kubermatic.controller.image.tag }}'
         imagePullPolicy: {{ .Values.kubermatic.controller.image.pullPolicy }}
+        env:
+        - name: NAMESPACE
+          valueFrom:
+           fieldRef:
+             fieldPath: metadata.namespace
         ports:
         - name: metrics
           containerPort: 8085
@@ -126,9 +150,11 @@ spec:
         - name: master-files
           mountPath: "/opt/master-files/"
           readOnly: true
+        {{- if .Values.kubermatic.datacenters }}
         - name: datacenters
           mountPath: "/opt/datacenter/"
           readOnly: true
+        {{- end }}
         - name: addons
           mountPath: "/opt/addons/"
           readOnly: true
@@ -155,6 +181,8 @@ spec:
             name: {{.}}
         {{- end }}
         {{- end }}
+        - name: seed-webhook-serving-cert
+          mountPath: /opt/seed-webhook-serving-cert
         resources:
 {{ toYaml .Values.kubermatic.controller.resources | indent 10 }}
       imagePullSecrets:
@@ -168,9 +196,11 @@ spec:
       - name: master-files
         secret:
           secretName: master-files
+      {{- if .Values.kubermatic.datacenters }}
       - name: datacenters
         secret:
           secretName: datacenters
+      {{- end }}
       - name: addons
         emptyDir: {}
       - name: backup-container
@@ -189,6 +219,9 @@ spec:
         configMap:
           name: clusterns-prometheus-scraping-configs
       {{- end }}
+      - name: seed-webhook-serving-cert
+        secret:
+          secretName: seed-webhook-serving-cert
       nodeSelector:
 {{ toYaml .Values.kubermatic.controller.nodeSelector | indent 8 }}
       affinity:

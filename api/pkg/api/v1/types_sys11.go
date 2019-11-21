@@ -2,7 +2,6 @@ package v1
 
 import (
 	oslimits "github.com/gophercloud/gophercloud/openstack/compute/v2/extensions/limits"
-	"k8s.io/apimachinery/pkg/runtime"
 )
 
 // Image represents an Image returned by the Compute API.
@@ -121,20 +120,4 @@ type Absolute struct {
 
 	// TotalServerGroupsUsed is the total number of server groups in use.
 	TotalServerGroupsUsed int `json:"totalServerGroupsUsed"`
-}
-
-// Addon represents a predefined addon that users may install into their cluster
-// swagger:model Addon
-type Addon struct {
-	ObjectMeta `json:",inline"`
-
-	Spec AddonSpec `json:"spec"`
-}
-
-// AddonSpec addon specification
-// swagger:model AddonSpec
-type AddonSpec struct {
-
-	// Variables is free form data to use for parsing the manifest templates
-	Variables runtime.RawExtension `json:"variables,omitempty"`
 }

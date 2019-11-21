@@ -8,7 +8,10 @@ package models
 import (
 	strfmt "github.com/go-openapi/strfmt"
 
+<<<<<<< HEAD
 	"github.com/go-openapi/errors"
+=======
+>>>>>>> v2.12.1
 	"github.com/go-openapi/swag"
 )
 
@@ -16,12 +19,21 @@ import (
 // swagger:model AddonSpec
 type AddonSpec struct {
 
+<<<<<<< HEAD
 	// variables
 	Variables *RawExtension `json:"variables,omitempty"`
+=======
+	// IsDefault indicates whether the addon is default
+	IsDefault bool `json:"isDefault,omitempty"`
+
+	// Variables is free form data to use for parsing the manifest templates
+	Variables map[string]interface{} `json:"variables,omitempty"`
+>>>>>>> v2.12.1
 }
 
 // Validate validates this addon spec
 func (m *AddonSpec) Validate(formats strfmt.Registry) error {
+<<<<<<< HEAD
 	var res []error
 
 	if err := m.validateVariables(formats); err != nil {
@@ -49,6 +61,8 @@ func (m *AddonSpec) validateVariables(formats strfmt.Registry) error {
 		}
 	}
 
+=======
+>>>>>>> v2.12.1
 	return nil
 }
 

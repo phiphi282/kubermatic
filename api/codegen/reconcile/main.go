@@ -4,6 +4,7 @@ package main
 
 import (
 	"bytes"
+	"fmt"
 	"go/format"
 	"io/ioutil"
 	"log"
@@ -18,6 +19,11 @@ func main() {
 		Resources []reconcileFunctionData
 	}{
 		Resources: []reconcileFunctionData{
+			{
+				ResourceName:       "Namespace",
+				ImportAlias:        "corev1",
+				ResourceImportPath: "k8s.io/api/core/v1",
+			},
 			{
 				ResourceName:       "Service",
 				ImportAlias:        "corev1",
@@ -42,6 +48,7 @@ func main() {
 				ResourceName:       "StatefulSet",
 				ImportAlias:        "appsv1",
 				ResourceImportPath: "k8s.io/api/apps/v1",
+				DefaultingFunc:     "DefaultStatefulSet",
 			},
 			{
 				ResourceName: "Deployment",
@@ -53,6 +60,7 @@ func main() {
 				ResourceName: "DaemonSet",
 				ImportAlias:  "appsv1",
 				// Don't specify ResourceImportPath so this block does not create a new import line in the generated code
+				DefaultingFunc: "DefaultDaemonSet",
 			},
 			{
 				ResourceName:       "PodDisruptionBudget",
@@ -94,6 +102,7 @@ func main() {
 				ResourceName:       "CronJob",
 				ImportAlias:        "batchv1beta1",
 				ResourceImportPath: "k8s.io/api/batch/v1beta1",
+				DefaultingFunc:     "DefaultCronJob",
 			},
 			{
 				ResourceName:       "MutatingWebhookConfiguration",
@@ -101,9 +110,25 @@ func main() {
 				ResourceImportPath: "k8s.io/api/admissionregistration/v1beta1",
 			},
 			{
+				ResourceName: "ValidatingWebhookConfiguration",
+				ImportAlias:  "admissionregistrationv1beta1",
+				// Don't specify ResourceImportPath so this block does not create a new import line in the generated code
+			},
+			{
 				ResourceName:       "APIService",
 				ImportAlias:        "apiregistrationv1beta1",
 				ResourceImportPath: "k8s.io/kube-aggregator/pkg/apis/apiregistration/v1beta1",
+			},
+			{
+				ResourceName:       "Ingress",
+				ResourceNamePlural: "Ingresses",
+				ImportAlias:        "extensionsv1beta1",
+				ResourceImportPath: "k8s.io/api/extensions/v1beta1",
+			},
+			{
+				ResourceName:       "Seed",
+				ImportAlias:        "kubermaticv1",
+				ResourceImportPath: "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1",
 			},
 		},
 	}
@@ -149,7 +174,7 @@ import (
 )
 
 {{ range .Resources }}
-{{ namedReconcileFunc .ResourceName .ImportAlias .DefaultingFunc .RequiresRecreate }}
+{{ namedReconcileFunc .ResourceName .ImportAlias .DefaultingFunc .RequiresRecreate .ResourceNamePlural }}
 {{- end }}
 
 `))
@@ -157,6 +182,7 @@ import (
 
 type reconcileFunctionData struct {
 	ResourceName       string
+	ResourceNamePlural string
 	ResourceImportPath string
 	ImportAlias        string
 	// Optional: A defaulting func for the given object type
@@ -167,18 +193,24 @@ type reconcileFunctionData struct {
 	RequiresRecreate bool
 }
 
-func namedReconcileFunc(resourceName, importAlias, defaultingFunc string, requiresRecreate bool) (string, error) {
+func namedReconcileFunc(resourceName, importAlias, defaultingFunc string, requiresRecreate bool, plural string) (string, error) {
+	if len(plural) == 0 {
+		plural = fmt.Sprintf("%ss", resourceName)
+	}
+
 	b := &bytes.Buffer{}
 	err := namedReconcileFunctionTemplate.Execute(b, struct {
-		ResourceName     string
-		ImportAlias      string
-		DefaultingFunc   string
-		RequiresRecreate bool
+		ResourceName       string
+		ResourceNamePlural string
+		ImportAlias        string
+		DefaultingFunc     string
+		RequiresRecreate   bool
 	}{
-		ResourceName:     resourceName,
-		ImportAlias:      importAlias,
-		DefaultingFunc:   defaultingFunc,
-		RequiresRecreate: requiresRecreate,
+		ResourceName:       resourceName,
+		ResourceNamePlural: plural,
+		ImportAlias:        importAlias,
+		DefaultingFunc:     defaultingFunc,
+		RequiresRecreate:   requiresRecreate,
 	})
 
 	if err != nil {
@@ -200,8 +232,8 @@ type {{ .ResourceName }}Creator = func(existing *{{ .ImportAlias }}.{{ .Resource
 // Named{{ .ResourceName }}CreatorGetter returns the name of the resource and the corresponding creator function
 type Named{{ .ResourceName }}CreatorGetter = func() (name string, create {{ .ResourceName }}Creator)
 
-// {{ .ResourceName }}ObjectWrapper adds a wrapper so the {{ .ResourceName }}Creator matches ObjectCreator
-// This is needed as golang does not support function interface matching
+// {{ .ResourceName }}ObjectWrapper adds a wrapper so the {{ .ResourceName }}Creator matches ObjectCreator.
+// This is needed as Go does not support function interface matching.
 func {{ .ResourceName }}ObjectWrapper(create {{ .ResourceName }}Creator) ObjectCreator {
 	return func(existing runtime.Object) (runtime.Object, error) {
 		if existing != nil {
@@ -211,8 +243,8 @@ func {{ .ResourceName }}ObjectWrapper(create {{ .ResourceName }}Creator) ObjectC
 	}
 }
 
-// Reconcile{{ .ResourceName }}s will create and update the {{ .ResourceName }}s coming from the passed {{ .ResourceName }}Creator slice
-func Reconcile{{ .ResourceName }}s(ctx context.Context, namedGetters []Named{{ .ResourceName }}CreatorGetter, namespace string, client ctrlruntimeclient.Client, objectModifiers ...ObjectModifier) error {
+// Reconcile{{ .ResourceNamePlural }} will create and update the {{ .ResourceNamePlural }} coming from the passed {{ .ResourceName }}Creator slice
+func Reconcile{{ .ResourceNamePlural }}(ctx context.Context, namedGetters []Named{{ .ResourceName }}CreatorGetter, namespace string, client ctrlruntimeclient.Client, objectModifiers ...ObjectModifier) error {
 	for _, get := range namedGetters {
 		name, create := get()
 {{- if .DefaultingFunc }}

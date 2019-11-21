@@ -138,12 +138,20 @@ func NewGetOidcClusterKubeconfigDefault(code int) *GetOidcClusterKubeconfigDefau
 
 /*GetOidcClusterKubeconfigDefault handles this case with default header values.
 
+<<<<<<< HEAD
 ErrorResponse is the default representation of an error
+=======
+errorResponse
+>>>>>>> v2.12.1
 */
 type GetOidcClusterKubeconfigDefault struct {
 	_statusCode int
 
+<<<<<<< HEAD
 	Payload *models.ErrorDetails
+=======
+	Payload *models.ErrorResponse
+>>>>>>> v2.12.1
 }
 
 // Code gets the status code for the get oidc cluster kubeconfig default response
@@ -157,7 +165,11 @@ func (o *GetOidcClusterKubeconfigDefault) Error() string {
 
 func (o *GetOidcClusterKubeconfigDefault) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
+<<<<<<< HEAD
 	o.Payload = new(models.ErrorDetails)
+=======
+	o.Payload = new(models.ErrorResponse)
+>>>>>>> v2.12.1
 
 	// response payload
 	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {

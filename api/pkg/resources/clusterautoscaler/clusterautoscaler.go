@@ -28,7 +28,7 @@ func DeploymentCreator(data clusterautoscalerData) reconciling.NamedDeploymentCr
 		return resources.ClusterAutoscalerDeploymentName, func(dep *appsv1.Deployment) (*appsv1.Deployment, error) {
 			tag := getTag(data.Cluster())
 			if tag == "" {
-				return nil, fmt.Errorf("No matching autoscaler tag found for version %d", data.Cluster().Spec.Version.Minor())
+				return nil, fmt.Errorf("no matching autoscaler tag found for version %d", data.Cluster().Spec.Version.Minor())
 			}
 
 			dep.Name = resources.ClusterAutoscalerDeploymentName
@@ -38,17 +38,6 @@ func DeploymentCreator(data clusterautoscalerData) reconciling.NamedDeploymentCr
 			dep.Spec.Selector = &metav1.LabelSelector{
 				MatchLabels: resources.BaseAppLabel(resources.ClusterAutoscalerDeploymentName, nil),
 			}
-			dep.Spec.Strategy.Type = appsv1.RollingUpdateStatefulSetStrategyType
-			dep.Spec.Strategy.RollingUpdate = &appsv1.RollingUpdateDeployment{
-				MaxSurge: &intstr.IntOrString{
-					Type:   intstr.Int,
-					IntVal: 1,
-				},
-				MaxUnavailable: &intstr.IntOrString{
-					Type:   intstr.Int,
-					IntVal: 0,
-				},
-			}
 
 			volumes := []corev1.Volume{
 				{
@@ -56,9 +45,6 @@ func DeploymentCreator(data clusterautoscalerData) reconciling.NamedDeploymentCr
 					VolumeSource: corev1.VolumeSource{
 						Secret: &corev1.SecretVolumeSource{
 							SecretName: resources.ClusterAutoscalerKubeconfigSecretName,
-							// We have to make the secret readable for all for now because owner/group cannot be changed.
-							// ( upstream proposal: https://github.com/kubernetes/kubernetes/pull/28733 )
-							DefaultMode: resources.Int32(resources.DefaultAllReadOnlyMode),
 						},
 					},
 				},

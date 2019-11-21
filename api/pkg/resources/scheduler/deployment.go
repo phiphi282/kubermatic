@@ -63,17 +63,6 @@ func DeploymentCreator(data *resources.TemplateData) reconciling.NamedDeployment
 				return nil, fmt.Errorf("failed to create pod labels: %v", err)
 			}
 
-			dep.Spec.Strategy.Type = appsv1.RollingUpdateStatefulSetStrategyType
-			dep.Spec.Strategy.RollingUpdate = &appsv1.RollingUpdateDeployment{
-				MaxSurge: &intstr.IntOrString{
-					Type:   intstr.Int,
-					IntVal: 1,
-				},
-				MaxUnavailable: &intstr.IntOrString{
-					Type:   intstr.Int,
-					IntVal: 0,
-				},
-			}
 			dep.Spec.Template.Spec.ImagePullSecrets = []corev1.LocalObjectReference{{Name: resources.ImagePullSecretName}}
 
 			dep.Spec.Template.ObjectMeta = metav1.ObjectMeta{
@@ -169,8 +158,7 @@ func getVolumes(cluster *kubermaticv1.Cluster) []corev1.Volume {
 			Name: resources.OpenVPNClientCertificatesSecretName,
 			VolumeSource: corev1.VolumeSource{
 				Secret: &corev1.SecretVolumeSource{
-					SecretName:  resources.OpenVPNClientCertificatesSecretName,
-					DefaultMode: resources.Int32(resources.DefaultOwnerReadOnlyMode),
+					SecretName: resources.OpenVPNClientCertificatesSecretName,
 				},
 			},
 		},
@@ -178,8 +166,7 @@ func getVolumes(cluster *kubermaticv1.Cluster) []corev1.Volume {
 			Name: resources.CASecretName,
 			VolumeSource: corev1.VolumeSource{
 				Secret: &corev1.SecretVolumeSource{
-					SecretName:  resources.CASecretName,
-					DefaultMode: resources.Int32(resources.DefaultOwnerReadOnlyMode),
+					SecretName: resources.CASecretName,
 					Items: []corev1.KeyToPath{
 						{
 							Path: resources.CACertSecretKey,
@@ -193,8 +180,7 @@ func getVolumes(cluster *kubermaticv1.Cluster) []corev1.Volume {
 			Name: resources.SchedulerKubeconfigSecretName,
 			VolumeSource: corev1.VolumeSource{
 				Secret: &corev1.SecretVolumeSource{
-					SecretName:  resources.SchedulerKubeconfigSecretName,
-					DefaultMode: resources.Int32(resources.DefaultOwnerReadOnlyMode),
+					SecretName: resources.SchedulerKubeconfigSecretName,
 				},
 			},
 		},

@@ -1,14 +1,18 @@
 package provider
 
 import (
-	"github.com/kubermatic/machine-controller/pkg/providerconfig"
+	"context"
 	"io/ioutil"
 	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 
-	utilpointer "k8s.io/utils/pointer"
+	kubermaticv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
+	providerconfig "github.com/kubermatic/machine-controller/pkg/providerconfig/types"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	fakectrlruntimeclient "sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
 func TestLoadDatacentersMeta(t *testing.T) {
@@ -20,13 +24,9 @@ datacenters:
   europe-west3-c: #Master
     location: Frankfurt
     country: DE
-    provider: Loodse
     is_seed: true
     spec:
-      bringyourown:
-        region: DE
-      seed:
-        bringyourown:
+      bringyourown: {}
 #==================================
 #===========Digitalocean===========
 #==================================
@@ -42,9 +42,8 @@ datacenters:
 #==================================
   auos-1:
     location: Australia
-    seed: sydney-1
+    seed: europe-west3-c
     country: AU
-    provider: openstack
     spec:
       openstack:
         availability_zone: au1
@@ -57,48 +56,43 @@ datacenters:
           centos: ""
           coreos: ""
         enforce_floating_ip: true`
-	expectedDatacenters := map[string]DatacenterMeta{
+	expectedSeeds := map[string]*kubermaticv1.Seed{
 		"europe-west3-c": {
-			Location: "Frankfurt",
-			Seed:     "",
-			Country:  "DE",
-			Spec: DatacenterSpec{
-				BringYourOwn: &BringYourOwnSpec{},
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "europe-west3-c",
 			},
-			IsSeed:           true,
-			SeedDNSOverwrite: nil,
-		},
-		"do-ams3": {
-			Location: "Amsterdam",
-			Seed:     "europe-west3-c",
-			Country:  "NL",
-			Spec: DatacenterSpec{
-				Digitalocean: &DigitaloceanSpec{
-					Region: "ams3",
-				},
-			},
-			IsSeed:           false,
-			SeedDNSOverwrite: nil,
-		},
-		"auos-1": {
-			Location: "Australia",
-			Seed:     "sydney-1",
-			Country:  "AU",
-			Spec: DatacenterSpec{
-				Openstack: &OpenstackSpec{
-					AvailabilityZone: "au1",
-					Region:           "au",
-					DNSServers:       []string{"8.8.8.8", "8.8.4.4"},
-					Images: ImageList{
-						providerconfig.OperatingSystemUbuntu: "Ubuntu 18.04 LTS - 2018-08-10",
-						providerconfig.OperatingSystemCentOS: "",
-						providerconfig.OperatingSystemCoreos: "",
+			Spec: kubermaticv1.SeedSpec{
+				Location: "Frankfurt",
+				Country:  "DE",
+				Datacenters: map[string]kubermaticv1.Datacenter{
+					"do-ams3": {
+						Location: "Amsterdam",
+						Country:  "NL",
+						Spec: kubermaticv1.DatacenterSpec{
+							Digitalocean: &kubermaticv1.DatacenterSpecDigitalocean{
+								Region: "ams3",
+							},
+						},
 					},
-					EnforceFloatingIP: true,
+					"auos-1": {
+						Location: "Australia",
+						Country:  "AU",
+						Spec: kubermaticv1.DatacenterSpec{
+							Openstack: &kubermaticv1.DatacenterSpecOpenstack{
+								AvailabilityZone: "au1",
+								Region:           "au",
+								DNSServers:       []string{"8.8.8.8", "8.8.4.4"},
+								Images: kubermaticv1.ImageList{
+									providerconfig.OperatingSystemUbuntu: "Ubuntu 18.04 LTS - 2018-08-10",
+									providerconfig.OperatingSystemCentOS: "",
+									providerconfig.OperatingSystemCoreos: "",
+								},
+								EnforceFloatingIP: true,
+							},
+						},
+					},
 				},
 			},
-			IsSeed:           false,
-			SeedDNSOverwrite: nil,
 		},
 	}
 
@@ -115,13 +109,15 @@ datacenters:
 	err = file.Sync()
 	assert.NoError(t, err)
 
-	resultDatacenters, err := LoadDatacentersMeta(file.Name())
-	assert.NoError(t, err)
+	resultDatacenters, err := LoadSeeds(file.Name())
+	if err != nil {
+		t.Fatalf("failed to load datacenters: %v", err)
+	}
 
-	assert.Equal(t, expectedDatacenters, resultDatacenters)
+	assert.Equal(t, expectedSeeds, resultDatacenters)
 }
 
-func TestValidateDataCenters(t *testing.T) {
+func TestMigrateDatacenters(t *testing.T) {
 	testCases := []struct {
 		name        string
 		datacenters map[string]DatacenterMeta
@@ -149,7 +145,7 @@ func TestValidateDataCenters(t *testing.T) {
 			datacenters: map[string]DatacenterMeta{
 				"&invalid": {
 					IsSeed:           true,
-					SeedDNSOverwrite: utilpointer.StringPtr("valid"),
+					SeedDNSOverwrite: "valid",
 				},
 			},
 		},
@@ -158,24 +154,91 @@ func TestValidateDataCenters(t *testing.T) {
 			datacenters: map[string]DatacenterMeta{
 				"valid": {
 					IsSeed:           true,
-					SeedDNSOverwrite: utilpointer.StringPtr("&invalid"),
+					SeedDNSOverwrite: "&invalid",
 				},
 			},
 			errExpected: true,
 		},
-		{
-			name: "Invalid name, but is not a seed",
-			datacenters: map[string]DatacenterMeta{
-				"&invalid": {},
-			},
-		},
 	}
 
 	for _, tc := range testCases {
+		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
-			if err := validateDatacenters(tc.datacenters); (err != nil) != tc.errExpected {
-				t.Fatalf("Expected err: %t, but got err: %v", tc.errExpected, err)
+			t.Parallel()
+			seeds, err := DatacenterMetasToSeeds(tc.datacenters)
+			if err != nil {
+				t.Fatalf("Failed to convert datacenters to seeds: %v", err)
+			}
+
+			for _, seed := range seeds {
+				if err := ValidateSeed(seed); (err != nil) != tc.errExpected {
+					t.Fatalf("Expected err: %t, but got err: %v", tc.errExpected, err)
+				}
 			}
 		})
+	}
+}
+
+func TestSeedGetterFactorySetsDefaults(t *testing.T) {
+	t.Parallel()
+	initSeed := &kubermaticv1.Seed{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "my-seed",
+			Namespace: "my-ns",
+		},
+		Spec: kubermaticv1.SeedSpec{
+			ProxySettings: &kubermaticv1.ProxySettings{
+				HTTPProxy: kubermaticv1.NewProxyValue("seed-proxy"),
+			},
+			Datacenters: map[string]kubermaticv1.Datacenter{"a": {}},
+		},
+	}
+	client := fakectrlruntimeclient.NewFakeClient(initSeed)
+
+	seedGetter, err := SeedGetterFactory(context.Background(), client, "my-seed", "", "my-ns", true)
+	if err != nil {
+		t.Fatalf("failed getting seedGetter: %v", err)
+	}
+	seed, err := seedGetter()
+	if err != nil {
+		t.Fatalf("failed calling seedGetter: %v", err)
+	}
+	if seed.Spec.Datacenters["a"].Node.ProxySettings.HTTPProxy.String() != "seed-proxy" {
+		t.Errorf("expected the datacenters http proxy setting to get set but was %v",
+			seed.Spec.Datacenters["a"].Node.ProxySettings.HTTPProxy)
+	}
+}
+
+func TestSeedsGetterFactorySetsDefaults(t *testing.T) {
+	t.Parallel()
+	initSeed := &kubermaticv1.Seed{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "my-seed",
+			Namespace: "my-ns",
+		},
+		Spec: kubermaticv1.SeedSpec{
+			ProxySettings: &kubermaticv1.ProxySettings{
+				HTTPProxy: kubermaticv1.NewProxyValue("seed-proxy"),
+			},
+			Datacenters: map[string]kubermaticv1.Datacenter{"a": {}},
+		},
+	}
+	client := fakectrlruntimeclient.NewFakeClient(initSeed)
+
+	seedsGetter, err := SeedsGetterFactory(context.Background(), client, "", "my-ns", "", true)
+	if err != nil {
+		t.Fatalf("failed getting seedsGetter: %v", err)
+	}
+	seeds, err := seedsGetter()
+	if err != nil {
+		t.Fatalf("failed calling seedsGetter: %v", err)
+	}
+	if _, exists := seeds["my-seed"]; !exists || len(seeds) != 1 {
+		t.Fatalf("expceted to get a map with exactly one key `my-seed`, got %v", seeds)
+	}
+	seed := seeds["my-seed"]
+	if seed.Spec.Datacenters["a"].Node.ProxySettings.HTTPProxy.String() != "seed-proxy" {
+		t.Errorf("expected the datacenters http proxy setting to get set but was %v",
+			seed.Spec.Datacenters["a"].Node.ProxySettings.HTTPProxy)
 	}
 }

@@ -25,6 +25,9 @@ type DatacenterSpec struct {
 	// provider
 	Provider string `json:"provider,omitempty"`
 
+	// required email domain
+	RequiredEmailDomain string `json:"requiredEmailDomain,omitempty"`
+
 	// seed
 	Seed string `json:"seed,omitempty"`
 
@@ -45,6 +48,9 @@ type DatacenterSpec struct {
 
 	// hetzner
 	Hetzner *HetznerDatacenterSpec `json:"hetzner,omitempty"`
+
+	// kubevirt
+	Kubevirt KubevirtDatacenterSpec `json:"kubevirt,omitempty"`
 
 	// openstack
 	Openstack *OpenstackDatacenterSpec `json:"openstack,omitempty"`

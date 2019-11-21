@@ -66,26 +66,24 @@ func DeploymentCreator(data deploymentCreatorData) reconciling.NamedDeploymentCr
 			dep.Spec.Selector = &metav1.LabelSelector{
 				MatchLabels: resources.BaseAppLabel(resources.DNSResolverDeploymentName, nil),
 			}
-			dep.Spec.Strategy.Type = appsv1.RollingUpdateStatefulSetStrategyType
-			dep.Spec.Strategy.RollingUpdate = &appsv1.RollingUpdateDeployment{
-				MaxSurge: &intstr.IntOrString{
-					Type:   intstr.Int,
-					IntVal: 1,
-				},
-				MaxUnavailable: &intstr.IntOrString{
-					Type:   intstr.Int,
-					IntVal: 0,
-				},
-			}
 			dep.Spec.Template.Spec.ImagePullSecrets = []corev1.LocalObjectReference{{Name: resources.ImagePullSecretName}}
 
 			volumes := getVolumes()
 			podLabels, err := data.GetPodTemplateLabels(resources.DNSResolverDeploymentName, volumes, nil)
 			if err != nil {
-				return nil, fmt.Errorf("failed to get podlabels: %v", err)
+				return nil, fmt.Errorf("failed to get pod labels: %v", err)
 			}
 
-			dep.Spec.Template.ObjectMeta = metav1.ObjectMeta{Labels: podLabels}
+			dep.Spec.Template.ObjectMeta.Labels = podLabels
+
+			if dep.Spec.Template.ObjectMeta.Annotations == nil {
+				dep.Spec.Template.ObjectMeta.Annotations = make(map[string]string)
+			}
+
+			dep.Spec.Template.ObjectMeta.Annotations["prometheus.io/scrape"] = "true"
+			dep.Spec.Template.ObjectMeta.Annotations["prometheus.io/path"] = "/metrics"
+			dep.Spec.Template.ObjectMeta.Annotations["prometheus.io/port"] = "9253"
+
 			openvpnSidecar, err := vpnsidecar.OpenVPNSidecarContainer(data, "openvpn-client")
 			if err != nil {
 				return nil, fmt.Errorf("failed to get openvpn sidecar for dns resolver: %v", err)
@@ -140,7 +138,6 @@ func getVolumes() []corev1.Volume {
 					LocalObjectReference: corev1.LocalObjectReference{
 						Name: resources.DNSResolverConfigMapName,
 					},
-					DefaultMode: resources.Int32(resources.DefaultOwnerReadOnlyMode),
 				},
 			},
 		},
@@ -148,8 +145,7 @@ func getVolumes() []corev1.Volume {
 			Name: resources.OpenVPNClientCertificatesSecretName,
 			VolumeSource: corev1.VolumeSource{
 				Secret: &corev1.SecretVolumeSource{
-					SecretName:  resources.OpenVPNClientCertificatesSecretName,
-					DefaultMode: resources.Int32(resources.DefaultOwnerReadOnlyMode),
+					SecretName: resources.OpenVPNClientCertificatesSecretName,
 				},
 			},
 		},
@@ -157,8 +153,7 @@ func getVolumes() []corev1.Volume {
 			Name: resources.CASecretName,
 			VolumeSource: corev1.VolumeSource{
 				Secret: &corev1.SecretVolumeSource{
-					SecretName:  resources.CASecretName,
-					DefaultMode: resources.Int32(resources.DefaultOwnerReadOnlyMode),
+					SecretName: resources.CASecretName,
 					Items: []corev1.KeyToPath{
 						{
 							Path: resources.CACertSecretKey,
@@ -202,6 +197,7 @@ func ConfigMapCreator(data configMapCreatorData) reconciling.NamedConfigMapCreat
   forward . /etc/resolv.conf
   errors
   health
+  prometheus 0.0.0.0:9253
 }
 `, seedClusterNamespaceDNS, data.Cluster().Spec.ClusterNetwork.DNSDomain, dnsIP)
 

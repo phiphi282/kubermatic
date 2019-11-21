@@ -8,11 +8,7 @@ spec:
   selector:
     matchLabels:
       app: apiserver
-  strategy:
-    rollingUpdate:
-      maxSurge: 1
-      maxUnavailable: 0
-    type: RollingUpdate
+  strategy: {}
   template:
     metadata:
       annotations:
@@ -25,6 +21,7 @@ spec:
         apiserver-proxy-client-certificate-secret-revision: "123456"
         apiserver-tls-secret-revision: "123456"
         app: apiserver
+        audit-config-configmap-revision: "123456"
         ca-secret-revision: "123456"
         cloud-config-configmap-revision: "123456"
         cluster: de-test-01
@@ -103,7 +100,6 @@ spec:
             memory: 5Mi
         securityContext:
           privileged: true
-          procMount: Default
         volumeMounts:
         - mountPath: /etc/openvpn/pki/client
           name: openvpn-client-certificates
@@ -113,15 +109,11 @@ spec:
         - /etc/kubernetes/kubeconfig/kubeconfig
         - -node-access-network
         - 192.0.2.0/24
-        - -v
-        - "4"
-        - -logtostderr
         - -master
         - https://127.0.0.1:30000
         command:
         - /usr/local/bin/kubeletdnat-controller
-        image: 'quay.io/kubermatic/api:'
-        imagePullPolicy: IfNotPresent
+        image: 'quay.io/kubermatic/kubeletdnat-controller:'
         name: dnat-controller
         resources:
           limits:
@@ -170,7 +162,7 @@ spec:
         - --service-account-key-file
         - /etc/kubernetes/service-account-key/sa.key
         - --service-cluster-ip-range
-        - 10.10.10.0/24
+        - 10.240.16.0/20
         - --service-node-port-range
         - 30000-32767
         - --allow-privileged
@@ -181,7 +173,7 @@ spec:
         - --audit-log-maxsize
         - "100"
         - --audit-log-path
-        - /var/log/audit.log
+        - /var/log/kubernetes/audit/audit.log
         - --tls-cert-file
         - /etc/kubernetes/tls/apiserver-tls.crt
         - --tls-private-key-file
@@ -216,11 +208,28 @@ spec:
         - kubermaticIssuer
         - --oidc-username-claim
         - email
+        - --oidc-groups-prefix
+        - 'oidc:'
+        - --oidc-groups-claim
+        - groups
         - --oidc-ca-file
         - /etc/kubernetes/dex/ca/caBundle.pem
         command:
         - /hyperkube
         - kube-apiserver
+        env:
+        - name: HTTP_PROXY
+          value: http://my-corp
+        - name: HTTPS_PROXY
+          value: http://my-corp
+        - name: http_proxy
+          value: http://my-corp
+        - name: https_proxy
+          value: http://my-corp
+        - name: NO_PROXY
+          value: apiserver-external.cluster-de-test-01.svc.cluster.local.
+        - name: no_proxy
+          value: apiserver-external.cluster-de-test-01.svc.cluster.local.
         image: gcr.io/google_containers/hyperkube-amd64:v1.10.0
         livenessProbe:
           failureThreshold: 8
@@ -280,6 +289,11 @@ spec:
         - mountPath: /etc/kubernetes/pki/front-proxy/ca
           name: front-proxy-ca
           readOnly: true
+        - mountPath: /etc/kubernetes/audit
+          name: audit-config
+          readOnly: true
+        - mountPath: /var/log/kubernetes/audit
+          name: audit-log
         - mountPath: /etc/kubernetes/dex/ca
           name: dex-ca
           readOnly: true
@@ -305,7 +319,11 @@ spec:
           --dial-timeout=2s --endpoints='https://etcd-0.etcd.cluster-de-test-01.svc.cluster.local.:2379,https://etcd-1.etcd.cluster-de-test-01.svc.cluster.local.:2379,https://etcd-2.etcd.cluster-de-test-01.svc.cluster.local.:2379'
           put kubermatic/quorum-check something; do echo waiting for etcd; sleep 2;
           done;
+<<<<<<< HEAD
         image: gcr.io/etcd-development/etcd:v3.4.1
+=======
+        image: gcr.io/etcd-development/etcd:v3.3.15
+>>>>>>> v2.12.1
         name: etcd-running
         resources: {}
         volumeMounts:
@@ -315,53 +333,47 @@ spec:
       volumes:
       - name: apiserver-tls
         secret:
-          defaultMode: 256
           secretName: apiserver-tls
       - name: tokens
         secret:
-          defaultMode: 256
           secretName: tokens
       - name: openvpn-client-certificates
         secret:
-          defaultMode: 256
           secretName: openvpn-client-certificates
       - name: kubelet-client-certificates
         secret:
-          defaultMode: 256
           secretName: kubelet-client-certificates
       - name: ca
         secret:
-          defaultMode: 256
           items:
           - key: ca.crt
             path: ca.crt
           secretName: ca
       - name: service-account-key
         secret:
-          defaultMode: 256
           secretName: service-account-key
       - configMap:
-          defaultMode: 420
           name: cloud-config
         name: cloud-config
       - name: apiserver-etcd-client-certificate
         secret:
-          defaultMode: 256
           secretName: apiserver-etcd-client-certificate
       - name: apiserver-proxy-client-certificate
         secret:
-          defaultMode: 256
           secretName: apiserver-proxy-client-certificate
       - name: front-proxy-ca
         secret:
-          defaultMode: 256
           secretName: front-proxy-ca
       - name: kubeletdnatcontroller-kubeconfig
         secret:
-          defaultMode: 292
           secretName: kubeletdnatcontroller-kubeconfig
+      - configMap:
+          name: audit-config
+          optional: false
+        name: audit-config
+      - emptyDir: {}
+        name: audit-log
       - name: dex-ca
         secret:
-          defaultMode: 256
           secretName: dex-ca
 status: {}

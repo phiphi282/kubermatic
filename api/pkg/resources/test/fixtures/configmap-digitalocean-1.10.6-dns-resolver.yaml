@@ -6,13 +6,14 @@ data:
         errors
     }
     cluster.local {
-        forward . 10.10.10.10
+        forward . 10.240.16.10
         errors
     }
     . {
       forward . /etc/resolv.conf
       errors
       health
+      prometheus 0.0.0.0:9253
     }
 metadata:
   creationTimestamp: null

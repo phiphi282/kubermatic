@@ -5,19 +5,19 @@ import (
 
 	apiv1 "github.com/kubermatic/kubermatic/api/pkg/api/v1"
 	kubermaticv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
-	"github.com/kubermatic/kubermatic/api/pkg/provider"
+	"github.com/kubermatic/kubermatic/api/pkg/resources"
 	"github.com/kubermatic/kubermatic/api/pkg/resources/cloudconfig"
 	"github.com/kubermatic/kubermatic/api/pkg/validation"
-	"github.com/kubermatic/machine-controller/pkg/providerconfig"
+	clusterv1alpha1 "github.com/kubermatic/machine-controller/pkg/apis/cluster/v1alpha1"
+	providerconfig "github.com/kubermatic/machine-controller/pkg/providerconfig/types"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/json"
-	clusterv1alpha1 "sigs.k8s.io/cluster-api/pkg/apis/cluster/v1alpha1"
 )
 
 // Machine returns a machine object for the given spec
-func Machine(c *kubermaticv1.Cluster, node *apiv1.Node, dc provider.DatacenterMeta, keys []*kubermaticv1.UserSSHKey) (*clusterv1alpha1.Machine, error) {
+func Machine(c *kubermaticv1.Cluster, node *apiv1.Node, dc *kubermaticv1.Datacenter, keys []*kubermaticv1.UserSSHKey, data resources.CredentialsData) (*clusterv1alpha1.Machine, error) {
 	m := clusterv1alpha1.Machine{}
 
 	m.Namespace = metav1.NamespaceSystem
@@ -35,6 +35,12 @@ func Machine(c *kubermaticv1.Cluster, node *apiv1.Node, dc provider.DatacenterMe
 		err      error
 		cloudExt *runtime.RawExtension
 	)
+
+	credentials, err := resources.GetCredentials(data)
+	if err != nil {
+		return nil, err
+	}
+
 	// Cloud specifics
 	switch {
 	case node.Spec.Cloud.AWS != nil:
@@ -55,7 +61,7 @@ func Machine(c *kubermaticv1.Cluster, node *apiv1.Node, dc provider.DatacenterMe
 		// We use OverwriteCloudConfig for Vsphere to ensure we always
 		// use the credentials passed in via frontend for the cloud-provider
 		// functionality
-		overwriteCloudConfig, err := cloudconfig.CloudConfig(c, &dc)
+		overwriteCloudConfig, err := cloudconfig.CloudConfig(c, dc, credentials)
 		if err != nil {
 			return nil, err
 		}
@@ -67,7 +73,7 @@ func Machine(c *kubermaticv1.Cluster, node *apiv1.Node, dc provider.DatacenterMe
 		}
 	case node.Spec.Cloud.Openstack != nil:
 		config.CloudProvider = providerconfig.CloudProviderOpenstack
-		if err := validation.ValidateCreateNodeSpec(c, &node.Spec, &dc); err != nil {
+		if err := validation.ValidateCreateNodeSpec(c, &node.Spec, dc); err != nil {
 			return nil, err
 		}
 
@@ -84,6 +90,12 @@ func Machine(c *kubermaticv1.Cluster, node *apiv1.Node, dc provider.DatacenterMe
 	case node.Spec.Cloud.Digitalocean != nil:
 		config.CloudProvider = providerconfig.CloudProviderDigitalocean
 		cloudExt, err = getDigitaloceanProviderSpec(c, node.Spec, dc)
+		if err != nil {
+			return nil, err
+		}
+	case node.Spec.Cloud.Kubevirt != nil:
+		config.CloudProvider = providerconfig.CloudProviderKubeVirt
+		cloudExt, err = getKubevirtProviderSpec(node.Spec)
 		if err != nil {
 			return nil, err
 		}

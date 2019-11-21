@@ -31,7 +31,7 @@ func TestDeleteProjectOwner(t *testing.T) {
 			if err != nil {
 				t.Fatalf("can not create project due error: %v", GetErrorResponse(err))
 			}
-			teardown := CleanUpProject(project.ID, 10)
+			teardown := cleanUpProject(project.ID, 10)
 			defer teardown(t)
 
 			projectUsers, err := apiRunner.GetProjectUsers(project.ID)
@@ -87,7 +87,7 @@ func TestAddUserToProject(t *testing.T) {
 			if err != nil {
 				t.Fatalf("can not create project due error: %v", err)
 			}
-			teardown := CleanUpProject(project.ID, 10)
+			teardown := cleanUpProject(project.ID, 10)
 			defer teardown(t)
 
 			_, err = apiRunner.AddProjectUser(project.ID, tc.newUserEmail, tc.newUserName, tc.newUserGroup)

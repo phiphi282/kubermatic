@@ -1,11 +1,11 @@
 package openstack
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"strings"
 
-	"github.com/golang/glog"
 	"github.com/gophercloud/gophercloud"
 	goopenstack "github.com/gophercloud/gophercloud/openstack"
 	osflavors "github.com/gophercloud/gophercloud/openstack/compute/v2/flavors"
@@ -19,6 +19,9 @@ import (
 	kubermaticv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
 	"github.com/kubermatic/kubermatic/api/pkg/kubernetes"
 	"github.com/kubermatic/kubermatic/api/pkg/provider"
+	"github.com/kubermatic/kubermatic/api/pkg/resources"
+
+	"k8s.io/klog"
 )
 
 const (
@@ -40,14 +43,19 @@ const (
 
 // Provider is a struct that implements CloudProvider interface
 type Provider struct {
-	dcs map[string]provider.DatacenterMeta
+	dc                *kubermaticv1.DatacenterSpecOpenstack
+	secretKeySelector provider.SecretKeySelectorValueFunc
 }
 
 // NewCloudProvider creates a new openstack provider.
-func NewCloudProvider(dcs map[string]provider.DatacenterMeta) *Provider {
-	return &Provider{
-		dcs: dcs,
+func NewCloudProvider(dc *kubermaticv1.Datacenter, secretKeyGetter provider.SecretKeySelectorValueFunc) (*Provider, error) {
+	if dc.Spec.Openstack == nil {
+		return nil, errors.New("datacenter is not an Openstack datacenter")
 	}
+	return &Provider{
+		dc:                dc.Spec.Openstack,
+		secretKeySelector: secretKeyGetter,
+	}, nil
 }
 
 // DefaultCloudSpec adds defaults to the cloud spec
@@ -57,7 +65,12 @@ func (os *Provider) DefaultCloudSpec(spec *kubermaticv1.CloudSpec) error {
 
 // ValidateCloudSpec validates the given CloudSpec
 func (os *Provider) ValidateCloudSpec(spec kubermaticv1.CloudSpec) error {
-	netClient, err := os.getNetClient(spec)
+	creds, err := GetCredentialsForCluster(spec, os.secretKeySelector)
+	if err != nil {
+		return err
+	}
+
+	netClient, err := getNetClient(creds.Username, creds.Password, creds.Domain, creds.Tenant, creds.TenantID, os.dc.AuthURL, os.dc.Region)
 	if err != nil {
 		return fmt.Errorf("failed to create a authenticated openstack client: %v", err)
 	}
@@ -126,12 +139,12 @@ func validateExistingSubnetOverlap(networkID string, netClient *gophercloud.Serv
 // InitializeCloudProvider initializes a cluster, in particular
 // creates security group and network configuration
 func (os *Provider) InitializeCloudProvider(cluster *kubermaticv1.Cluster, update provider.ClusterUpdater) (*kubermaticv1.Cluster, error) {
-	dc, found := os.dcs[cluster.Spec.Cloud.DatacenterName]
-	if !found || dc.Spec.Openstack == nil {
-		return nil, fmt.Errorf("invalid datacenter %q", cluster.Spec.Cloud.DatacenterName)
+	creds, err := GetCredentialsForCluster(cluster.Spec.Cloud, os.secretKeySelector)
+	if err != nil {
+		return nil, err
 	}
 
-	netClient, err := os.getNetClient(cluster.Spec.Cloud)
+	netClient, err := getNetClient(creds.Username, creds.Password, creds.Domain, creds.Tenant, creds.TenantID, os.dc.AuthURL, os.dc.Region)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create a authenticated openstack client: %v", err)
 	}
@@ -184,7 +197,7 @@ func (os *Provider) InitializeCloudProvider(cluster *kubermaticv1.Cluster, updat
 	}
 
 	if cluster.Spec.Cloud.Openstack.SubnetID == "" {
-		subnet, err := createKubermaticSubnet(netClient, cluster.Name, network.ID, dc.Spec.Openstack.DNSServers)
+		subnet, err := createKubermaticSubnet(netClient, cluster.Name, network.ID, os.dc.DNSServers)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create the kubermatic subnet: %v", err)
 		}
@@ -229,9 +242,9 @@ func (os *Provider) InitializeCloudProvider(cluster *kubermaticv1.Cluster, updat
 		}
 	}
 
-	// If we created the subnet, but have not created the router-subnet-link finalizer, we need to attach the subnet to the router
+	// If we created the router, but have not created the router-subnet-link finalizer, we need to attach the subnet to the router
 	// Otherwise the vm's won't have connectivity
-	if kubernetes.HasFinalizer(cluster, SubnetCleanupFinalizer) && !kubernetes.HasFinalizer(cluster, RouterSubnetLinkCleanupFinalizer) {
+	if kubernetes.HasFinalizer(cluster, RouterCleanupFinalizer) && !kubernetes.HasFinalizer(cluster, RouterSubnetLinkCleanupFinalizer) {
 		if _, err = attachSubnetToRouter(netClient, cluster.Spec.Cloud.Openstack.SubnetID, cluster.Spec.Cloud.Openstack.RouterID); err != nil {
 			return nil, fmt.Errorf("failed to attach subnet to router: %v", err)
 		}
@@ -250,7 +263,12 @@ func (os *Provider) InitializeCloudProvider(cluster *kubermaticv1.Cluster, updat
 // CleanUpCloudProvider does the clean-up in particular:
 // removes security group and network configuration
 func (os *Provider) CleanUpCloudProvider(cluster *kubermaticv1.Cluster, update provider.ClusterUpdater) (*kubermaticv1.Cluster, error) {
-	netClient, err := os.getNetClient(cluster.Spec.Cloud)
+	creds, err := GetCredentialsForCluster(cluster.Spec.Cloud, os.secretKeySelector)
+	if err != nil {
+		return nil, err
+	}
+
+	netClient, err := getNetClient(creds.Username, creds.Password, creds.Domain, creds.Tenant, creds.TenantID, os.dc.AuthURL, os.dc.Region)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create a authenticated openstack client: %v", err)
 	}
@@ -258,7 +276,9 @@ func (os *Provider) CleanUpCloudProvider(cluster *kubermaticv1.Cluster, update p
 	if kubernetes.HasFinalizer(cluster, SecurityGroupCleanupFinalizer) {
 		for _, g := range strings.Split(cluster.Spec.Cloud.Openstack.SecurityGroups, ",") {
 			if err := deleteSecurityGroup(netClient, strings.TrimSpace(g)); err != nil {
-				return nil, fmt.Errorf("failed to delete security group %q: %v", g, err)
+				if !isNotFoundErr(err) {
+					return nil, fmt.Errorf("failed to delete security group %q: %v", g, err)
+				}
 			}
 		}
 
@@ -286,7 +306,9 @@ func (os *Provider) CleanUpCloudProvider(cluster *kubermaticv1.Cluster, update p
 
 	if kubernetes.HasFinalizer(cluster, SubnetCleanupFinalizer) || kubernetes.HasFinalizer(cluster, OldNetworkCleanupFinalizer) {
 		if err := deleteSubnet(netClient, cluster.Spec.Cloud.Openstack.SubnetID); err != nil {
-			return nil, fmt.Errorf("failed to delete subnet '%s': %v", cluster.Spec.Cloud.Openstack.SubnetID, err)
+			if !isNotFoundErr(err) {
+				return nil, fmt.Errorf("failed to delete subnet '%s': %v", cluster.Spec.Cloud.Openstack.SubnetID, err)
+			}
 		}
 		cluster, err = update(cluster.Name, func(cluster *kubermaticv1.Cluster) {
 			kubernetes.RemoveFinalizer(cluster, SubnetCleanupFinalizer)
@@ -339,36 +361,26 @@ func (os *Provider) CleanUpCloudProvider(cluster *kubermaticv1.Cluster, update p
 }
 
 // GetFlavors lists available flavors for the given CloudSpec.DatacenterName and OpenstackSpec.Region
-func (os *Provider) GetFlavors(cloud kubermaticv1.CloudSpec) ([]osflavors.Flavor, provider.DatacenterMeta, error) {
-	authClient, err := os.getAuthClient(cloud)
+func GetFlavors(username, password, domain, tenant, tenantID, authURL, region string) ([]osflavors.Flavor, error) {
+	authClient, err := getAuthClient(username, password, domain, tenant, tenantID, authURL)
 	if err != nil {
-		return nil, provider.DatacenterMeta{}, err
+		return nil, err
 	}
-	dc, found := os.dcs[cloud.DatacenterName]
-	if !found || dc.Spec.Openstack == nil {
-		return nil, provider.DatacenterMeta{}, fmt.Errorf("invalid datacenter %q", cloud.DatacenterName)
-	}
-	flavors, err := getFlavors(authClient, dc.Spec.Openstack.Region)
+	flavors, err := getFlavors(authClient, region)
 	if err != nil {
-		return nil, provider.DatacenterMeta{}, err
+		return nil, err
 	}
 
-	return flavors, dc, nil
+	return flavors, nil
 }
 
 // GetTenants lists all available tenents for the given CloudSpec.DatacenterName
-func (os *Provider) GetTenants(cloud kubermaticv1.CloudSpec) ([]osprojects.Project, error) {
-	authClient, err := os.getAuthClient(cloud)
+func GetTenants(username, password, domain, tenant, tenantID, authURL, region string) ([]osprojects.Project, error) {
+	authClient, err := getAuthClient(username, password, domain, tenant, tenantID, authURL)
 	if err != nil {
 		return nil, fmt.Errorf("couldn't get auth client: %v", err)
 	}
 
-	dc, found := os.dcs[cloud.DatacenterName]
-	if !found || dc.Spec.Openstack == nil {
-		return nil, fmt.Errorf("invalid datacenter %q", cloud.DatacenterName)
-	}
-
-	region := dc.Spec.Openstack.Region
 	tenants, err := getTenants(authClient, region)
 	if err != nil {
 		return nil, fmt.Errorf("couldn't get tenants for region %s: %v", region, err)
@@ -378,15 +390,10 @@ func (os *Provider) GetTenants(cloud kubermaticv1.CloudSpec) ([]osprojects.Proje
 }
 
 // GetNetworks lists all available networks for the given CloudSpec.DatacenterName
-func (os *Provider) GetNetworks(cloud kubermaticv1.CloudSpec) ([]NetworkWithExternalExt, error) {
-	authClient, err := os.getNetClient(cloud)
+func GetNetworks(username, password, domain, tenant, tenantID, authURL, region string) ([]NetworkWithExternalExt, error) {
+	authClient, err := getNetClient(username, password, domain, tenant, tenantID, authURL, region)
 	if err != nil {
 		return nil, fmt.Errorf("couldn't get auth client: %v", err)
-	}
-
-	dc, found := os.dcs[cloud.DatacenterName]
-	if !found || dc.Spec.Openstack == nil {
-		return nil, fmt.Errorf("invalid datacenter %q", cloud.DatacenterName)
 	}
 
 	networks, err := getAllNetworks(authClient, osnetworks.ListOpts{})
@@ -398,8 +405,8 @@ func (os *Provider) GetNetworks(cloud kubermaticv1.CloudSpec) ([]NetworkWithExte
 }
 
 // GetSecurityGroups lists all available security groups for the given CloudSpec.DatacenterName
-func (os *Provider) GetSecurityGroups(cloud kubermaticv1.CloudSpec) ([]ossecuritygroups.SecGroup, error) {
-	netClient, err := os.getNetClient(cloud)
+func GetSecurityGroups(username, password, domain, tenant, tenantID, authURL, region string) ([]ossecuritygroups.SecGroup, error) {
+	netClient, err := getNetClient(username, password, domain, tenant, tenantID, authURL, region)
 	if err != nil {
 		return nil, fmt.Errorf("couldn't get auth client: %v", err)
 	}
@@ -415,18 +422,14 @@ func (os *Provider) GetSecurityGroups(cloud kubermaticv1.CloudSpec) ([]ossecurit
 	return secGroups, nil
 }
 
-func (os *Provider) getAuthClient(cloud kubermaticv1.CloudSpec) (*gophercloud.ProviderClient, error) {
-	dc, found := os.dcs[cloud.DatacenterName]
-	if !found || dc.Spec.Openstack == nil {
-		return nil, fmt.Errorf("invalid datacenter %q", cloud.DatacenterName)
-	}
-
+func getAuthClient(username, password, domain, tenant, tenantID, authURL string) (*gophercloud.ProviderClient, error) {
 	opts := gophercloud.AuthOptions{
-		IdentityEndpoint: dc.Spec.Openstack.AuthURL,
-		Username:         cloud.Openstack.Username,
-		Password:         cloud.Openstack.Password,
-		DomainName:       cloud.Openstack.Domain,
-		TenantName:       cloud.Openstack.Tenant,
+		IdentityEndpoint: authURL,
+		Username:         username,
+		Password:         password,
+		DomainName:       domain,
+		TenantName:       tenant,
+		TenantID:         tenantID,
 	}
 
 	client, err := goopenstack.AuthenticatedClient(opts)
@@ -436,23 +439,30 @@ func (os *Provider) getAuthClient(cloud kubermaticv1.CloudSpec) (*gophercloud.Pr
 	return client, nil
 }
 
-func (os *Provider) getNetClient(cloud kubermaticv1.CloudSpec) (*gophercloud.ServiceClient, error) {
-	authClient, err := os.getAuthClient(cloud)
+func getNetClient(username, password, domain, tenant, tenantID, authURL, region string) (*gophercloud.ServiceClient, error) {
+	authClient, err := getAuthClient(username, password, domain, tenant, tenantID, authURL)
 	if err != nil {
 		return nil, err
 	}
 
-	dc, found := os.dcs[cloud.DatacenterName]
-	if !found || dc.Spec.Openstack == nil {
-		return nil, fmt.Errorf("invalid datacenter %q", cloud.DatacenterName)
+	serviceClient, err := goopenstack.NewNetworkV2(authClient, gophercloud.EndpointOpts{Region: region})
+	if err != nil {
+		// this is special case for  services that span only one region.
+		if _, ok := err.(*gophercloud.ErrEndpointNotFound); ok {
+			serviceClient, err = goopenstack.NewNetworkV2(authClient, gophercloud.EndpointOpts{})
+			if err != nil {
+				return nil, err
+			}
+		} else {
+			return nil, err
+		}
 	}
-
-	return goopenstack.NewNetworkV2(authClient, gophercloud.EndpointOpts{Region: dc.Spec.Openstack.Region})
+	return serviceClient, err
 }
 
 // GetSubnets list all available subnet ids fot a given CloudSpec
-func (os *Provider) GetSubnets(cloud kubermaticv1.CloudSpec, networkID string) ([]ossubnets.Subnet, error) {
-	serviceClient, err := os.getNetClient(cloud)
+func GetSubnets(username, password, domain, tenant, tenantID, networkID, authURL, region string) ([]ossubnets.Subnet, error) {
+	serviceClient, err := getNetClient(username, password, domain, tenant, tenantID, authURL, region)
 	if err != nil {
 		return nil, fmt.Errorf("couldn't get auth client: %v", err)
 	}
@@ -471,7 +481,12 @@ func (os *Provider) AddICMPRulesIfRequired(cluster *kubermaticv1.Cluster) error 
 	}
 	sgName := cluster.Spec.Cloud.Openstack.SecurityGroups
 
-	netClient, err := os.getNetClient(cluster.Spec.Cloud)
+	creds, err := GetCredentialsForCluster(cluster.Spec.Cloud, os.secretKeySelector)
+	if err != nil {
+		return err
+	}
+
+	netClient, err := getNetClient(creds.Username, creds.Password, creds.Domain, creds.Tenant, creds.TenantID, os.dc.AuthURL, os.dc.Region)
 	if err != nil {
 		return fmt.Errorf("failed to create a authenticated openstack client: %v", err)
 	}
@@ -511,7 +526,7 @@ func addICMPRulesToSecurityGroupIfNecesary(cluster *kubermaticv1.Cluster, secGro
 			SecGroupID: secGroup.ID,
 			Protocol:   osecuritygrouprules.ProtocolICMP,
 		})
-		glog.Infof("Adding ICMP allow rule to cluster %q", cluster.Name)
+		klog.Infof("Adding ICMP allow rule to cluster %q", cluster.Name)
 	}
 	if !hasIPV6Rule {
 		rulesToCreate = append(rulesToCreate, osecuritygrouprules.CreateOpts{
@@ -520,7 +535,7 @@ func addICMPRulesToSecurityGroupIfNecesary(cluster *kubermaticv1.Cluster, secGro
 			SecGroupID: secGroup.ID,
 			Protocol:   osecuritygrouprules.ProtocolIPv6ICMP,
 		})
-		glog.Infof("Adding ICMP6 allow rule to cluster %q", cluster.Name)
+		klog.Infof("Adding ICMP6 allow rule to cluster %q", cluster.Name)
 	}
 
 	for _, rule := range rulesToCreate {
@@ -539,4 +554,67 @@ func addICMPRulesToSecurityGroupIfNecesary(cluster *kubermaticv1.Cluster, secGro
 // ValidateCloudSpecUpdate verifies whether an update of cloud spec is valid and permitted
 func (os *Provider) ValidateCloudSpecUpdate(oldSpec kubermaticv1.CloudSpec, newSpec kubermaticv1.CloudSpec) error {
 	return nil
+}
+
+// GetCredentialsForCluster returns the credentials for the passed in cloud spec or an error
+func GetCredentialsForCluster(cloud kubermaticv1.CloudSpec, secretKeySelector provider.SecretKeySelectorValueFunc) (resources.OpenstackCredentials, error) {
+	username := cloud.Openstack.Username
+	password := cloud.Openstack.Password
+	tenant := cloud.Openstack.Tenant
+	tenantID := cloud.Openstack.TenantID
+	domain := cloud.Openstack.Domain
+
+	var err error
+
+	if username == "" {
+		if cloud.Openstack.CredentialsReference == nil {
+			return resources.OpenstackCredentials{}, errors.New("no credentials provided")
+		}
+		username, err = secretKeySelector(cloud.Openstack.CredentialsReference, resources.OpenstackUsername)
+		if err != nil {
+			return resources.OpenstackCredentials{}, err
+		}
+	}
+
+	if password == "" {
+		if cloud.Openstack.CredentialsReference == nil {
+			return resources.OpenstackCredentials{}, errors.New("no credentials provided")
+		}
+		password, err = secretKeySelector(cloud.Openstack.CredentialsReference, resources.OpenstackPassword)
+		if err != nil {
+			return resources.OpenstackCredentials{}, err
+		}
+	}
+
+	if tenant == "" && cloud.Openstack.CredentialsReference != nil && cloud.Openstack.CredentialsReference.Name != "" {
+		tenant, err = secretKeySelector(cloud.Openstack.CredentialsReference, resources.OpenstackTenant)
+		if err != nil {
+			return resources.OpenstackCredentials{}, err
+		}
+	}
+
+	if tenantID == "" && cloud.Openstack.CredentialsReference != nil && cloud.Openstack.CredentialsReference.Name != "" {
+		tenantID, err = secretKeySelector(cloud.Openstack.CredentialsReference, resources.OpenstackTenantID)
+		if err != nil {
+			return resources.OpenstackCredentials{}, err
+		}
+	}
+
+	if domain == "" {
+		if cloud.Openstack.CredentialsReference == nil {
+			return resources.OpenstackCredentials{}, errors.New("no credentials provided")
+		}
+		domain, err = secretKeySelector(cloud.Openstack.CredentialsReference, resources.OpenstackDomain)
+		if err != nil {
+			return resources.OpenstackCredentials{}, err
+		}
+	}
+
+	return resources.OpenstackCredentials{
+		Username: username,
+		Password: password,
+		Tenant:   tenant,
+		TenantID: tenantID,
+		Domain:   domain,
+	}, nil
 }

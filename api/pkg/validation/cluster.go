@@ -1,35 +1,30 @@
 package validation
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"github.com/kubermatic/kubermatic/api/pkg/keycloak"
 	"net"
-	"regexp"
 
 	kubermaticv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
+	kuberneteshelper "github.com/kubermatic/kubermatic/api/pkg/kubernetes"
 	"github.com/kubermatic/kubermatic/api/pkg/provider"
+	"github.com/kubermatic/kubermatic/api/pkg/provider/cloud"
+	kubernetesprovider "github.com/kubermatic/kubermatic/api/pkg/provider/kubernetes"
+	"github.com/kubermatic/kubermatic/api/pkg/resources"
+
 	"k8s.io/apimachinery/pkg/api/equality"
+	utilerror "k8s.io/apimachinery/pkg/util/errors"
 )
 
 var (
 	// ErrCloudChangeNotAllowed describes that it is not allowed to change the cloud provider
 	ErrCloudChangeNotAllowed = errors.New("not allowed to change the cloud provider")
-
-	tokenValidator = regexp.MustCompile(`[bcdfghjklmnpqrstvwxz2456789]{6}\.[bcdfghjklmnpqrstvwxz2456789]{16}`)
 )
 
-// ValidateKubernetesToken checks if a given token is syntactically correct.
-func ValidateKubernetesToken(token string) error {
-	if !tokenValidator.MatchString(token) {
-		return fmt.Errorf("token is malformed, must match %s", tokenValidator.String())
-	}
-
-	return nil
-}
-
 // ValidateCreateClusterSpec validates the given cluster spec
-func ValidateCreateClusterSpec(spec *kubermaticv1.ClusterSpec, cloudProviders map[string]provider.CloudProvider, dc provider.DatacenterMeta) error {
+func ValidateCreateClusterSpec(spec *kubermaticv1.ClusterSpec, dc *kubermaticv1.Datacenter, cloudProvider provider.CloudProvider) error {
 	if spec.HumanReadableName == "" {
 		return errors.New("no name specified")
 	}
@@ -38,25 +33,15 @@ func ValidateCreateClusterSpec(spec *kubermaticv1.ClusterSpec, cloudProviders ma
 		return fmt.Errorf("invalid cloud spec: %v", err)
 	}
 
-	providerName, err := provider.ClusterCloudProviderName(spec.Cloud)
-	if err != nil {
-		return fmt.Errorf("invalid cloud spec: %v", err)
-	}
-
-	cloudProvider, exists := cloudProviders[providerName]
-	if !exists {
-		return fmt.Errorf("invalid cloud provider '%s' specified: %v", err, providerName)
-	}
-
 	if spec.Version.Semver() == nil || spec.Version.String() == "" {
 		return errors.New(`invalid cloud spec "Version" is required but was not specified`)
 	}
 
-	if err = cloudProvider.ValidateCloudSpec(spec.Cloud); err != nil {
+	if err := cloudProvider.ValidateCloudSpec(spec.Cloud); err != nil {
 		return fmt.Errorf("invalid cloud spec: %v", err)
 	}
 
-	if err = validateMachineNetworksFromClusterSpec(spec); err != nil {
+	if err := validateMachineNetworksFromClusterSpec(spec); err != nil {
 		return fmt.Errorf("machine network validation failed, see: %v", err)
 	}
 
@@ -133,6 +118,12 @@ func ValidateCloudChange(newSpec, oldSpec kubermaticv1.CloudSpec) error {
 	if newSpec.GCP == nil && oldSpec.GCP != nil {
 		return ErrCloudChangeNotAllowed
 	}
+	if newSpec.Azure == nil && oldSpec.Azure != nil {
+		return ErrCloudChangeNotAllowed
+	}
+	if newSpec.Kubevirt == nil && oldSpec.Kubevirt != nil {
+		return ErrCloudChangeNotAllowed
+	}
 	if newSpec.DatacenterName != oldSpec.DatacenterName {
 		return errors.New("changing the datacenter is not allowed")
 	}
@@ -141,7 +132,7 @@ func ValidateCloudChange(newSpec, oldSpec kubermaticv1.CloudSpec) error {
 }
 
 // ValidateUpdateCluster validates if the cluster update is allowed
-func ValidateUpdateCluster(newCluster, oldCluster *kubermaticv1.Cluster, cloudProviders map[string]provider.CloudProvider, dc provider.DatacenterMeta) error {
+func ValidateUpdateCluster(ctx context.Context, newCluster, oldCluster *kubermaticv1.Cluster, dc *kubermaticv1.Datacenter, clusterProvider *kubernetesprovider.ClusterProvider) error {
 	if err := ValidateCloudChange(newCluster.Spec.Cloud, oldCluster.Spec.Cloud); err != nil {
 		return err
 	}
@@ -158,13 +149,16 @@ func ValidateUpdateCluster(newCluster, oldCluster *kubermaticv1.Cluster, cloudPr
 		return errors.New("changing the url is not allowed")
 	}
 
-	if err := ValidateKubernetesToken(newCluster.Address.AdminToken); err != nil {
+	if err := kuberneteshelper.ValidateKubernetesToken(newCluster.Address.AdminToken); err != nil {
 		return fmt.Errorf("invalid admin token: %v", err)
 	}
 
 	if !equality.Semantic.DeepEqual(newCluster.Status, oldCluster.Status) {
 		return errors.New("changing the status is not allowed")
 	}
+
+	// Editing labels is allowed even though it is part of metadata.
+	oldCluster.Labels = newCluster.Labels
 
 	if !equality.Semantic.DeepEqual(newCluster.ObjectMeta, oldCluster.ObjectMeta) {
 		return errors.New("changing the metadata is not allowed")
@@ -190,9 +184,10 @@ func ValidateUpdateCluster(newCluster, oldCluster *kubermaticv1.Cluster, cloudPr
 		return fmt.Errorf("changing to a different provider is not allowed")
 	}
 
-	cloudProvider, exists := cloudProviders[providerName]
-	if !exists {
-		return fmt.Errorf("invalid cloud provider '%s' specified: %v", err, providerName)
+	secretKeySelectorFunc := provider.SecretKeySelectorValueFuncFactory(ctx, clusterProvider.GetSeedClusterAdminRuntimeClient())
+	cloudProvider, err := cloud.Provider(dc, secretKeySelectorFunc)
+	if err != nil {
+		return err
 	}
 
 	if err := cloudProvider.ValidateCloudSpec(newCluster.Spec.Cloud); err != nil {
@@ -211,110 +206,223 @@ func ValidateUpdateCluster(newCluster, oldCluster *kubermaticv1.Cluster, cloudPr
 }
 
 // ValidateCloudSpec validates if the cloud spec is valid
-func ValidateCloudSpec(spec kubermaticv1.CloudSpec, dc provider.DatacenterMeta) error {
+func ValidateCloudSpec(spec kubermaticv1.CloudSpec, dc *kubermaticv1.Datacenter) error {
 	if spec.DatacenterName == "" {
 		return errors.New("no node datacenter specified")
 	}
 
-	if spec.Fake != nil {
-		if spec.Fake.Token == "" {
-			return errors.New("no token specified")
+	switch {
+	case spec.Fake != nil:
+		if dc.Spec.Fake == nil {
+			return fmt.Errorf("datacenter %q is not a fake datacenter", spec.DatacenterName)
+		}
+		return validateFakeCloudSpec(spec.Fake)
+	case spec.AWS != nil:
+		if dc.Spec.AWS == nil {
+			return fmt.Errorf("datacenter %q is not a AWS datacenter", spec.DatacenterName)
+		}
+		return validateAWSCloudSpec(spec.AWS)
+	case spec.Digitalocean != nil:
+		if dc.Spec.Digitalocean == nil {
+			return fmt.Errorf("datacenter %q is not a Digitalocean datacenter", spec.DatacenterName)
+		}
+		return validateDigitaloceanCloudSpec(spec.Digitalocean)
+	case spec.Openstack != nil:
+		if dc.Spec.Openstack == nil {
+			return fmt.Errorf("datacenter %q is not an Openstack datacenter", spec.DatacenterName)
+		}
+		return validateOpenStackCloudSpec(spec.Openstack, dc)
+	case spec.Azure != nil:
+		if dc.Spec.Azure == nil {
+			return fmt.Errorf("datacenter %q is not an Azure datacenter", spec.DatacenterName)
+		}
+		return validateAzureCloudSpec(spec.Azure)
+	case spec.VSphere != nil:
+		if dc.Spec.VSphere == nil {
+			return fmt.Errorf("datacenter %q is not a vSphere datacenter", spec.DatacenterName)
+		}
+		return validateVSphereCloudSpec(spec.VSphere)
+	case spec.GCP != nil:
+		if dc.Spec.GCP == nil {
+			return fmt.Errorf("datacenter %q is not a GCP datacenter", spec.DatacenterName)
+		}
+		return validateGCPCloudSpec(spec.GCP)
+	case spec.Packet != nil:
+		if dc.Spec.Packet == nil {
+			return fmt.Errorf("datacenter %q is not a Packet datacenter", spec.DatacenterName)
+		}
+		return validatePacketCloudSpec(spec.Packet)
+	case spec.Hetzner != nil:
+		if dc.Spec.Hetzner == nil {
+			return fmt.Errorf("datacenter %q is not a Hetzner datacenter", spec.DatacenterName)
+		}
+		return validateHetznerCloudSpec(spec.Hetzner)
+	case spec.BringYourOwn != nil:
+		if dc.Spec.BringYourOwn == nil {
+			return fmt.Errorf("datacenter %q is not a bringyourown datacenter", spec.DatacenterName)
 		}
 		return nil
+	case spec.Kubevirt != nil:
+		if dc.Spec.Kubevirt == nil {
+			return fmt.Errorf("datacenter %q is not a kubevirt datacenter", spec.DatacenterName)
+		}
+		return validateKubevirtCloudSpec(spec.Kubevirt)
+	default:
+		return errors.New("no cloud provider specified")
+	}
+}
+
+func validateOpenStackCloudSpec(spec *kubermaticv1.OpenstackCloudSpec, dc *kubermaticv1.Datacenter) error {
+	if spec.Domain == "" {
+		if err := kuberneteshelper.ValidateSecretKeySelector(spec.CredentialsReference, resources.OpenstackDomain); err != nil {
+			return err
+		}
+	}
+	if spec.Username == "" {
+		if err := kuberneteshelper.ValidateSecretKeySelector(spec.CredentialsReference, resources.OpenstackUsername); err != nil {
+			return err
+		}
+	}
+	if spec.Password == "" {
+		if err := kuberneteshelper.ValidateSecretKeySelector(spec.CredentialsReference, resources.OpenstackPassword); err != nil {
+			return err
+		}
 	}
 
-	if spec.Digitalocean != nil {
-		if spec.Digitalocean.Token == "" {
-			return errors.New("no token specified")
-		}
-		return nil
+	var errs []error
+	if spec.Tenant == "" && spec.CredentialsReference != nil && spec.CredentialsReference.Name != "" {
+		errs = append(errs, kuberneteshelper.ValidateSecretKeySelector(spec.CredentialsReference, resources.OpenstackTenant))
+	}
+	if spec.TenantID == "" && spec.CredentialsReference != nil && spec.CredentialsReference.Name != "" {
+		errs = append(errs, kuberneteshelper.ValidateSecretKeySelector(spec.CredentialsReference, resources.OpenstackTenantID))
+	}
+	if utilerror.NewAggregate(errs) != nil {
+		return errors.New("no tenant name or ID specified")
 	}
 
-	if spec.BringYourOwn != nil {
-		return nil
+	if spec.FloatingIPPool == "" && dc.Spec.Openstack != nil && dc.Spec.Openstack.EnforceFloatingIP {
+		return errors.New("no floating ip pool specified")
+	}
+	return nil
+}
+
+func validateAWSCloudSpec(spec *kubermaticv1.AWSCloudSpec) error {
+	if spec.AccessKeyID == "" {
+		if err := kuberneteshelper.ValidateSecretKeySelector(spec.CredentialsReference, resources.AWSAccessKeyID); err != nil {
+			return err
+		}
+	}
+	if spec.SecretAccessKey == "" {
+		if err := kuberneteshelper.ValidateSecretKeySelector(spec.CredentialsReference, resources.AWSSecretAccessKey); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateGCPCloudSpec(spec *kubermaticv1.GCPCloudSpec) error {
+	if spec.ServiceAccount == "" {
+		if err := kuberneteshelper.ValidateSecretKeySelector(spec.CredentialsReference, resources.GCPServiceAccount); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateHetznerCloudSpec(spec *kubermaticv1.HetznerCloudSpec) error {
+	if spec.Token == "" {
+		if err := kuberneteshelper.ValidateSecretKeySelector(spec.CredentialsReference, resources.HetznerToken); err != nil {
+			return err
+		}
 	}
 
-	if spec.AWS != nil {
-		if spec.AWS.SecretAccessKey == "" {
-			return errors.New("no secret access key specified")
+	return nil
+}
+
+func validatePacketCloudSpec(spec *kubermaticv1.PacketCloudSpec) error {
+	if spec.APIKey == "" {
+		if err := kuberneteshelper.ValidateSecretKeySelector(spec.CredentialsReference, resources.PacketAPIKey); err != nil {
+			return err
 		}
-		if spec.AWS.AccessKeyID == "" {
-			return errors.New("no access key ID specified")
+	}
+	if spec.ProjectID == "" {
+		if err := kuberneteshelper.ValidateSecretKeySelector(spec.CredentialsReference, resources.PacketProjectID); err != nil {
+			return err
 		}
-		return nil
+	}
+	return nil
+}
+
+func validateVSphereCloudSpec(spec *kubermaticv1.VSphereCloudSpec) error {
+	if spec.Username == "" {
+		if err := kuberneteshelper.ValidateSecretKeySelector(spec.CredentialsReference, resources.VsphereUsername); err != nil {
+			return err
+		}
+	}
+	if spec.Password == "" {
+		if err := kuberneteshelper.ValidateSecretKeySelector(spec.CredentialsReference, resources.VspherePassword); err != nil {
+			return err
+		}
 	}
 
-	if spec.Azure != nil {
-		if spec.Azure.TenantID == "" {
-			return errors.New("no tenant ID specified")
+	return nil
+}
+
+func validateAzureCloudSpec(spec *kubermaticv1.AzureCloudSpec) error {
+	if spec.TenantID == "" {
+		if err := kuberneteshelper.ValidateSecretKeySelector(spec.CredentialsReference, resources.AzureTenantID); err != nil {
+			return err
 		}
-		if spec.Azure.SubscriptionID == "" {
-			return errors.New("no subscription ID specified")
+	}
+	if spec.SubscriptionID == "" {
+		if err := kuberneteshelper.ValidateSecretKeySelector(spec.CredentialsReference, resources.AzureSubscriptionID); err != nil {
+			return err
 		}
-		if spec.Azure.ClientID == "" {
-			return errors.New("no client ID specified")
+	}
+	if spec.ClientID == "" {
+		if err := kuberneteshelper.ValidateSecretKeySelector(spec.CredentialsReference, resources.AzureClientID); err != nil {
+			return err
 		}
-		if spec.Azure.ClientSecret == "" {
-			return errors.New("no client secret specified")
+	}
+	if spec.ClientSecret == "" {
+		if err := kuberneteshelper.ValidateSecretKeySelector(spec.CredentialsReference, resources.AzureClientSecret); err != nil {
+			return err
 		}
-		return nil
 	}
 
-	if spec.Openstack != nil {
-		if spec.Openstack.Domain == "" {
-			return errors.New("no domain specified")
+	return nil
+}
+
+func validateDigitaloceanCloudSpec(spec *kubermaticv1.DigitaloceanCloudSpec) error {
+	if spec.Token == "" {
+		if spec.CredentialsReference == nil {
+			return errors.New("no token or credentials reference specified")
 		}
-		if spec.Openstack.Username == "" {
-			return errors.New("no username specified")
+
+		if err := kuberneteshelper.ValidateSecretKeySelector(spec.CredentialsReference, resources.DigitaloceanToken); err != nil {
+			return err
 		}
-		if spec.Openstack.Password == "" {
-			return errors.New("no password specified")
-		}
-		if spec.Openstack.Tenant == "" {
-			return errors.New("no tenant specified")
-		}
-		if spec.Openstack.FloatingIPPool == "" && dc.Spec.Openstack != nil && dc.Spec.Openstack.EnforceFloatingIP {
-			return errors.New("no floating ip pool specified")
-		}
-		return nil
 	}
 
-	if spec.Hetzner != nil {
-		if spec.Hetzner.Token == "" {
-			return errors.New("no token specified")
-		}
-		return nil
+	return nil
+}
+
+func validateFakeCloudSpec(spec *kubermaticv1.FakeCloudSpec) error {
+	if spec.Token == "" {
+		return errors.New("no token specified")
 	}
 
-	if spec.VSphere != nil {
-		if spec.VSphere.Username == "" {
-			return errors.New("no username specified")
-		}
+	return nil
+}
 
-		if spec.VSphere.Password == "" {
-			return errors.New("no password specified")
+func validateKubevirtCloudSpec(spec *kubermaticv1.KubevirtCloudSpec) error {
+	if spec.Kubeconfig == "" {
+		if err := kuberneteshelper.ValidateSecretKeySelector(spec.CredentialsReference, resources.KubevirtKubeConfig); err != nil {
+			return err
 		}
-		return nil
 	}
 
-	if spec.Packet != nil {
-		if spec.Packet.APIKey == "" {
-			return errors.New("no API key specified")
-		}
-		if spec.Packet.ProjectID == "" {
-			return errors.New("no project ID specified")
-		}
-		return nil
-	}
-
-	if spec.GCP != nil {
-		if spec.GCP.ServiceAccount == "" {
-			return errors.New("no serviceAccount specified")
-		}
-		return nil
-	}
-
-	return errors.New("no cloud provider specified")
+	return nil
 }
 
 func validateAuthSettings(spec *kubermaticv1.ClusterSpec) error {

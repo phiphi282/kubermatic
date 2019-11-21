@@ -12,21 +12,23 @@ import (
 	"github.com/kubermatic/kubermatic/api/pkg/handler/auth"
 	"github.com/kubermatic/kubermatic/api/pkg/handler/test"
 	"github.com/kubermatic/kubermatic/api/pkg/handler/v1/common"
+	kubermaticlog "github.com/kubermatic/kubermatic/api/pkg/log"
 	"github.com/kubermatic/kubermatic/api/pkg/provider"
 	"github.com/kubermatic/kubermatic/api/pkg/provider/kubernetes"
 	"github.com/kubermatic/kubermatic/api/pkg/serviceaccount"
 	"github.com/kubermatic/kubermatic/api/pkg/version"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/util/sets"
 )
 
 // NewTestRouting is a hack that helps us avoid circular imports
 // for example handler package uses v1/dc and v1/dc needs handler for testing
 func NewTestRouting(
-	datacenters map[string]provider.DatacenterMeta,
-	clusterProviders map[string]provider.ClusterProvider,
-	cloudProviders map[string]provider.CloudProvider,
-	addonProviders map[string]provider.AddonProvider,
+	userInfoGetter provider.UserInfoGetter,
+	seedsGetter provider.SeedsGetter,
+	clusterProvidersGetter provider.ClusterProviderGetter,
+	addonProviderGetter provider.AddonProviderGetter,
 	sshKeyProvider provider.SSHKeyProvider,
 	userProvider provider.UserProvider,
 	serviceAccountProvider provider.ServiceAccountProvider,
@@ -38,8 +40,8 @@ func NewTestRouting(
 	tokenExtractors auth.TokenExtractor,
 	prometheusClient prometheusapi.Client,
 	projectMemberProvider *kubernetes.ProjectMemberProvider,
-	versions []*version.MasterVersion,
-	updates []*version.MasterUpdate,
+	versions []*version.Version,
+	updates []*version.Update,
 	saTokenAuthenticator serviceaccount.TokenAuthenticator,
 	saTokenGenerator serviceaccount.TokenGenerator,
 	eventRecorderProvider provider.EventRecorderProvider,
@@ -48,10 +50,10 @@ func NewTestRouting(
 
 	updateManager := version.New(versions, updates)
 	r := handler.NewRouting(
-		datacenters,
-		clusterProviders,
-		cloudProviders,
-		addonProviders,
+		kubermaticlog.Logger,
+		seedsGetter,
+		clusterProvidersGetter,
+		addonProviderGetter,
 		sshKeyProvider,
 		userProvider,
 		serviceAccountProvider,
@@ -71,6 +73,8 @@ func NewTestRouting(
 		credentialManager,
 		keycloakFacade,
 		corev1.ServiceTypeNodePort,
+		sets.String{},
+		userInfoGetter,
 	)
 
 	mainRouter := mux.NewRouter()
@@ -102,7 +106,7 @@ func generateDefaultMetrics() common.ServerMetrics {
 				Name: "kubermatic_api_init_node_deployment_failures",
 				Help: "The number of times initial node deployment couldn't be created within the timeout",
 			},
-			[]string{"cluster", "seed_dc"},
+			[]string{"cluster", "datacenter"},
 		),
 	}
 }

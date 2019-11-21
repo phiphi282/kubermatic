@@ -9,8 +9,10 @@ import (
 	"os/exec"
 	"path"
 	"strings"
+	"time"
 
 	"github.com/ghodss/yaml"
+
 	"go.uber.org/zap"
 
 	addonutils "github.com/kubermatic/kubermatic/api/pkg/addon"
@@ -25,6 +27,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/json"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/record"
 	ctrlruntimeclient "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
@@ -48,12 +51,14 @@ type KubeconfigProvider interface {
 
 // Reconciler stores necessary components that are required to manage in-cluster Add-On's
 type Reconciler struct {
-	log                *zap.SugaredLogger
-	workerName         string
-	addonVariables     map[string]interface{}
-	kubernetesAddonDir string
-	openshiftAddonDir  string
-	overwriteRegistry  string
+	log                     *zap.SugaredLogger
+	workerName              string
+	addonVariables          map[string]interface{}
+	defaultKubernetesAddons sets.String
+	defaultOpenshiftAddons  sets.String
+	kubernetesAddonDir      string
+	openshiftAddonDir       string
+	overwriteRegistry       string
 	ctrlruntimeclient.Client
 	recorder record.EventRecorder
 
@@ -68,8 +73,10 @@ func Add(
 	numWorkers int,
 	workerName string,
 	addonCtxVariables map[string]interface{},
-	kubernetesAddonDir string,
-	openshiftAddonDir string,
+	defaultKubernetesAddons,
+	defaultOpenshiftAddons sets.String,
+	kubernetesAddonDir,
+	openshiftAddonDir,
 	overwriteRegistey string,
 	kubeconfigProvider KubeconfigProvider,
 ) error {
@@ -77,15 +84,17 @@ func Add(
 	client := mgr.GetClient()
 
 	reconciler := &Reconciler{
-		log:                log,
-		addonVariables:     addonCtxVariables,
-		kubernetesAddonDir: kubernetesAddonDir,
-		openshiftAddonDir:  openshiftAddonDir,
-		KubeconfigProvider: kubeconfigProvider,
-		Client:             client,
-		workerName:         workerName,
-		recorder:           mgr.GetRecorder(ControllerName),
-		overwriteRegistry:  overwriteRegistey,
+		log:                     log,
+		addonVariables:          addonCtxVariables,
+		defaultKubernetesAddons: defaultKubernetesAddons,
+		defaultOpenshiftAddons:  defaultOpenshiftAddons,
+		kubernetesAddonDir:      kubernetesAddonDir,
+		openshiftAddonDir:       openshiftAddonDir,
+		KubeconfigProvider:      kubeconfigProvider,
+		Client:                  client,
+		workerName:              workerName,
+		recorder:                mgr.GetRecorder(ControllerName),
+		overwriteRegistry:       overwriteRegistey,
 	}
 
 	ctrlOptions := controller.Options{
@@ -141,7 +150,7 @@ func (r *Reconciler) Reconcile(request reconcile.Request) (reconcile.Result, err
 	log = r.log.With("cluster", addon.Spec.Cluster.Name)
 
 	// Add a wrapping here so we can emit an event on error
-	err := r.reconcile(ctx, log, addon)
+	result, err := r.reconcile(ctx, log, addon)
 	if err != nil {
 		log.Errorw("Reconciling failed", zap.Error(err))
 		r.recorder.Eventf(addon, corev1.EventTypeWarning, "ReconcilingError", "%v", err)
@@ -155,39 +164,42 @@ func (r *Reconciler) Reconcile(request reconcile.Request) (reconcile.Result, err
 				"failed to reconcile Addon %q: %v", addon.Name, reconcilingError)
 		}
 	}
-	return reconcile.Result{}, err
+	if result == nil {
+		result = &reconcile.Result{}
+	}
+	return *result, err
 }
 
-func (r *Reconciler) reconcile(ctx context.Context, log *zap.SugaredLogger, addon *kubermaticv1.Addon) error {
+func (r *Reconciler) reconcile(ctx context.Context, log *zap.SugaredLogger, addon *kubermaticv1.Addon) (*reconcile.Result, error) {
 	cluster := &kubermaticv1.Cluster{}
 	if err := r.Get(ctx, types.NamespacedName{Name: addon.Spec.Cluster.Name}, cluster); err != nil {
 		// If its not a NotFound return it
 		if !kerrors.IsNotFound(err) {
-			return err
+			return nil, err
 		}
 
 		// Cluster does not exist - If the addon has the deletion timestamp - we shall delete it
 		if addon.DeletionTimestamp != nil {
 			if err := r.removeCleanupFinalizer(ctx, log, addon); err != nil {
-				return fmt.Errorf("failed to ensure that the cleanup finalizer got removed from the addon: %v", err)
+				return nil, fmt.Errorf("failed to ensure that the cleanup finalizer got removed from the addon: %v", err)
 			}
 		}
-		return nil
+		return nil, nil
 	}
 
 	if cluster.DeletionTimestamp != nil {
 		log.Debug("Skipping addon because cluster is deleted")
-		return nil
+		return nil, nil
 	}
 
 	if cluster.Spec.Pause {
 		log.Debug("Skipping because the cluster is paused")
-		return nil
+		return nil, nil
 	}
 
 	if cluster.Labels[kubermaticv1.WorkerNameLabelKey] != r.workerName {
 		log.Debug("Skipping because the cluster has a different worker name set")
-		return nil
+		return nil, nil
 	}
 
 	// When a cluster gets deleted - we can skip it - not worth the effort.
@@ -195,32 +207,66 @@ func (r *Reconciler) reconcile(ctx context.Context, log *zap.SugaredLogger, addo
 	// The correct way of handling it though should be a optional cleanup routine in the cluster controller, which will delete all PV's and LB's inside the cluster cluster.
 	if cluster.DeletionTimestamp != nil {
 		log.Debug("Skipping because the cluster is being deleted")
-		return nil
+		return nil, nil
+	}
+
+	if err := r.markDefaultAddons(ctx, log, addon, cluster); err != nil {
+		return nil, fmt.Errorf("failed to ensure that the isDefault field is up to date in the addon: %v", err)
 	}
 
 	// When the apiserver is not healthy, we must skip it
 	if kubermaticv1.HealthStatusDown == cluster.Status.ExtendedHealth.Apiserver {
 		log.Debug("Skipping because the API server is not running")
-		return nil
+		return nil, nil
+	}
+
+	// Openshift needs some time to create this, so avoid getting into the backoff
+	// while the admin-kubeconfig secret doesn't exist yet
+	if _, err := r.KubeconfigProvider.GetAdminKubeconfig(cluster); err != nil {
+		if kerrors.IsNotFound(err) {
+			log.Debug("Kubeconfig wasn't found, trying again in 10 seconds")
+			return &reconcile.Result{RequeueAfter: 10 * time.Second}, nil
+		}
+		return nil, err
 	}
 
 	// Addon got deleted - remove all manifests
 	if addon.DeletionTimestamp != nil {
 		if err := r.cleanupManifests(ctx, log, addon, cluster); err != nil {
-			return fmt.Errorf("failed to delete manifests from cluster: %v", err)
+			return nil, fmt.Errorf("failed to delete manifests from cluster: %v", err)
 		}
 		if err := r.removeCleanupFinalizer(ctx, log, addon); err != nil {
-			return fmt.Errorf("failed to ensure that the cleanup finalizer got removed from the addon: %v", err)
+			return nil, fmt.Errorf("failed to ensure that the cleanup finalizer got removed from the addon: %v", err)
 		}
-		return nil
+		return nil, nil
 	}
 
 	// Reconciling
 	if err := r.ensureIsInstalled(ctx, log, addon, cluster); err != nil {
-		return fmt.Errorf("failed to deploy the addon manifests into the cluster: %v", err)
+		return nil, fmt.Errorf("failed to deploy the addon manifests into the cluster: %v", err)
 	}
 	if err := r.ensureFinalizerIsSet(ctx, addon); err != nil {
-		return fmt.Errorf("failed to ensure that the cleanup finalizer existis on the addon: %v", err)
+		return nil, fmt.Errorf("failed to ensure that the cleanup finalizer existis on the addon: %v", err)
+	}
+
+	return nil, nil
+}
+
+func (r *Reconciler) markDefaultAddons(ctx context.Context, log *zap.SugaredLogger,
+	addon *kubermaticv1.Addon, cluster *kubermaticv1.Cluster) error {
+	var defaultAddons sets.String
+	if cluster.Annotations["kubermatic.io/openshift"] != "" {
+		defaultAddons = r.defaultOpenshiftAddons
+	} else {
+		defaultAddons = r.defaultKubernetesAddons
+	}
+
+	// Update only when the value was incorrect
+	if isDefault := defaultAddons.Has(addon.Name); addon.Spec.IsDefault != isDefault {
+		addon.Spec.IsDefault = isDefault
+		if err := r.Client.Update(ctx, addon); err != nil {
+			return err
+		}
 	}
 
 	return nil
@@ -253,9 +299,15 @@ func (r *Reconciler) getAddonManifests(log *zap.SugaredLogger, addon *kubermatic
 		return nil, err
 	}
 
+	credentials, err := resources.GetCredentials(resources.NewCredentialsData(context.Background(), cluster, r.Client))
+	if err != nil {
+		return nil, fmt.Errorf("failed to get credentials: %v", err)
+	}
+
 	data := &addonutils.TemplateData{
 		Variables:    make(map[string]interface{}),
 		Cluster:      cluster,
+		Credentials:  credentials,
 		Addon:        addon,
 		Kubeconfig:   string(kubeconfig),
 		DNSClusterIP: clusterIP,
@@ -408,21 +460,13 @@ func (r *Reconciler) setupManifestInteraction(log *zap.SugaredLogger, addon *kub
 }
 
 func (r *Reconciler) getDeleteCommand(ctx context.Context, kubeconfigFilename, manifestFilename string, openshift bool) *exec.Cmd {
-	binary := "kubectl"
-	if openshift {
-		binary = "oc"
-	}
-	cmd := exec.CommandContext(ctx, binary, "--kubeconfig", kubeconfigFilename, "delete", "-f", manifestFilename)
+	cmd := exec.CommandContext(ctx, "kubectl", "--kubeconfig", kubeconfigFilename, "delete", "-f", manifestFilename)
 	return cmd
 }
 
 func (r *Reconciler) getApplyCommand(ctx context.Context, kubeconfigFilename, manifestFilename string, selector fmt.Stringer, openshift bool) *exec.Cmd {
 	//kubectl apply --prune -f manifest.yaml -l app=nginx
-	binary := "kubectl"
-	if openshift {
-		binary = "oc"
-	}
-	cmd := exec.CommandContext(ctx, binary, "--kubeconfig", kubeconfigFilename, "apply", "--prune", "-f", manifestFilename, "-l", selector.String())
+	cmd := exec.CommandContext(ctx, "kubectl", "--kubeconfig", kubeconfigFilename, "apply", "--prune", "-f", manifestFilename, "-l", selector.String())
 	return cmd
 }
 

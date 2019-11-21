@@ -8,11 +8,7 @@ spec:
   selector:
     matchLabels:
       app: metrics-server
-  strategy:
-    rollingUpdate:
-      maxSurge: 1
-      maxUnavailable: 0
-    type: RollingUpdate
+  strategy: {}
   template:
     metadata:
       creationTimestamp: null
@@ -21,6 +17,7 @@ spec:
         cluster: de-test-01
         kubeletdnatcontroller-kubeconfig-secret-revision: "123456"
         metrics-server-secret-revision: "123456"
+        metrics-server-serving-cert-secret-revision: "123456"
         openvpn-client-certificates-secret-revision: "123456"
     spec:
       affinity:
@@ -51,10 +48,17 @@ spec:
         - -timeout
         - "1"
         - -command
+<<<<<<< HEAD
         - '{"command":"/metrics-server","args":["--kubeconfig","/etc/kubernetes/kubeconfig/kubeconfig","--authentication-kubeconfig","/etc/kubernetes/kubeconfig/kubeconfig","--authorization-kubeconfig","/etc/kubernetes/kubeconfig/kubeconfig","--kubelet-port","10250","--kubelet-insecure-tls","--kubelet-preferred-address-types","ExternalIP,InternalIP","--v","1","--logtostderr"]}'
         command:
         - /http-prober-bin/http-prober
         image: gcr.io/google_containers/metrics-server-amd64:v0.3.3
+=======
+        - '{"command":"/metrics-server","args":["--kubeconfig","/etc/kubernetes/kubeconfig/kubeconfig","--authentication-kubeconfig","/etc/kubernetes/kubeconfig/kubeconfig","--authorization-kubeconfig","/etc/kubernetes/kubeconfig/kubeconfig","--kubelet-port","10250","--kubelet-insecure-tls","--kubelet-preferred-address-types","ExternalIP,InternalIP","--v","1","--logtostderr","--tls-cert-file","/etc/serving-cert/serving.crt","--tls-private-key-file","/etc/serving-cert/serving.key"]}'
+        command:
+        - /http-prober-bin/http-prober
+        image: gcr.io/google_containers/metrics-server-amd64:v0.3.4
+>>>>>>> v2.12.1
         name: metrics-server
         resources:
           limits:
@@ -67,6 +71,12 @@ spec:
         - mountPath: /etc/kubernetes/kubeconfig
           name: metrics-server
           readOnly: true
+<<<<<<< HEAD
+=======
+        - mountPath: /etc/serving-cert
+          name: metrics-server-serving-cert
+          readOnly: true
+>>>>>>> v2.12.1
         - mountPath: /http-prober-bin
           name: http-prober-bin
       - args:
@@ -119,7 +129,6 @@ spec:
             memory: 5Mi
         securityContext:
           privileged: true
-          procMount: Default
         volumeMounts:
         - mountPath: /etc/openvpn/pki/client
           name: openvpn-client-certificates
@@ -129,13 +138,9 @@ spec:
         - /etc/kubernetes/kubeconfig/kubeconfig
         - -node-access-network
         - 192.0.2.0/24
-        - -v
-        - "4"
-        - -logtostderr
         command:
         - /usr/local/bin/kubeletdnat-controller
-        image: 'quay.io/kubermatic/api:'
-        imagePullPolicy: IfNotPresent
+        image: 'quay.io/kubermatic/kubeletdnat-controller:'
         name: dnat-controller
         resources:
           limits:
@@ -161,7 +166,11 @@ spec:
         - /bin/cp
         - /usr/local/bin/http-prober
         - /http-prober-bin/http-prober
+<<<<<<< HEAD
         image: quay.io/kubermatic/http-prober:v0.2
+=======
+        image: quay.io/kubermatic/http-prober:v0.3.1
+>>>>>>> v2.12.1
         name: copy-http-prober
         resources: {}
         volumeMounts:
@@ -170,16 +179,19 @@ spec:
       volumes:
       - name: metrics-server
         secret:
-          defaultMode: 292
           secretName: metrics-server
       - name: openvpn-client-certificates
         secret:
-          defaultMode: 256
           secretName: openvpn-client-certificates
       - name: kubeletdnatcontroller-kubeconfig
         secret:
-          defaultMode: 292
           secretName: kubeletdnatcontroller-kubeconfig
+<<<<<<< HEAD
+=======
+      - name: metrics-server-serving-cert
+        secret:
+          secretName: metrics-server-serving-cert
+>>>>>>> v2.12.1
       - emptyDir: {}
         name: http-prober-bin
 status: {}

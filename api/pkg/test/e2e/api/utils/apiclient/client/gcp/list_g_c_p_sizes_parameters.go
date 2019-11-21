@@ -149,6 +149,7 @@ func (o *ListGCPSizesParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.
 
 	if o.Credential != nil {
 
+<<<<<<< HEAD
 		// query param Credential
 		var qrCredential string
 		if o.Credential != nil {
@@ -159,6 +160,11 @@ func (o *ListGCPSizesParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.
 			if err := r.SetQueryParam("Credential", qCredential); err != nil {
 				return err
 			}
+=======
+		// header param Credential
+		if err := r.SetHeaderParam("Credential", *o.Credential); err != nil {
+			return err
+>>>>>>> v2.12.1
 		}
 
 	}

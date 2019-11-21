@@ -3,20 +3,16 @@ package client
 import (
 	"context"
 	"fmt"
-	"sync"
 
 	kubermaticv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
-	"github.com/kubermatic/kubermatic/api/pkg/log"
 	"github.com/kubermatic/kubermatic/api/pkg/resources"
 	"github.com/kubermatic/kubermatic/api/pkg/util/restmapper"
+	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/kubernetes/scheme"
 	restclient "k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
-	clusterv1alpha1 "sigs.k8s.io/cluster-api/pkg/apis/cluster/v1alpha1"
 	ctrlruntimeclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -25,33 +21,29 @@ import (
 type UserClusterConnectionProvider interface {
 	GetClient(*kubermaticv1.Cluster, ...ConfigOption) (ctrlruntimeclient.Client, error)
 	GetAdminKubeconfig(c *kubermaticv1.Cluster) ([]byte, error)
+	GetViewerKubeconfig(c *kubermaticv1.Cluster) ([]byte, error)
+	RevokeViewerKubeconfig(c *kubermaticv1.Cluster) error
 }
 
 // NewInternal returns a new instance of the client connection provider that
 // only works from within the seed cluster but has the advantage that it doesn't leave
 // the seed clusters network
 func NewInternal(seedClient ctrlruntimeclient.Client) (UserClusterConnectionProvider, error) {
-	if err := clusterv1alpha1.SchemeBuilder.AddToScheme(scheme.Scheme); err != nil {
-		return nil, fmt.Errorf("failed to add clusterv1alpha1 to scheme: %v", err)
-	}
 	return &provider{
 		seedClient:         seedClient,
 		useExternalAddress: false,
-		clusterRESTMapper:  map[string]meta.RESTMapper{},
+		restMapperCache:    restmapper.New(),
 	}, nil
 }
 
-// NewExternal returns a new instance of the client connection provider that
+// NewExternal returns a new instance of the client connection provider
 // that uses the external cluster address and hence works from everywhere.
 // Use NewInternal if possible
 func NewExternal(seedClient ctrlruntimeclient.Client) (UserClusterConnectionProvider, error) {
-	if err := clusterv1alpha1.AddToScheme(scheme.Scheme); err != nil {
-		return nil, fmt.Errorf("failed to add clusterv1alpha1 to scheme: %v", err)
-	}
 	return &provider{
 		seedClient:         seedClient,
 		useExternalAddress: true,
-		clusterRESTMapper:  map[string]meta.RESTMapper{},
+		restMapperCache:    restmapper.New(),
 	}, nil
 }
 
@@ -59,27 +51,8 @@ type provider struct {
 	seedClient         ctrlruntimeclient.Client
 	useExternalAddress bool
 
-	mapperLock sync.Mutex
 	// We keep the existing cluster mappings to avoid the discovery on each call to the API server
-	clusterRESTMapper map[string]meta.RESTMapper
-}
-
-func (p *provider) mapper(c *kubermaticv1.Cluster, config *restclient.Config) (meta.RESTMapper, error) {
-	p.mapperLock.Lock()
-	defer p.mapperLock.Unlock()
-
-	if mapper, found := p.clusterRESTMapper[c.Name]; found {
-		return mapper, nil
-	}
-
-	mapper, err := restmapper.NewDynamicRESTMapper(config)
-	if err != nil {
-		return nil, err
-	}
-	log.Logger.Infow("mapper created", "cluster", c.Name)
-	p.clusterRESTMapper[c.Name] = mapper
-
-	return mapper, nil
+	restMapperCache *restmapper.Cache
 }
 
 // GetAdminKubeconfig returns the admin kubeconfig for the given cluster
@@ -101,6 +74,36 @@ func (p *provider) GetAdminKubeconfig(c *kubermaticv1.Cluster) ([]byte, error) {
 		return nil, fmt.Errorf("no kubeconfig found")
 	}
 	return d, nil
+}
+
+// GetViewerKubeconfig returns the viewer kubeconfig for the given cluster
+func (p *provider) GetViewerKubeconfig(c *kubermaticv1.Cluster) ([]byte, error) {
+	s := &corev1.Secret{}
+
+	if err := p.seedClient.Get(context.Background(), types.NamespacedName{Namespace: c.Status.NamespaceName, Name: resources.ViewerKubeconfigSecretName}, s); err != nil {
+		return nil, err
+	}
+
+	d := s.Data[resources.KubeconfigSecretKey]
+	if len(d) == 0 {
+		return nil, fmt.Errorf("no kubeconfig found")
+	}
+	return d, nil
+}
+
+// RevokeViewerKubeconfig deletes viewer token to deploy new one and regenerate viewer-kubeconfig
+func (p *provider) RevokeViewerKubeconfig(c *kubermaticv1.Cluster) error {
+	s := &corev1.Secret{
+		ObjectMeta: v1.ObjectMeta{
+			Name:      resources.ViewerTokenSecretName,
+			Namespace: c.Status.NamespaceName,
+		},
+	}
+
+	if err := p.seedClient.Delete(context.Background(), s); err != nil {
+		return err
+	}
+	return nil
 }
 
 // ConfigOption defines a function that applies additional configuration to restclient.Config in a generic way.
@@ -149,15 +152,5 @@ func (p *provider) GetClient(c *kubermaticv1.Cluster, options ...ConfigOption) (
 		return nil, err
 	}
 
-	mapper, err := p.mapper(c, config)
-	if err != nil {
-		log.Logger.Errorf("failed to get the REST mapper for the client: %v", err)
-		return ctrlruntimeclient.New(config, ctrlruntimeclient.Options{})
-	}
-
-	dynamicClient, err := ctrlruntimeclient.New(config, ctrlruntimeclient.Options{Mapper: mapper})
-	if err != nil {
-		return nil, fmt.Errorf("failed to create dynamic client: %v", err)
-	}
-	return dynamicClient, nil
+	return p.restMapperCache.Client(config)
 }

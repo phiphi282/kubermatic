@@ -4,12 +4,12 @@ import (
 	"context"
 	"time"
 
-	"github.com/golang/glog"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kubermaticapiv1 "github.com/kubermatic/kubermatic/api/pkg/api/v1"
 	kubermaticv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
 	kuberneteshelper "github.com/kubermatic/kubermatic/api/pkg/kubernetes"
+	"github.com/kubermatic/kubermatic/api/pkg/resources"
 )
 
 const (
@@ -62,17 +62,8 @@ func (r *Reconciler) reconcileCluster(ctx context.Context, cluster *kubermaticv1
 	}
 
 	if !cluster.Status.ExtendedHealth.AllHealthy() {
-		glog.V(4).Infof("Cluster %q not yet healthy: %+v", cluster.Name, cluster.Status.ExtendedHealth)
+		r.log.Debugf("Cluster %q not yet healthy: %+v", cluster.Name, cluster.Status.ExtendedHealth)
 		return &reconcile.Result{RequeueAfter: reachableCheckPeriod}, nil
-	}
-
-	if cluster.Status.Phase == kubermaticv1.LaunchingClusterStatusPhase {
-		err := r.updateCluster(ctx, cluster, func(c *kubermaticv1.Cluster) {
-			c.Status.Phase = kubermaticv1.RunningClusterStatusPhase
-		})
-		if err != nil {
-			return nil, err
-		}
 	}
 
 	return &reconcile.Result{}, nil
@@ -84,7 +75,7 @@ func (r *Reconciler) ensureClusterNetworkDefaults(ctx context.Context, cluster *
 
 	if len(cluster.Spec.ClusterNetwork.Services.CIDRBlocks) == 0 {
 		setServiceNetwork := func(c *kubermaticv1.Cluster) {
-			c.Spec.ClusterNetwork.Services.CIDRBlocks = []string{"10.10.10.0/24"}
+			c.Spec.ClusterNetwork.Services.CIDRBlocks = []string{"10.240.16.0/20"}
 		}
 		modifiers = append(modifiers, setServiceNetwork)
 	}
@@ -101,6 +92,13 @@ func (r *Reconciler) ensureClusterNetworkDefaults(ctx context.Context, cluster *
 			c.Spec.ClusterNetwork.DNSDomain = "cluster.local"
 		}
 		modifiers = append(modifiers, setDNSDomain)
+	}
+
+	if cluster.Spec.ClusterNetwork.ProxyMode == "" {
+		setProxyMode := func(c *kubermaticv1.Cluster) {
+			c.Spec.ClusterNetwork.ProxyMode = resources.IPVSProxyMode
+		}
+		modifiers = append(modifiers, setProxyMode)
 	}
 
 	return r.updateCluster(ctx, cluster, func(c *kubermaticv1.Cluster) {

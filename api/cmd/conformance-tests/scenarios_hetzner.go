@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 
-	kubermaticapiv1 "github.com/kubermatic/kubermatic/api/pkg/api/v1"
 	"github.com/kubermatic/kubermatic/api/pkg/semver"
 	apimodels "github.com/kubermatic/kubermatic/api/pkg/test/e2e/api/utils/apiclient/models"
 )
@@ -15,15 +14,15 @@ func getHetznerScenarios(versions []*semver.Semver) []testScenario {
 		// Ubuntu
 		scenarios = append(scenarios, &hetznerScenario{
 			version: v,
-			nodeOsSpec: kubermaticapiv1.OperatingSystemSpec{
-				Ubuntu: &kubermaticapiv1.UbuntuSpec{},
+			nodeOsSpec: apimodels.OperatingSystemSpec{
+				Ubuntu: &apimodels.UbuntuSpec{},
 			},
 		})
 		// CentOS
 		scenarios = append(scenarios, &hetznerScenario{
 			version: v,
-			nodeOsSpec: kubermaticapiv1.OperatingSystemSpec{
-				CentOS: &kubermaticapiv1.CentOSSpec{},
+			nodeOsSpec: apimodels.OperatingSystemSpec{
+				Centos: &apimodels.CentOSSpec{},
 			},
 		})
 	}
@@ -33,7 +32,7 @@ func getHetznerScenarios(versions []*semver.Semver) []testScenario {
 
 type hetznerScenario struct {
 	version    *semver.Semver
-	nodeOsSpec kubermaticapiv1.OperatingSystemSpec
+	nodeOsSpec apimodels.OperatingSystemSpec
 }
 
 func (s *hetznerScenario) Name() string {
@@ -57,21 +56,30 @@ func (s *hetznerScenario) Cluster(secrets secrets) *apimodels.CreateClusterSpec 
 	}
 }
 
-func (s *hetznerScenario) Nodes(num int, _ secrets) *kubermaticapiv1.NodeDeployment {
-	return &kubermaticapiv1.NodeDeployment{
-		Spec: kubermaticapiv1.NodeDeploymentSpec{
-			Replicas: int32(num),
-			Template: kubermaticapiv1.NodeSpec{
-				Cloud: kubermaticapiv1.NodeCloudSpec{
-					Hetzner: &kubermaticapiv1.HetznerNodeSpec{
-						Type: "cx31",
+func (s *hetznerScenario) NodeDeployments(num int, _ secrets) ([]apimodels.NodeDeployment, error) {
+	replicas := int32(num)
+	nodeType := "cx31"
+
+	return []apimodels.NodeDeployment{
+		{
+			Spec: &apimodels.NodeDeploymentSpec{
+				Replicas: &replicas,
+				Template: &apimodels.NodeSpec{
+					Cloud: &apimodels.NodeCloudSpec{
+						Hetzner: &apimodels.HetznerNodeSpec{
+							Type: &nodeType,
+						},
 					},
+					Versions: &apimodels.NodeVersionInfo{
+						Kubelet: s.version.String(),
+					},
+					OperatingSystem: &s.nodeOsSpec,
 				},
-				Versions: kubermaticapiv1.NodeVersionInfo{
-					Kubelet: s.version.String(),
-				},
-				OperatingSystem: s.nodeOsSpec,
 			},
 		},
-	}
+	}, nil
+}
+
+func (s *hetznerScenario) OS() apimodels.OperatingSystemSpec {
+	return s.nodeOsSpec
 }

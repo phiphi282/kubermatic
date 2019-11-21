@@ -84,11 +84,8 @@ func StatefulSetCreator(data *resources.TemplateData) reconciling.NamedStatefulS
 
 			set.Spec.Template.Spec.Containers = []corev1.Container{
 				{
-					Name:                     name,
-					Image:                    data.ImageRegistry(resources.RegistryQuay) + "/prometheus/prometheus:" + tag,
-					ImagePullPolicy:          corev1.PullIfNotPresent,
-					TerminationMessagePath:   corev1.TerminationMessagePathDefault,
-					TerminationMessagePolicy: corev1.TerminationMessageReadFile,
+					Name:  name,
+					Image: data.ImageRegistry(resources.RegistryQuay) + "/prometheus/prometheus:" + tag,
 					Args: []string{
 						"--config.file=/etc/prometheus/config/prometheus.yaml",
 						"--storage.tsdb.path=/var/prometheus/data",
@@ -175,7 +172,6 @@ func getVolumes() []corev1.Volume {
 					LocalObjectReference: corev1.LocalObjectReference{
 						Name: resources.PrometheusConfigConfigMapName,
 					},
-					DefaultMode: resources.Int32(resources.DefaultOwnerReadOnlyMode),
 				},
 			},
 		},
@@ -189,8 +185,7 @@ func getVolumes() []corev1.Volume {
 			Name: resources.ApiserverEtcdClientCertificateSecretName,
 			VolumeSource: corev1.VolumeSource{
 				Secret: &corev1.SecretVolumeSource{
-					SecretName:  resources.ApiserverEtcdClientCertificateSecretName,
-					DefaultMode: resources.Int32(resources.DefaultOwnerReadOnlyMode),
+					SecretName: resources.ApiserverEtcdClientCertificateSecretName,
 				},
 			},
 		},
@@ -198,8 +193,7 @@ func getVolumes() []corev1.Volume {
 			Name: resources.PrometheusApiserverClientCertificateSecretName,
 			VolumeSource: corev1.VolumeSource{
 				Secret: &corev1.SecretVolumeSource{
-					SecretName:  resources.PrometheusApiserverClientCertificateSecretName,
-					DefaultMode: resources.Int32(resources.DefaultOwnerReadOnlyMode),
+					SecretName: resources.PrometheusApiserverClientCertificateSecretName,
 				},
 			},
 		},

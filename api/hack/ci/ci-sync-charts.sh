@@ -3,6 +3,7 @@
 set -euo pipefail
 
 apk add --no-cache -U git bash openssh
+source $(dirname $0)/../lib.sh
 cd $(dirname $0)/../../..
 git fetch
 export LATEST_VERSION=$(git describe --tags --abbrev=0)
@@ -25,6 +26,10 @@ if [[ -z ${INSTALLER_BRANCH} ]]; then
   echo "Error, the INSTALLER_BRANCH varible was empty"
   exit 1
 fi
+
+
+LATEST_DASHBOARD="$(get_latest_dashboard_tag "$INSTALLER_BRANCH")"
+sed -i "s/__DASHBOARD_TAG__/$LATEST_DASHBOARD/g" config/*/*.yaml
 
 export CHARTS='kubermatic cert-manager certs nginx-ingress-controller nodeport-proxy oauth minio iap s3-exporter'
 export MONITORING_CHARTS='alertmanager blackbox-exporter grafana kube-state-metrics node-exporter prometheus'

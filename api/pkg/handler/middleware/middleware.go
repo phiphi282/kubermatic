@@ -14,39 +14,38 @@ import (
 	"github.com/kubermatic/kubermatic/api/pkg/handler/auth"
 	"github.com/kubermatic/kubermatic/api/pkg/handler/v1/common"
 	"github.com/kubermatic/kubermatic/api/pkg/provider"
-	"github.com/kubermatic/kubermatic/api/pkg/util/errors"
+	kubermaticcontext "github.com/kubermatic/kubermatic/api/pkg/util/context"
 	k8cerrors "github.com/kubermatic/kubermatic/api/pkg/util/errors"
 	"github.com/kubermatic/kubermatic/api/pkg/util/hash"
 
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 )
 
-// contextKey defines a dedicated type for keys to use on contexts
-type contextKey string
-
 const (
-	datacenterContextKey contextKey = "datacenter"
+	datacenterContextKey kubermaticcontext.Key = "datacenter"
 
-	// ClusterProviderContextKey key under which the current ClusterProvider is kept in the ctx
-	ClusterProviderContextKey contextKey = "cluster-provider"
-
-	// PrivilegedClusterProviderContextKey key under which the current PrivilegedClusterProvider is kept in the ctx
-	PrivilegedClusterProviderContextKey contextKey = "privileged-cluster-provider"
-
-	// UserInfoContextKey key under which the current UserInfoExtractor is kept in the ctx
-	UserInfoContextKey contextKey = "user-info"
-
-	// UserCRContextKey key under which the current User (from the database) is kept in the ctx
-	UserCRContextKey contextKey = "user-cr"
-
-	// AuthenticatedUserContextKey key under which the current User (from OIDC provider) is kept in the ctx
-	AuthenticatedUserContextKey contextKey = "authenticated-user"
-
-	// rawTokenContextKey key under which the current token (OpenID ID Token) is kept in the ctx
-	rawTokenContextKey contextKey = "raw-auth-token"
+	// RawTokenContextKey key under which the current token (OpenID ID Token) is kept in the ctx
+	rawTokenContextKey kubermaticcontext.Key = "raw-auth-token"
 
 	// noTokenFoundKey key under which an error is kept when no suitable token has been found in a request
-	noTokenFoundKey contextKey = "no-token-found"
+	noTokenFoundKey kubermaticcontext.Key = "no-token-found"
+
+	// ClusterProviderContextKey key under which the current ClusterProvider is kept in the ctx
+	ClusterProviderContextKey kubermaticcontext.Key = "cluster-provider"
+
+	// PrivilegedClusterProviderContextKey key under which the current PrivilegedClusterProvider is kept in the ctx
+	PrivilegedClusterProviderContextKey kubermaticcontext.Key = "privileged-cluster-provider"
+
+	// UserInfoContextKey key under which the current UserInfoExtractor is kept in the ctx
+	UserInfoContextKey kubermaticcontext.Key = "user-info"
+
+	// AuthenticatedUserContextKey key under which the current User (from OIDC provider) is kept in the ctx
+	AuthenticatedUserContextKey kubermaticcontext.Key = "authenticated-user"
+
+	// AddonProviderContextKey key under which the current AddonProvider is kept in the ctx
+	AddonProviderContextKey kubermaticcontext.Key = "addon-provider"
+
+	UserCRContextKey = kubermaticcontext.UserCRContextKey
 )
 
 //DCGetter defines functionality to retrieve a datacenter name
@@ -55,10 +54,10 @@ type dCGetter interface {
 }
 
 // SetClusterProvider is a middleware that injects the current ClusterProvider into the ctx
-func SetClusterProvider(clusterProviders map[string]provider.ClusterProvider, datacenters map[string]provider.DatacenterMeta) endpoint.Middleware {
+func SetClusterProvider(clusterProviderGetter provider.ClusterProviderGetter, seedsGetter provider.SeedsGetter) endpoint.Middleware {
 	return func(next endpoint.Endpoint) endpoint.Endpoint {
 		return func(ctx context.Context, request interface{}) (response interface{}, err error) {
-			clusterProvider, ctx, err := getClusterProvider(ctx, request, datacenters, clusterProviders)
+			clusterProvider, ctx, err := getClusterProvider(ctx, request, seedsGetter, clusterProviderGetter)
 			if err != nil {
 				return nil, err
 			}
@@ -70,15 +69,16 @@ func SetClusterProvider(clusterProviders map[string]provider.ClusterProvider, da
 }
 
 // SetPrivilegedClusterProvider is a middleware that injects the current ClusterProvider into the ctx
-func SetPrivilegedClusterProvider(clusterProviders map[string]provider.ClusterProvider, datacenters map[string]provider.DatacenterMeta) endpoint.Middleware {
+func SetPrivilegedClusterProvider(clusterProviderGetter provider.ClusterProviderGetter, seedsGetter provider.SeedsGetter) endpoint.Middleware {
 	return func(next endpoint.Endpoint) endpoint.Endpoint {
 		return func(ctx context.Context, request interface{}) (response interface{}, err error) {
-			clusterProvider, ctx, err := getClusterProvider(ctx, request, datacenters, clusterProviders)
+			clusterProvider, ctx, err := getClusterProvider(ctx, request, seedsGetter, clusterProviderGetter)
 			if err != nil {
 				return nil, err
 			}
 
 			privilegedClusterProvider := clusterProvider.(provider.PrivilegedClusterProvider)
+			ctx = context.WithValue(ctx, ClusterProviderContextKey, clusterProvider)
 			ctx = context.WithValue(ctx, PrivilegedClusterProviderContextKey, privilegedClusterProvider)
 			return next(ctx, request)
 		}
@@ -112,7 +112,7 @@ func UserSaver(userProvider provider.UserProvider) endpoint.Middleware {
 					}
 				}
 			}
-			return next(context.WithValue(ctx, UserCRContextKey, user), request)
+			return next(context.WithValue(ctx, kubermaticcontext.UserCRContextKey, user), request)
 		}
 	}
 }
@@ -122,8 +122,9 @@ func UserSaver(userProvider provider.UserProvider) endpoint.Middleware {
 func UserInfoExtractor(userProjectMapper provider.ProjectMemberMapper) endpoint.Middleware {
 	return func(next endpoint.Endpoint) endpoint.Endpoint {
 		return func(ctx context.Context, request interface{}) (response interface{}, err error) {
-			user, ok := ctx.Value(UserCRContextKey).(*kubermaticapiv1.User)
+			user, ok := ctx.Value(kubermaticcontext.UserCRContextKey).(*kubermaticapiv1.User)
 			if !ok {
+				// This happens if middleware.UserSaver is not enabled.
 				return nil, k8cerrors.New(http.StatusInternalServerError, "unable to get authenticated user object")
 			}
 
@@ -223,6 +224,30 @@ func TokenVerifier(tokenVerifier auth.TokenVerifier) endpoint.Middleware {
 	}
 }
 
+// Addons is a middleware that injects the current AddonProvider into the ctx
+func Addons(addonProviderGetter provider.AddonProviderGetter, seedsGetter provider.SeedsGetter) endpoint.Middleware {
+	return func(next endpoint.Endpoint) endpoint.Endpoint {
+		return func(ctx context.Context, request interface{}) (response interface{}, err error) {
+			seeds, err := seedsGetter()
+			if err != nil {
+				return nil, err
+			}
+			seedName := request.(dCGetter).GetDC()
+			seed, found := seeds[seedName]
+			if !found {
+				return nil, fmt.Errorf("couldn't find seed %q", seedName)
+			}
+
+			addonProvider, err := addonProviderGetter(seed)
+			if err != nil {
+				return nil, err
+			}
+			ctx = context.WithValue(ctx, AddonProviderContextKey, addonProvider)
+			return next(ctx, request)
+		}
+	}
+}
+
 // TokenExtractor knows how to extract a token from the incoming request
 func TokenExtractor(o auth.TokenExtractor) transporthttp.RequestFunc {
 	return func(ctx context.Context, r *http.Request) context.Context {
@@ -247,17 +272,24 @@ func createUserInfo(user *kubermaticapiv1.User, projectID string, userProjectMap
 	return &provider.UserInfo{Email: user.Spec.Email, Group: group}, nil
 }
 
-func getClusterProvider(ctx context.Context, request interface{}, datacenters map[string]provider.DatacenterMeta, clusterProviders map[string]provider.ClusterProvider) (provider.ClusterProvider, context.Context, error) {
-	getter := request.(dCGetter)
-	dc, exists := datacenters[getter.GetDC()]
-	if !exists {
-		return nil, ctx, errors.NewNotFound("datacenter", getter.GetDC())
+func getClusterProvider(ctx context.Context, request interface{}, seedsGetter provider.SeedsGetter, clusterProviderGetter provider.ClusterProviderGetter) (provider.ClusterProvider, context.Context, error) {
+	getter, ok := request.(dCGetter)
+	if !ok {
+		return nil, nil, fmt.Errorf("request is no dcGetter")
 	}
-	ctx = context.WithValue(ctx, datacenterContextKey, dc)
-
-	clusterProvider, exists := clusterProviders[getter.GetDC()]
+	seeds, err := seedsGetter()
+	if err != nil {
+		return nil, ctx, k8cerrors.New(http.StatusInternalServerError, fmt.Sprintf("failed to list seeds: %v", err))
+	}
+	seed, exists := seeds[getter.GetDC()]
 	if !exists {
-		return nil, ctx, errors.NewNotFound("cluster-provider", getter.GetDC())
+		return nil, ctx, k8cerrors.NewNotFound("datacenter", getter.GetDC())
+	}
+	ctx = context.WithValue(ctx, datacenterContextKey, seed)
+
+	clusterProvider, err := clusterProviderGetter(seed)
+	if err != nil {
+		return nil, ctx, k8cerrors.NewNotFound("cluster-provider", getter.GetDC())
 	}
 
 	return clusterProvider, ctx, nil

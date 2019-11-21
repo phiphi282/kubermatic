@@ -3,11 +3,12 @@
 package e2e
 
 import (
+	"fmt"
 	"os"
+	"os/exec"
+	"strings"
 	"testing"
 	"time"
-
-	apiv1 "github.com/kubermatic/kubermatic/api/pkg/api/v1"
 
 	"k8s.io/apimachinery/pkg/util/rand"
 )
@@ -30,48 +31,100 @@ func getKubernetesVersion() string {
 	return "v1.14.2"
 }
 
+// runOIDCProxy runs the OIDC proxy. It is non-blocking. It does
+// so by shelling out which is not pretty, but better than the previous
+// approach of forking in a script and having no way of making the test
+// fail of the OIDC failed
+func runOIDCProxy(t *testing.T, cancel <-chan struct{}) error {
+	gopathRaw, err := exec.Command("go", "env", "GOPATH").CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to get gopath: %v", err)
+	}
+	goPathSanitized := strings.Replace(string(gopathRaw), "\n", "", -1)
+	oidcProxyDir := fmt.Sprintf("%s/src/github.com/kubermatic/kubermatic/api/pkg/test/e2e/api/utils/oidc-proxy-client", goPathSanitized)
+
+	oidProxyCommand := exec.Command("make", "run")
+	oidProxyCommand.Dir = oidcProxyDir
+
+	errChan := make(chan error, 1)
+	go func() {
+		out, err := oidProxyCommand.CombinedOutput()
+		errChan <- fmt.Errorf("failed to run oidc proxy. Output:\n%s\nError: %v", string(out), err)
+	}()
+
+	go func() {
+		select {
+		case err := <-errChan:
+			t.Errorf("oidc proxy failed: %v", err)
+		case <-cancel:
+			return
+		}
+	}()
+
+	return nil
+}
+
 func TestCreateAWSCluster(t *testing.T) {
 	tests := []struct {
-		name     string
-		dc       string
-		location string
-		replicas int32
+		name             string
+		dc               string
+		location         string
+		availabilityZone string
+		replicas         int32
 	}{
 		{
-			name:     "create cluster on AWS",
-			dc:       "europe-west3-c-1",
-			location: "aws-eu-central-1a",
-			replicas: 1,
+			name:             "create cluster on AWS",
+			dc:               "europe-west3-c-1",
+			location:         "aws-eu-central-1a",
+			availabilityZone: "eu-central-1a",
+			replicas:         1,
 		},
 	}
+
+	cancel := make(chan struct{}, 1)
+	if err := runOIDCProxy(t, cancel); err != nil {
+		t.Fatalf("failed to start oidc proxy: %v", err)
+	}
+	defer func() {
+		cancel <- struct{}{}
+	}()
+
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Log("Getting master token")
 			masterToken, err := GetMasterToken()
 			if err != nil {
 				t.Fatalf("can not get master token %v", err)
 			}
+			t.Log("Got master token")
 
 			apiRunner := CreateAPIRunner(masterToken, t)
+
+			t.Log("Creating project")
 			project, err := apiRunner.CreateProject(rand.String(10))
 			if err != nil {
-				t.Fatalf("can not create project %v", err)
+				t.Fatalf("can not create project %v", GetErrorResponse(err))
 			}
-			teardown := CleanUpProject(project.ID, 10)
+			t.Logf("Successfully created project %q", project.ID)
+			teardown := cleanUpProject(project.ID, 1)
 			defer teardown(t)
 
-			cluster, err := apiRunner.CreateAWSCluster(project.ID, tc.dc, rand.String(10), getSecretAccessKey(), getAccessKeyID(), getKubernetesVersion(), tc.location, tc.replicas)
+			t.Log("Creating cluster")
+			cluster, err := apiRunner.CreateAWSCluster(project.ID, tc.dc, rand.String(10), getSecretAccessKey(), getAccessKeyID(), getKubernetesVersion(), tc.location, tc.availabilityZone, tc.replicas)
 			if err != nil {
-				t.Fatalf("can not create cluster due to error: %v", err)
+				t.Fatalf("can not create cluster due to error: %v", GetErrorResponse(err))
 			}
+			t.Logf("Successfully created cluster %q", cluster.ID)
 
+			t.Logf("Waiting for cluster %q to get ready", cluster.ID)
 			var clusterReady bool
 			for attempt := 1; attempt <= getAWSMaxAttempts; attempt++ {
 				healthStatus, err := apiRunner.GetClusterHealthStatus(project.ID, tc.dc, cluster.ID)
 				if err != nil {
-					t.Fatalf("can not get health status %v", err)
+					t.Fatalf("can not get health status %v", GetErrorResponse(err))
 				}
 
-				if isHealthyCluster(healthStatus) {
+				if IsHealthyCluster(healthStatus) {
 					clusterReady = true
 					break
 				}
@@ -79,14 +132,19 @@ func TestCreateAWSCluster(t *testing.T) {
 			}
 
 			if !clusterReady {
-				t.Fatalf("cluster is not redy after %d attempts", getAWSMaxAttempts)
+				if err := apiRunner.PrintClusterEvents(project.ID, tc.dc, cluster.ID); err != nil {
+					t.Errorf("failed to print cluster events: %v", err)
+				}
+				t.Fatalf("cluster is not ready after %d attempts", getAWSMaxAttempts)
 			}
+			t.Logf("Cluster %q got ready", cluster.ID)
 
+			t.Log("Waiting for nodeDeployments to get ready")
 			var ndReady bool
 			for attempt := 1; attempt <= getAWSMaxAttempts; attempt++ {
 				ndList, err := apiRunner.GetClusterNodeDeployment(project.ID, tc.dc, cluster.ID)
 				if err != nil {
-					t.Fatalf("can not get node deployments %v", err)
+					t.Fatalf("can not get node deployments %v", GetErrorResponse(err))
 				}
 
 				if len(ndList) == 1 {
@@ -98,12 +156,14 @@ func TestCreateAWSCluster(t *testing.T) {
 			if !ndReady {
 				t.Fatalf("node deployment is not redy after %d attempts", getAWSMaxAttempts)
 			}
+			t.Log("NodeDeployments got ready")
 
+			t.Log("Waiting for all nodes to get ready")
 			var replicasReady bool
 			for attempt := 1; attempt <= getAWSMaxAttempts; attempt++ {
 				ndList, err := apiRunner.GetClusterNodeDeployment(project.ID, tc.dc, cluster.ID)
 				if err != nil {
-					t.Fatalf("can not get node deployments %v", err)
+					t.Fatalf("can not get node deployments %v", GetErrorResponse(err))
 				}
 
 				if ndList[0].Status.AvailableReplicas == tc.replicas {
@@ -115,15 +175,10 @@ func TestCreateAWSCluster(t *testing.T) {
 			if !replicasReady {
 				t.Fatalf("number of nodes is not as expected")
 			}
+			t.Log("ALl nodes got ready")
+
+			cleanUpCluster(t, apiRunner, project.ID, tc.dc, cluster.ID)
 
 		})
 	}
-}
-
-func isHealthyCluster(healthStatus *apiv1.ClusterHealth) bool {
-	if healthStatus.UserClusterControllerManager && healthStatus.Scheduler && healthStatus.MachineController &&
-		healthStatus.Etcd && healthStatus.Controller && healthStatus.Apiserver {
-		return true
-	}
-	return false
 }

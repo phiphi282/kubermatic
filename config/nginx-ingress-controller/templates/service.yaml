@@ -1,0 +1,26 @@
+{{ if not .Values.nginx.hostNetwork }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx-ingress-controller
+  labels:
+    app.kubernetes.io/name: ingress-nginx
+    app.kubernetes.io/instance: '{{ .Release.Name }}'
+    app.kubernetes.io/part-of: ingress-nginx
+    app.kubernetes.io/managed-by: helm
+  annotations:
+    "helm.sh/resource-policy": keep
+spec:
+  type: LoadBalancer
+  ports:
+  - name: http
+    port: 80
+    targetPort: 80
+    protocol: TCP
+  - name: https
+    port: 443
+    targetPort: 443
+    protocol: TCP
+  selector:
+    app: ingress-nginx
+{{ end }}

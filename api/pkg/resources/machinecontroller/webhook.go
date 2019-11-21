@@ -41,18 +41,12 @@ func WebhookDeploymentCreator(data machinecontrollerData) reconciling.NamedDeplo
 			dep.Spec.Selector = &metav1.LabelSelector{
 				MatchLabels: resources.BaseAppLabel(resources.MachineControllerWebhookDeploymentName, nil),
 			}
-			dep.Spec.Strategy.Type = appsv1.RollingUpdateStatefulSetStrategyType
-			dep.Spec.Strategy.RollingUpdate = &appsv1.RollingUpdateDeployment{
-				MaxSurge: &intstr.IntOrString{
-					Type:   intstr.Int,
-					IntVal: 1,
-				},
-				MaxUnavailable: &intstr.IntOrString{
-					Type:   intstr.Int,
-					IntVal: 0,
-				},
-			}
 			dep.Spec.Template.Spec.ImagePullSecrets = []corev1.LocalObjectReference{{Name: resources.ImagePullSecretName}}
+
+			envVars, err := getEnvVars(data)
+			if err != nil {
+				return nil, err
+			}
 
 			volumes := []corev1.Volume{getKubeconfigVolume(), getServingCertVolume()}
 			dep.Spec.Template.Spec.Volumes = volumes
@@ -73,7 +67,10 @@ func WebhookDeploymentCreator(data machinecontrollerData) reconciling.NamedDeplo
 						"-v", "4",
 						"-listen-address", "0.0.0.0:9876",
 					},
-					Env:       getEnvVars(data),
+					Env: append(envVars, corev1.EnvVar{
+						Name:  "KUBECONFIG",
+						Value: "/etc/kubernetes/kubeconfig/kubeconfig",
+					}),
 					Resources: webhookResourceRequirements,
 					ReadinessProbe: &corev1.Probe{
 						Handler: corev1.Handler{
@@ -116,7 +113,7 @@ func WebhookDeploymentCreator(data machinecontrollerData) reconciling.NamedDeplo
 					},
 				},
 			}
-			wrappedPodSpec, err := apiserver.IsRunningWrapper(data, dep.Spec.Template.Spec, sets.NewString(Name))
+			wrappedPodSpec, err := apiserver.IsRunningWrapper(data, dep.Spec.Template.Spec, sets.NewString(Name), "Machine,cluster.k8s.io/v1alpha1")
 			if err != nil {
 				return nil, fmt.Errorf("failed to add apiserver.IsRunningWrapper: %v", err)
 			}
@@ -157,8 +154,7 @@ func getServingCertVolume() corev1.Volume {
 		Name: resources.MachineControllerWebhookServingCertSecretName,
 		VolumeSource: corev1.VolumeSource{
 			Secret: &corev1.SecretVolumeSource{
-				SecretName:  resources.MachineControllerWebhookServingCertSecretName,
-				DefaultMode: resources.Int32(resources.DefaultAllReadOnlyMode),
+				SecretName: resources.MachineControllerWebhookServingCertSecretName,
 			},
 		},
 	}

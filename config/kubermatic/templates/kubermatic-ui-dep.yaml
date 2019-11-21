@@ -13,6 +13,7 @@ spec:
     metadata:
       annotations:
         checksum/config: {{ include (print $.Template.BasePath "/ui-config-configmap.yaml") . | sha256sum }}
+        fluentbit.io/parser: json_iso
       labels:
         role: kubermatic-ui
         version: v1
@@ -30,6 +31,9 @@ spec:
           readOnly: true
         resources:
 {{ toYaml .Values.kubermatic.ui.resources | indent 10 }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
       imagePullSecrets:
       - name: dockercfg
       volumes:

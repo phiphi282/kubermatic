@@ -14,6 +14,8 @@ import (
 	"testing"
 	"time"
 
+	"k8s.io/apimachinery/pkg/util/sets"
+
 	"github.com/kubermatic/kubermatic/api/pkg/presets"
 
 	"github.com/kubermatic/kubermatic/api/pkg/handler/v1/common"
@@ -29,17 +31,15 @@ import (
 	kubermaticfakeclentset "github.com/kubermatic/kubermatic/api/pkg/crd/client/clientset/versioned/fake"
 	kubermaticclientv1 "github.com/kubermatic/kubermatic/api/pkg/crd/client/clientset/versioned/typed/kubermatic/v1"
 	kubermaticinformers "github.com/kubermatic/kubermatic/api/pkg/crd/client/informers/externalversions"
-	kubermaticapiv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
+	kubermaticv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
 	"github.com/kubermatic/kubermatic/api/pkg/handler/auth"
 	kubermaticlog "github.com/kubermatic/kubermatic/api/pkg/log"
 	"github.com/kubermatic/kubermatic/api/pkg/provider"
-	"github.com/kubermatic/kubermatic/api/pkg/provider/cloud"
 	"github.com/kubermatic/kubermatic/api/pkg/provider/kubernetes"
 	"github.com/kubermatic/kubermatic/api/pkg/semver"
 	"github.com/kubermatic/kubermatic/api/pkg/serviceaccount"
 	"github.com/kubermatic/kubermatic/api/pkg/version"
 
-	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -48,8 +48,9 @@ import (
 	kubernetesclientset "k8s.io/client-go/kubernetes"
 	fakerestclient "k8s.io/client-go/kubernetes/fake"
 	restclient "k8s.io/client-go/rest"
+	"k8s.io/metrics/pkg/apis/metrics/v1beta1"
 
-	clusterv1alpha1 "sigs.k8s.io/cluster-api/pkg/apis/cluster/v1alpha1"
+	clusterv1alpha1 "github.com/kubermatic/machine-controller/pkg/apis/cluster/v1alpha1"
 	ctrlruntimeclient "sigs.k8s.io/controller-runtime/pkg/client"
 	fakectrlruntimeclient "sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
@@ -61,15 +62,24 @@ func init() {
 	if err := clusterv1alpha1.SchemeBuilder.AddToScheme(scheme.Scheme); err != nil {
 		kubermaticlog.Logger.Fatalw("failed to add clusterv1alpha1 scheme to scheme.Scheme", "error", err)
 	}
+	if err := v1beta1.AddToScheme(scheme.Scheme); err != nil {
+		kubermaticlog.Logger.Fatalw("failed to register scheme v1beta1", "error", err)
+	}
 }
 
 const (
-	// UserID holds the test user ID
+	// UserID holds a test user ID
 	UserID = "1233"
-	// UserName holds the test user name
+	// UserID2 holds a test user ID
+	UserID2 = "1523"
+	// UserName holds a test user name
 	UserName = "user1"
-	// UserEmail holds the test user email
+	// UserName2 holds a test user name
+	UserName2 = "user2"
+	// UserEmail holds a test user email
 	UserEmail = "john@acme.com"
+	// UserEmail2 holds a test user email
+	UserEmail2 = "bob@example.com"
 	// ClusterID holds the test cluster ID
 	ClusterID = "AbcClusterID"
 	// DefaultClusterID holds the test default cluster ID
@@ -79,7 +89,7 @@ const (
 	// ProjectName holds the test project ID
 	ProjectName = "my-first-project-ID"
 	// TestDatacenter holds datacenter name
-	TestDatacenter = "us-central1"
+	TestSeedDatacenter = "us-central1"
 	// TestServiceAccountHashKey authenticates the service account's token value using HMAC
 	TestServiceAccountHashKey = "eyJhbGciOiJIUzI1NeyJhbGciOiJIUzI1N"
 	// TestFakeToken signed JWT token with fake data
@@ -90,10 +100,10 @@ const (
 	TestOSuserPass = "OSpass"
 	// TestOSuserName OpenStack user name
 	TestOSuserName = "OSuser"
-	// TestOSCredential OpenStack provider credential name
-	TestOSCredential = "testOpenstack"
 	// TestFakeCredential Fake provider credential name
-	TestFakeCredential = "pluton"
+	TestFakeCredential = "fake"
+	// RequiredEmailDomain required domain for predefined credentials
+	RequiredEmailDomain = "acme.com"
 )
 
 // GetUser is a convenience function for generating apiv1.User
@@ -112,10 +122,10 @@ func GetUser(email, id, name string, admin bool) apiv1.User {
 // this function is temporal until all types end up in their own packages.
 // it is meant to be used by legacy handler.createTestEndpointAndGetClients function
 type newRoutingFunc func(
-	datacenters map[string]provider.DatacenterMeta,
-	newClusterProviders map[string]provider.ClusterProvider,
-	cloudProviders map[string]provider.CloudProvider,
-	addonProviders map[string]provider.AddonProvider,
+	userInfoGetter provider.UserInfoGetter,
+	seedsGetter provider.SeedsGetter,
+	clusterProviderGetter provider.ClusterProviderGetter,
+	addonProviderGetter provider.AddonProviderGetter,
 	newSSHKeyProvider provider.SSHKeyProvider,
 	userProvider provider.UserProvider,
 	serviceAccountProvider provider.ServiceAccountProvider,
@@ -127,22 +137,22 @@ type newRoutingFunc func(
 	tokenExtractors auth.TokenExtractor,
 	prometheusClient prometheusapi.Client,
 	projectMemberProvider *kubernetes.ProjectMemberProvider,
-	versions []*version.MasterVersion,
-	updates []*version.MasterUpdate,
+	versions []*version.Version,
+	updates []*version.Update,
 	saTokenAuthenticator serviceaccount.TokenAuthenticator,
 	saTokenGenerator serviceaccount.TokenGenerator,
 	eventRecorderProvider provider.EventRecorderProvider,
 	keycloakFacade keycloak.Facade,
 	credentialManager common.PresetsManager) http.Handler
 
-func initTestEndpoint(user apiv1.User, dc map[string]provider.DatacenterMeta, kubeObjects, machineObjects, kubermaticObjects []runtime.Object, versions []*version.MasterVersion, updates []*version.MasterUpdate, credentialsManager common.PresetsManager, routingFunc newRoutingFunc) (http.Handler, *ClientsSets, error) {
-	datacenters := dc
-	if datacenters == nil {
-		datacenters = buildDatacenterMeta()
+func initTestEndpoint(user apiv1.User, seedsGetter provider.SeedsGetter, kubeObjects, machineObjects, kubermaticObjects []runtime.Object, versions []*version.Version, updates []*version.Update, credentialsManager common.PresetsManager, routingFunc newRoutingFunc) (http.Handler, *ClientsSets, error) {
+	if seedsGetter == nil {
+		seedsGetter = buildSeeds()
 	}
-	cloudProviders := cloud.Providers(datacenters)
-
-	fakeClient := fakectrlruntimeclient.NewFakeClient(append(kubeObjects, machineObjects...)...)
+	allObjects := kubeObjects
+	allObjects = append(allObjects, machineObjects...)
+	allObjects = append(allObjects, kubermaticObjects...)
+	fakeClient := fakectrlruntimeclient.NewFakeClient(allObjects...)
 	kubermaticClient := kubermaticfakeclentset.NewSimpleClientset(kubermaticObjects...)
 	kubermaticInformerFactory := kubermaticinformers.NewSharedInformerFactory(kubermaticClient, 10*time.Millisecond)
 	kubernetesClient := fakerestclient.NewSimpleClientset(kubeObjects...)
@@ -169,6 +179,10 @@ func initTestEndpoint(user apiv1.User, dc map[string]provider.DatacenterMeta, ku
 	}
 	serviceAccountProvider := kubernetes.NewServiceAccountProvider(fakeKubermaticImpersonationClient, userLister, "localhost")
 	projectMemberProvider := kubernetes.NewProjectMemberProvider(fakeKubermaticImpersonationClient, kubermaticInformerFactory.Kubermatic().V1().UserProjectBindings().Lister(), userLister, kubernetes.IsServiceAccount)
+	userInfoGetter, err := provider.UserInfoGetterFactory(projectMemberProvider)
+	if err != nil {
+		return nil, nil, err
+	}
 	verifiers := []auth.TokenVerifier{}
 	extractors := []auth.TokenExtractor{}
 	{
@@ -207,21 +221,34 @@ func initTestEndpoint(user apiv1.User, dc map[string]provider.DatacenterMeta, ku
 
 	fUserClusterConnection := &fakeUserClusterConnection{fakeClient}
 	clusterProvider := kubernetes.NewClusterProvider(
+		&restclient.Config{},
 		fakeKubermaticImpersonationClient,
 		fUserClusterConnection,
-		kubermaticInformerFactory.Kubermatic().V1().Clusters().Lister(),
 		"",
 		rbac.ExtractGroupPrefix,
 		fakeClient,
 		kubernetesClient,
+		false,
 	)
 	clusterProviders := map[string]provider.ClusterProvider{"us-central1": clusterProvider}
+	clusterProviderGetter := func(seed *kubermaticv1.Seed) (provider.ClusterProvider, error) {
+		if clusterProvider, exists := clusterProviders[seed.Name]; exists {
+			return clusterProvider, nil
+		}
+		return nil, fmt.Errorf("can not find clusterprovider for cluster %q", seed.Name)
+	}
 
 	addonProvider := kubernetes.NewAddonProvider(
 		fakeKubermaticImpersonationClient,
-		map[string]bool{"addon1": true, "addon2": true},
+		sets.NewString("addon1", "addon2"),
 	)
 	addonProviders := map[string]provider.AddonProvider{"us-central1": addonProvider}
+	addonProviderGetter := func(seed *kubermaticv1.Seed) (provider.AddonProvider, error) {
+		if addonProvider, exists := addonProviders[seed.Name]; exists {
+			return addonProvider, nil
+		}
+		return nil, fmt.Errorf("can not find addonprovider for cluster %q", seed.Name)
+	}
 
 	kubernetesInformerFactory.Start(wait.NeverStop)
 	kubernetesInformerFactory.WaitForCacheSync(wait.NeverStop)
@@ -236,10 +263,10 @@ func initTestEndpoint(user apiv1.User, dc map[string]provider.DatacenterMeta, ku
 	var prometheusClient prometheusapi.Client
 
 	mainRouter := routingFunc(
-		datacenters,
-		clusterProviders,
-		cloudProviders,
-		addonProviders,
+		userInfoGetter,
+		seedsGetter,
+		clusterProviderGetter,
+		addonProviderGetter,
 		sshKeyProvider,
 		userProvider,
 		serviceAccountProvider,
@@ -275,15 +302,26 @@ func (kc *testKeycloak) GetClientData(realmName string, clientID string) (*keycl
 }
 
 // CreateTestEndpointAndGetClients is a convenience function that instantiates fake providers and sets up routes  for the tests
-func CreateTestEndpointAndGetClients(user apiv1.User, dc map[string]provider.DatacenterMeta, kubeObjects, machineObjects, kubermaticObjects []runtime.Object, versions []*version.MasterVersion, updates []*version.MasterUpdate, routingFunc newRoutingFunc) (http.Handler, *ClientsSets, error) {
-	credentialManager := presets.New()
-	credentialManager.GetPresets().Fake = presets.Fake{Credentials: []presets.FakeCredentials{
-		{Name: TestFakeCredential, Token: "dummy_pluton_token"},
-	}}
-	credentialManager.GetPresets().Openstack = presets.Openstack{Credentials: []presets.OpenstackCredentials{
-		{Name: TestOSCredential, Username: TestOSuserName, Password: TestOSuserPass, Domain: TestOSdomain},
-	}}
-	return initTestEndpoint(user, dc, kubeObjects, machineObjects, kubermaticObjects, versions, updates, credentialManager, routingFunc)
+func CreateTestEndpointAndGetClients(user apiv1.User, seedsGetter provider.SeedsGetter, kubeObjects, machineObjects, kubermaticObjects []runtime.Object, versions []*version.Version, updates []*version.Update, routingFunc newRoutingFunc) (http.Handler, *ClientsSets, error) {
+	credentialManager := presets.NewWithPresets(&kubermaticv1.PresetList{
+		Items: []kubermaticv1.Preset{
+			{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "fake",
+				},
+				Spec: kubermaticv1.PresetSpec{
+					RequiredEmailDomain: RequiredEmailDomain,
+					Fake: &kubermaticv1.Fake{
+						Token: "dummy_pluton_token",
+					},
+					Openstack: &kubermaticv1.Openstack{
+						Username: TestOSuserName, Password: TestOSuserPass, Domain: TestOSdomain,
+					},
+				},
+			},
+		},
+	})
+	return initTestEndpoint(user, seedsGetter, kubeObjects, machineObjects, kubermaticObjects, versions, updates, credentialManager, routingFunc)
 }
 
 func CreateCredentialTestEndpoint(credentialsManager common.PresetsManager, routingFunc newRoutingFunc) (http.Handler, error) {
@@ -293,43 +331,59 @@ func CreateCredentialTestEndpoint(credentialsManager common.PresetsManager, rout
 }
 
 // CreateTestEndpoint does exactly the same as CreateTestEndpointAndGetClients except it omits ClientsSets when returning
-func CreateTestEndpoint(user apiv1.User, kubeObjects, kubermaticObjects []runtime.Object, versions []*version.MasterVersion, updates []*version.MasterUpdate, routingFunc newRoutingFunc) (http.Handler, error) {
+func CreateTestEndpoint(user apiv1.User, kubeObjects, kubermaticObjects []runtime.Object, versions []*version.Version, updates []*version.Update, routingFunc newRoutingFunc) (http.Handler, error) {
 	router, _, err := CreateTestEndpointAndGetClients(user, nil, kubeObjects, nil, kubermaticObjects, versions, updates, routingFunc)
 	return router, err
 }
 
-func buildDatacenterMeta() map[string]provider.DatacenterMeta {
-	return map[string]provider.DatacenterMeta{
-		"us-central1": {
-			Location: "us-central",
-			Country:  "US",
-			IsSeed:   true,
-			Spec: provider.DatacenterSpec{
-				Digitalocean: &provider.DigitaloceanSpec{
-					Region: "ams2",
+func buildSeeds() provider.SeedsGetter {
+	return func() (map[string]*kubermaticv1.Seed, error) {
+		return map[string]*kubermaticv1.Seed{
+			"us-central1": {
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "us-central1",
+				},
+				Spec: kubermaticv1.SeedSpec{
+					Location: "us-central",
+					Country:  "US",
+					Datacenters: map[string]kubermaticv1.Datacenter{
+						"private-do1": {
+							Country:  "NL",
+							Location: "US ",
+							Spec: kubermaticv1.DatacenterSpec{
+								Digitalocean: &kubermaticv1.DatacenterSpecDigitalocean{
+									Region: "ams2",
+								},
+							},
+						},
+						"regular-do1": {
+							Country:  "NL",
+							Location: "Amsterdam",
+							Spec: kubermaticv1.DatacenterSpec{
+								Digitalocean: &kubermaticv1.DatacenterSpecDigitalocean{
+									Region: "ams2",
+								},
+							},
+						},
+						"restricted-fake-dc": {
+							Country:  "NL",
+							Location: "Amsterdam",
+							Spec: kubermaticv1.DatacenterSpec{
+								Fake:                &kubermaticv1.DatacenterSpecFake{},
+								RequiredEmailDomain: "example.com",
+							},
+						},
+						"fake-dc": {
+							Location: "Henriks basement",
+							Country:  "Germany",
+							Spec: kubermaticv1.DatacenterSpec{
+								Fake: &kubermaticv1.DatacenterSpecFake{},
+							},
+						},
+					},
 				},
 			},
-		},
-		"private-do1": {
-			Location: "US ",
-			Seed:     "us-central1",
-			Country:  "NL",
-			Spec: provider.DatacenterSpec{
-				Digitalocean: &provider.DigitaloceanSpec{
-					Region: "ams2",
-				},
-			},
-		},
-		"regular-do1": {
-			Location: "Amsterdam",
-			Seed:     "us-central1",
-			Country:  "NL",
-			Spec: provider.DatacenterSpec{
-				Digitalocean: &provider.DigitaloceanSpec{
-					Region: "ams2",
-				},
-			},
-		},
+		}, nil
 	}
 }
 
@@ -337,12 +391,19 @@ type fakeUserClusterConnection struct {
 	fakeDynamicClient ctrlruntimeclient.Client
 }
 
-func (f *fakeUserClusterConnection) GetClient(_ *kubermaticapiv1.Cluster, _ ...k8cuserclusterclient.ConfigOption) (ctrlruntimeclient.Client, error) {
+func (f *fakeUserClusterConnection) GetClient(_ *kubermaticv1.Cluster, _ ...k8cuserclusterclient.ConfigOption) (ctrlruntimeclient.Client, error) {
 	return f.fakeDynamicClient, nil
 }
 
-func (f *fakeUserClusterConnection) GetAdminKubeconfig(c *kubermaticapiv1.Cluster) ([]byte, error) {
+func (f *fakeUserClusterConnection) GetAdminKubeconfig(c *kubermaticv1.Cluster) ([]byte, error) {
 	return []byte(generateTestKubeconfig(ClusterID, IDToken)), nil
+}
+
+func (f *fakeUserClusterConnection) GetViewerKubeconfig(c *kubermaticv1.Cluster) ([]byte, error) {
+	return []byte(generateTestKubeconfig(ClusterID, IDViewerToken)), nil
+}
+func (f *fakeUserClusterConnection) RevokeViewerKubeconfig(c *kubermaticv1.Cluster) error {
+	return nil
 }
 
 // ClientsSets a simple wrapper that holds fake client sets
@@ -379,10 +440,18 @@ users:
 }
 
 // APIUserToKubermaticUser simply converts apiv1.User to kubermaticv1.User type
-func APIUserToKubermaticUser(user apiv1.User) *kubermaticapiv1.User {
-	return &kubermaticapiv1.User{
-		ObjectMeta: metav1.ObjectMeta{},
-		Spec: kubermaticapiv1.UserSpec{
+func APIUserToKubermaticUser(user apiv1.User) *kubermaticv1.User {
+	var deletionTimestamp *metav1.Time
+	if user.DeletionTimestamp != nil {
+		deletionTimestamp = &metav1.Time{Time: user.DeletionTimestamp.Time}
+	}
+	return &kubermaticv1.User{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:              user.Name,
+			CreationTimestamp: metav1.Time{Time: user.CreationTimestamp.Time},
+			DeletionTimestamp: deletionTimestamp,
+		},
+		Spec: kubermaticv1.UserSpec{
 			Name:  user.Name,
 			Email: user.Email,
 			ID:    user.ID,
@@ -408,7 +477,7 @@ func CompareWithResult(t *testing.T, res *httptest.ResponseRecorder, response st
 
 // GenUser generates a User resource
 // note if the id is empty then it will be auto generated
-func GenUser(id, name, email string) *kubermaticapiv1.User {
+func GenUser(id, name, email string) *kubermaticv1.User {
 	if len(id) == 0 {
 		// the name of the object is derived from the email address and encoded as sha256
 		id = fmt.Sprintf("%x", sha256.Sum256([]byte(email)))
@@ -424,12 +493,12 @@ func GenUser(id, name, email string) *kubermaticapiv1.User {
 		specID = fmt.Sprintf("%x_KUBE", h.Sum(nil))
 	}
 
-	return &kubermaticapiv1.User{
+	return &kubermaticv1.User{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: id,
 			UID:  types.UID(fmt.Sprintf("fake-uid-%s", id)),
 		},
-		Spec: kubermaticapiv1.UserSpec{
+		Spec: kubermaticv1.UserSpec{
 			ID:    specID,
 			Name:  name,
 			Email: email,
@@ -438,13 +507,13 @@ func GenUser(id, name, email string) *kubermaticapiv1.User {
 }
 
 // GenInactiveServiceAccount generates a Service Account resource
-func GenInactiveServiceAccount(id, name, group, projectName string) *kubermaticapiv1.User {
+func GenInactiveServiceAccount(id, name, group, projectName string) *kubermaticv1.User {
 	user := GenUser(id, name, fmt.Sprintf("serviceaccount-%s@sa.kubermatic.io", id))
 	user.Labels = map[string]string{kubernetes.ServiceAccountLabelGroup: fmt.Sprintf("%s-%s", group, projectName)}
 	user.OwnerReferences = []metav1.OwnerReference{
 		{
-			APIVersion: kubermaticapiv1.SchemeGroupVersion.String(),
-			Kind:       kubermaticapiv1.ProjectKindName,
+			APIVersion: kubermaticv1.SchemeGroupVersion.String(),
+			Kind:       kubermaticv1.ProjectKindName,
 			Name:       projectName,
 			UID:        types.UID(id),
 		},
@@ -456,13 +525,13 @@ func GenInactiveServiceAccount(id, name, group, projectName string) *kubermatica
 	return user
 }
 
-func GenServiceAccount(id, name, group, projectName string) *kubermaticapiv1.User {
+func GenServiceAccount(id, name, group, projectName string) *kubermaticv1.User {
 	sa := GenInactiveServiceAccount(id, name, group, projectName)
 	sa.Labels = map[string]string{}
 	return sa
 }
 
-func GenDefaultServiceAccount() *kubermaticapiv1.User {
+func GenDefaultServiceAccount() *kubermaticv1.User {
 	return GenServiceAccount("1984", "default", "editors", GenDefaultProject().Name)
 }
 
@@ -495,28 +564,28 @@ func GenDefaultAPIUser() *apiv1.User {
 }
 
 // GenDefaultUser generates a default user
-func GenDefaultUser() *kubermaticapiv1.User {
+func GenDefaultUser() *kubermaticv1.User {
 	userEmail := "bob@acme.com"
 	return GenUser("", "Bob", userEmail)
 }
 
 // GenProject generates new empty project
-func GenProject(name, phase string, creationTime time.Time, oRef ...metav1.OwnerReference) *kubermaticapiv1.Project {
-	return &kubermaticapiv1.Project{
+func GenProject(name, phase string, creationTime time.Time, oRef ...metav1.OwnerReference) *kubermaticv1.Project {
+	return &kubermaticv1.Project{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:              fmt.Sprintf("%s-%s", name, "ID"),
 			CreationTimestamp: metav1.NewTime(creationTime),
 			OwnerReferences:   oRef,
 		},
-		Spec: kubermaticapiv1.ProjectSpec{Name: name},
-		Status: kubermaticapiv1.ProjectStatus{
+		Spec: kubermaticv1.ProjectSpec{Name: name},
+		Status: kubermaticv1.ProjectStatus{
 			Phase: phase,
 		},
 	}
 }
 
 // GenDefaultProject generates a default project
-func GenDefaultProject() *kubermaticapiv1.Project {
+func GenDefaultProject() *kubermaticv1.Project {
 	user := GenDefaultUser()
 	oRef := metav1.OwnerReference{
 		APIVersion: "kubermatic.io/v1",
@@ -524,23 +593,23 @@ func GenDefaultProject() *kubermaticapiv1.Project {
 		UID:        user.UID,
 		Name:       user.Name,
 	}
-	return GenProject("my-first-project", kubermaticapiv1.ProjectActive, DefaultCreationTimestamp(), oRef)
+	return GenProject("my-first-project", kubermaticv1.ProjectActive, DefaultCreationTimestamp(), oRef)
 }
 
 // GenBinding generates a binding
-func GenBinding(projectID, email, group string) *kubermaticapiv1.UserProjectBinding {
-	return &kubermaticapiv1.UserProjectBinding{
+func GenBinding(projectID, email, group string) *kubermaticv1.UserProjectBinding {
+	return &kubermaticv1.UserProjectBinding{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: fmt.Sprintf("%s-%s-%s", projectID, email, group),
 			OwnerReferences: []metav1.OwnerReference{
 				{
-					APIVersion: kubermaticapiv1.SchemeGroupVersion.String(),
-					Kind:       kubermaticapiv1.ProjectKindName,
+					APIVersion: kubermaticv1.SchemeGroupVersion.String(),
+					Kind:       kubermaticv1.ProjectKindName,
 					Name:       projectID,
 				},
 			},
 		},
-		Spec: kubermaticapiv1.UserProjectBindingSpec{
+		Spec: kubermaticv1.UserProjectBindingSpec{
 			UserEmail: email,
 			ProjectID: projectID,
 			Group:     fmt.Sprintf("%s-%s", group, projectID),
@@ -549,7 +618,7 @@ func GenBinding(projectID, email, group string) *kubermaticapiv1.UserProjectBind
 }
 
 // GenDefaultOwnerBinding generates default owner binding
-func GenDefaultOwnerBinding() *kubermaticapiv1.UserProjectBinding {
+func GenDefaultOwnerBinding() *kubermaticv1.UserProjectBinding {
 	return GenBinding(GenDefaultProject().Name, GenDefaultUser().Spec.Email, "owners")
 }
 
@@ -567,8 +636,8 @@ func GenDefaultKubermaticObjects(objs ...runtime.Object) []runtime.Object {
 	return append(defaultsObjs, objs...)
 }
 
-func GenCluster(id string, name string, projectID string, creationTime time.Time, modifiers ...func(*kubermaticapiv1.Cluster)) *kubermaticapiv1.Cluster {
-	cluster := &kubermaticapiv1.Cluster{
+func GenCluster(id string, name string, projectID string, creationTime time.Time, modifiers ...func(*kubermaticv1.Cluster)) *kubermaticv1.Cluster {
+	cluster := &kubermaticv1.Cluster{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:   id,
 			Labels: map[string]string{"project-id": projectID},
@@ -576,27 +645,29 @@ func GenCluster(id string, name string, projectID string, creationTime time.Time
 				return metav1.NewTime(creationTime)
 			}(),
 		},
-		Spec: kubermaticapiv1.ClusterSpec{
-			Cloud: kubermaticapiv1.CloudSpec{
+		Spec: kubermaticv1.ClusterSpec{
+			Cloud: kubermaticv1.CloudSpec{
 				DatacenterName: "FakeDatacenter",
-				Fake:           &kubermaticapiv1.FakeCloudSpec{Token: "SecretToken"},
+				Fake:           &kubermaticv1.FakeCloudSpec{Token: "SecretToken"},
 			},
 			Version:           *semver.NewSemverOrDie("9.9.9"),
 			HumanReadableName: name,
 		},
-		Address: kubermaticapiv1.ClusterAddress{
+		Address: kubermaticv1.ClusterAddress{
 			AdminToken:   "drphc2.g4kq82pnlfqjqt65",
 			ExternalName: "w225mx4z66.asia-east1-a-1.cloud.kubermatic.io",
 			IP:           "35.194.142.199",
 			URL:          "https://w225mx4z66.asia-east1-a-1.cloud.kubermatic.io:31885",
 		},
-		Status: kubermaticapiv1.ClusterStatus{
-			ExtendedHealth: kubermaticapiv1.ExtendedClusterHealth{
-				Apiserver:         kubermaticapiv1.HealthStatusUp,
-				Scheduler:         kubermaticapiv1.HealthStatusUp,
-				Controller:        kubermaticapiv1.HealthStatusUp,
-				MachineController: kubermaticapiv1.HealthStatusUp,
-				Etcd:              kubermaticapiv1.HealthStatusUp,
+		Status: kubermaticv1.ClusterStatus{
+			ExtendedHealth: kubermaticv1.ExtendedClusterHealth{
+				Apiserver:                    kubermaticv1.HealthStatusUp,
+				Scheduler:                    kubermaticv1.HealthStatusUp,
+				Controller:                   kubermaticv1.HealthStatusUp,
+				MachineController:            kubermaticv1.HealthStatusUp,
+				Etcd:                         kubermaticv1.HealthStatusUp,
+				UserClusterControllerManager: kubermaticv1.HealthStatusUp,
+				CloudProviderInfrastructure:  kubermaticv1.HealthStatusUp,
 			},
 		},
 	}
@@ -607,7 +678,7 @@ func GenCluster(id string, name string, projectID string, creationTime time.Time
 	return cluster
 }
 
-func GenDefaultCluster() *kubermaticapiv1.Cluster {
+func GenDefaultCluster() *kubermaticv1.Cluster {
 	return GenCluster(DefaultClusterID, DefaultClusterName, GenDefaultProject().Name, time.Date(2013, 02, 03, 19, 54, 0, 0, time.UTC))
 }
 
@@ -667,6 +738,37 @@ func GenTestMachineDeployment(name, rawProviderSpec string, selector map[string]
 	}
 }
 
+func GenTestAddon(name string, variables *runtime.RawExtension, cluster *kubermaticv1.Cluster, creationTime time.Time) *kubermaticv1.Addon {
+	if variables == nil {
+		variables = &runtime.RawExtension{}
+	}
+	return &kubermaticv1.Addon{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: cluster.Status.NamespaceName,
+			OwnerReferences: []metav1.OwnerReference{
+				{
+					APIVersion: kubermaticv1.SchemeGroupVersion.String(),
+					Kind:       kubermaticv1.ClusterKindName,
+					Name:       cluster.Name,
+					UID:        cluster.UID,
+				},
+			},
+			CreationTimestamp: metav1.NewTime(creationTime),
+		},
+		Spec: kubermaticv1.AddonSpec{
+			Name:      name,
+			Variables: *variables,
+			Cluster: corev1.ObjectReference{
+				APIVersion: kubermaticv1.SchemeGroupVersion.String(),
+				Kind:       kubermaticv1.ClusterKindName,
+				Name:       cluster.Name,
+				UID:        cluster.UID,
+			},
+		},
+	}
+}
+
 func CheckStatusCode(wantStatusCode int, recorder *httptest.ResponseRecorder, t *testing.T) {
 	t.Helper()
 	if recorder.Code != wantStatusCode {
@@ -676,21 +778,21 @@ func CheckStatusCode(wantStatusCode int, recorder *httptest.ResponseRecorder, t 
 	}
 }
 
-func GenDefaultSaToken(projectID, saID, name, id string) *v1.Secret {
-	secret := &v1.Secret{}
+func GenDefaultSaToken(projectID, saID, name, id string) *corev1.Secret {
+	secret := &corev1.Secret{}
 	secret.Name = fmt.Sprintf("sa-token-%s", id)
 	secret.Type = "Opaque"
 	secret.Namespace = "kubermatic"
 	secret.Data = map[string][]byte{}
 	secret.Data["token"] = []byte(TestFakeToken)
 	secret.Labels = map[string]string{
-		kubermaticapiv1.ProjectIDLabelKey: projectID,
-		"name":                            name,
+		kubermaticv1.ProjectIDLabelKey: projectID,
+		"name":                         name,
 	}
 	secret.OwnerReferences = []metav1.OwnerReference{
 		{
-			APIVersion: kubermaticapiv1.SchemeGroupVersion.String(),
-			Kind:       kubermaticapiv1.UserKindName,
+			APIVersion: kubermaticv1.SchemeGroupVersion.String(),
+			Kind:       kubermaticv1.UserKindName,
 			UID:        "",
 			Name:       saID,
 		},
@@ -728,7 +830,7 @@ func GenTestEvent(eventName, eventType, eventReason, eventMessage, kind, uid str
 	}
 }
 
-func sortMasterVersion(versions []*apiv1.MasterVersion) {
+func sortVersion(versions []*apiv1.MasterVersion) {
 	sort.SliceStable(versions, func(i, j int) bool {
 		mi, mj := versions[i], versions[j]
 		return mi.Version.LessThan(mj.Version)
@@ -740,8 +842,8 @@ func CompareVersions(t *testing.T, versions, expected []*apiv1.MasterVersion) {
 		t.Fatalf("got different lengths, got %d expected %d", len(versions), len(expected))
 	}
 
-	sortMasterVersion(versions)
-	sortMasterVersion(expected)
+	sortVersion(versions)
+	sortVersion(expected)
 
 	for i, version := range versions {
 		if !version.Version.Equal(expected[i].Version) {

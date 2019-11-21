@@ -55,8 +55,7 @@ type Reconciler struct {
 
 	recorder record.EventRecorder
 
-	dcs                                              map[string]provider.DatacenterMeta
-	dc                                               string
+	seedGetter                                       provider.SeedGetter
 	overwriteRegistry                                string
 	nodePortRange                                    string
 	nodeAccessNetwork                                string
@@ -70,6 +69,7 @@ type Reconciler struct {
 	// example: kubermatic.io -> kubermatic.io/path,kubermatic.io/port
 	monitoringScrapeAnnotationPrefix string
 	nodeLocalDNSCacheEnabled         bool
+	concurrentClusterUpdates         int
 
 	features Features
 }
@@ -83,8 +83,7 @@ func Add(
 	workerName string,
 
 	userClusterConnProvider userClusterConnectionProvider,
-	dc string,
-	dcs map[string]provider.DatacenterMeta,
+	seedGetter provider.SeedGetter,
 	overwriteRegistry string,
 	nodePortRange string,
 	nodeAccessNetwork string,
@@ -96,6 +95,7 @@ func Add(
 	inClusterPrometheusScrapingConfigsFile string,
 	dockerPullConfigJSON []byte,
 	nodeLocalDNSCacheEnabled bool,
+	concurrentClusterUpdates int,
 
 	features Features,
 ) error {
@@ -121,9 +121,8 @@ func Add(
 		inClusterPrometheusScrapingConfigsFile:           inClusterPrometheusScrapingConfigsFile,
 		dockerPullConfigJSON:                             dockerPullConfigJSON,
 		nodeLocalDNSCacheEnabled:                         nodeLocalDNSCacheEnabled,
-
-		dc:  dc,
-		dcs: dcs,
+		concurrentClusterUpdates:                         concurrentClusterUpdates,
+		seedGetter:                                       seedGetter,
 
 		features: features,
 	}
@@ -198,23 +197,37 @@ func (r *Reconciler) Reconcile(request reconcile.Request) (reconcile.Result, err
 		return reconcile.Result{RequeueAfter: healthCheckPeriod}, nil
 	}
 
-	// Add a wrapping here so we can emit an event on error
-	result, err := r.reconcile(ctx, log, cluster)
-	if err != nil {
-		log.Errorw("Failed to reconcile cluster", zap.Error(err))
-		r.recorder.Eventf(cluster, corev1.EventTypeWarning, "ReconcilingError", "%v", err)
+	// only reconcile this cluster if there are not yet too many updates running
+	if available, err := controllerutil.ClusterAvailableForReconciling(ctx, r, cluster, r.concurrentClusterUpdates); !available || err != nil {
+		log.Infow("Concurrency limit reached, checking again in 10 seconds", "concurrency-limit", r.concurrentClusterUpdates)
+		return reconcile.Result{
+			RequeueAfter: 10 * time.Second,
+		}, err
 	}
+
+	successfullyReconciled := true
+	// Add a wrapping here so we can emit an event on error
+	result, reconcileErr := r.reconcile(ctx, log, cluster)
+	if reconcileErr != nil {
+		successfullyReconciled = false
+		log.Errorw("Failed to reconcile cluster", zap.Error(reconcileErr))
+		r.recorder.Eventf(cluster, corev1.EventTypeWarning, "ReconcilingError", "%v", reconcileErr)
+	}
+
 	if result == nil {
 		result = &reconcile.Result{}
 	}
-	return *result, err
+
+	if err := controllerutil.SetSeedResourcesUpToDateCondition(ctx, cluster, r, successfullyReconciled); err != nil {
+		log.Errorw("failed to update clusters status conditions", zap.Error(err))
+		reconcileErr = fmt.Errorf("failed to set cluster status: %v after reconciliation was done with err=%v", err, reconcileErr)
+	}
+
+	return *result, reconcileErr
 }
 
 func (r *Reconciler) reconcile(ctx context.Context, log *zap.SugaredLogger, cluster *kubermaticv1.Cluster) (*reconcile.Result, error) {
 	log.Debug("Reconciling cluster now")
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 
 	data, err := r.getClusterTemplateData(context.Background(), r.Client, cluster)
 	if err != nil {

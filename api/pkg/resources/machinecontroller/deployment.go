@@ -5,10 +5,10 @@ import (
 	"strings"
 
 	kubermaticv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
-	"github.com/kubermatic/kubermatic/api/pkg/provider"
 	"github.com/kubermatic/kubermatic/api/pkg/resources"
 	"github.com/kubermatic/kubermatic/api/pkg/resources/apiserver"
 	"github.com/kubermatic/kubermatic/api/pkg/resources/reconciling"
+	providerconfig "github.com/kubermatic/machine-controller/pkg/providerconfig/types"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -34,22 +34,45 @@ var (
 const (
 	Name = "machine-controller"
 
-	tag = "v1.5.7-sys11-2"
+	tag = "v1.7.0-sys11-2"
 
 	nodeLocalDNSCacheAddress = "169.254.20.10"
 )
 
 type machinecontrollerData interface {
 	GetPodTemplateLabels(string, []corev1.Volume, map[string]string) (map[string]string, error)
+	GetGlobalSecretKeySelectorValue(configVar *providerconfig.GlobalSecretKeySelector, key string) (string, error)
 	ImageRegistry(string) string
 	Cluster() *kubermaticv1.Cluster
 	ClusterIPByServiceName(string) (string, error)
-	DC() *provider.DatacenterMeta
+	DC() *kubermaticv1.Datacenter
 	NodeLocalDNSCacheEnabled() bool
+	Seed() *kubermaticv1.Seed
 }
 
 // DeploymentCreator returns the function to create and update the machine controller deployment
 func DeploymentCreator(data machinecontrollerData) reconciling.NamedDeploymentCreatorGetter {
+	return func() (string, reconciling.DeploymentCreator) {
+		return resources.MachineControllerDeploymentName, func(in *appsv1.Deployment) (*appsv1.Deployment, error) {
+			_, creator := DeploymentCreatorWithoutInitWrapper(data)()
+			deployment, err := creator(in)
+			if err != nil {
+				return nil, err
+			}
+			wrappedPodSpec, err := apiserver.IsRunningWrapper(data, deployment.Spec.Template.Spec, sets.NewString(Name), "Machine,cluster.k8s.io/v1alpha1")
+			if err != nil {
+				return nil, fmt.Errorf("failed to add apiserver.IsRunningWrapper: %v", err)
+			}
+			deployment.Spec.Template.Spec = *wrappedPodSpec
+
+			return deployment, nil
+		}
+	}
+}
+
+// DeploymentCreator returns the function to create and update the machine controller deployment without the
+// wrapper that checks for apiserver availabiltiy. This allows to adjust the command.
+func DeploymentCreatorWithoutInitWrapper(data machinecontrollerData) reconciling.NamedDeploymentCreatorGetter {
 	return func() (string, reconciling.DeploymentCreator) {
 		return resources.MachineControllerDeploymentName, func(dep *appsv1.Deployment) (*appsv1.Deployment, error) {
 			dep.Name = resources.MachineControllerDeploymentName
@@ -58,17 +81,6 @@ func DeploymentCreator(data machinecontrollerData) reconciling.NamedDeploymentCr
 			dep.Spec.Replicas = resources.Int32(1)
 			dep.Spec.Selector = &metav1.LabelSelector{
 				MatchLabels: resources.BaseAppLabel(Name, nil),
-			}
-			dep.Spec.Strategy.Type = appsv1.RollingUpdateStatefulSetStrategyType
-			dep.Spec.Strategy.RollingUpdate = &appsv1.RollingUpdateDeployment{
-				MaxSurge: &intstr.IntOrString{
-					Type:   intstr.Int,
-					IntVal: 1,
-				},
-				MaxUnavailable: &intstr.IntOrString{
-					Type:   intstr.Int,
-					IntVal: 0,
-				},
 			}
 			dep.Spec.Template.Spec.ImagePullSecrets = []corev1.LocalObjectReference{{Name: resources.ImagePullSecretName}}
 
@@ -97,13 +109,21 @@ func DeploymentCreator(data machinecontrollerData) reconciling.NamedDeploymentCr
 				}
 			}
 
+			envVars, err := getEnvVars(data)
+			if err != nil {
+				return nil, err
+			}
+
 			dep.Spec.Template.Spec.Containers = []corev1.Container{
 				{
-					Name:      Name,
-					Image:     data.ImageRegistry(resources.RegistryDocker) + "/syseleven/machine-controller:" + tag,
-					Command:   []string{"/usr/local/bin/machine-controller"},
-					Args:      getFlags(clusterDNSIP, data.DC().Node),
-					Env:       getEnvVars(data),
+					Name:    Name,
+					Image:   data.ImageRegistry(resources.RegistryDocker) + "/syseleven/machine-controller:" + tag,
+					Command: []string{"/usr/local/bin/machine-controller"},
+					Args:    getFlags(clusterDNSIP, data.DC().Node),
+					Env: append(envVars, corev1.EnvVar{
+						Name:  "KUBECONFIG",
+						Value: "/etc/kubernetes/kubeconfig/kubeconfig",
+					}),
 					Resources: controllerResourceRequirements,
 					LivenessProbe: &corev1.Probe{
 						Handler: corev1.Handler{
@@ -129,12 +149,6 @@ func DeploymentCreator(data machinecontrollerData) reconciling.NamedDeploymentCr
 				},
 			}
 
-			wrappedPodSpec, err := apiserver.IsRunningWrapper(data, dep.Spec.Template.Spec, sets.NewString(Name))
-			if err != nil {
-				return nil, fmt.Errorf("failed to add apiserver.IsRunningWrapper: %v", err)
-			}
-			dep.Spec.Template.Spec = *wrappedPodSpec
-
 			return dep, nil
 		}
 	}
@@ -146,49 +160,62 @@ func getKubeconfigVolume() corev1.Volume {
 		VolumeSource: corev1.VolumeSource{
 			Secret: &corev1.SecretVolumeSource{
 				SecretName: resources.MachineControllerKubeconfigSecretName,
-				// We have to make the secret readable for all for now because owner/group cannot be changed.
-				// ( upstream proposal: https://github.com/kubernetes/kubernetes/pull/28733 )
-				DefaultMode: resources.Int32(resources.DefaultAllReadOnlyMode),
 			},
 		},
 	}
 }
 
-func getEnvVars(data machinecontrollerData) []corev1.EnvVar {
+func getEnvVars(data machinecontrollerData) ([]corev1.EnvVar, error) {
+	credentials, err := resources.GetCredentials(data)
+	if err != nil {
+		return nil, err
+	}
+
 	var vars []corev1.EnvVar
 	if data.Cluster().Spec.Cloud.AWS != nil {
-		vars = append(vars, corev1.EnvVar{Name: "AWS_ACCESS_KEY_ID", Value: data.Cluster().Spec.Cloud.AWS.AccessKeyID})
-		vars = append(vars, corev1.EnvVar{Name: "AWS_SECRET_ACCESS_KEY", Value: data.Cluster().Spec.Cloud.AWS.SecretAccessKey})
+		vars = append(vars, corev1.EnvVar{Name: "AWS_ACCESS_KEY_ID", Value: credentials.AWS.AccessKeyID})
+		vars = append(vars, corev1.EnvVar{Name: "AWS_SECRET_ACCESS_KEY", Value: credentials.AWS.SecretAccessKey})
+	}
+	if data.Cluster().Spec.Cloud.Azure != nil {
+		vars = append(vars, corev1.EnvVar{Name: "AZURE_CLIENT_ID", Value: credentials.Azure.ClientID})
+		vars = append(vars, corev1.EnvVar{Name: "AZURE_CLIENT_SECRET", Value: credentials.Azure.ClientSecret})
+		vars = append(vars, corev1.EnvVar{Name: "AZURE_TENANT_ID", Value: credentials.Azure.TenantID})
+		vars = append(vars, corev1.EnvVar{Name: "AZURE_SUBSCRIPTION_ID", Value: credentials.Azure.SubscriptionID})
 	}
 	if data.Cluster().Spec.Cloud.Openstack != nil {
 		vars = append(vars, corev1.EnvVar{Name: "OS_AUTH_URL", Value: data.DC().Spec.Openstack.AuthURL})
-		vars = append(vars, corev1.EnvVar{Name: "OS_USER_NAME", Value: data.Cluster().Spec.Cloud.Openstack.Username})
-		vars = append(vars, corev1.EnvVar{Name: "OS_PASSWORD", Value: data.Cluster().Spec.Cloud.Openstack.Password})
-		vars = append(vars, corev1.EnvVar{Name: "OS_DOMAIN_NAME", Value: data.Cluster().Spec.Cloud.Openstack.Domain})
-		vars = append(vars, corev1.EnvVar{Name: "OS_TENANT_NAME", Value: data.Cluster().Spec.Cloud.Openstack.Tenant})
+		vars = append(vars, corev1.EnvVar{Name: "OS_USER_NAME", Value: credentials.Openstack.Username})
+		vars = append(vars, corev1.EnvVar{Name: "OS_PASSWORD", Value: credentials.Openstack.Password})
+		vars = append(vars, corev1.EnvVar{Name: "OS_DOMAIN_NAME", Value: credentials.Openstack.Domain})
+		vars = append(vars, corev1.EnvVar{Name: "OS_TENANT_NAME", Value: credentials.Openstack.Tenant})
+		vars = append(vars, corev1.EnvVar{Name: "OS_TENANT_ID", Value: credentials.Openstack.TenantID})
 	}
 	if data.Cluster().Spec.Cloud.Hetzner != nil {
-		vars = append(vars, corev1.EnvVar{Name: "HZ_TOKEN", Value: data.Cluster().Spec.Cloud.Hetzner.Token})
+		vars = append(vars, corev1.EnvVar{Name: "HZ_TOKEN", Value: credentials.Hetzner.Token})
 	}
 	if data.Cluster().Spec.Cloud.Digitalocean != nil {
-		vars = append(vars, corev1.EnvVar{Name: "DO_TOKEN", Value: data.Cluster().Spec.Cloud.Digitalocean.Token})
+		vars = append(vars, corev1.EnvVar{Name: "DO_TOKEN", Value: credentials.Digitalocean.Token})
 	}
 	if data.Cluster().Spec.Cloud.VSphere != nil {
 		vars = append(vars, corev1.EnvVar{Name: "VSPHERE_ADDRESS", Value: data.DC().Spec.VSphere.Endpoint})
-		vars = append(vars, corev1.EnvVar{Name: "VSPHERE_USERNAME", Value: data.Cluster().Spec.Cloud.VSphere.InfraManagementUser.Username})
-		vars = append(vars, corev1.EnvVar{Name: "VSPHERE_PASSWORD", Value: data.Cluster().Spec.Cloud.VSphere.InfraManagementUser.Password})
+		vars = append(vars, corev1.EnvVar{Name: "VSPHERE_USERNAME", Value: credentials.VSphere.Username})
+		vars = append(vars, corev1.EnvVar{Name: "VSPHERE_PASSWORD", Value: credentials.VSphere.Password})
 	}
 	if data.Cluster().Spec.Cloud.Packet != nil {
-		vars = append(vars, corev1.EnvVar{Name: "PACKET_API_KEY", Value: data.Cluster().Spec.Cloud.Packet.APIKey})
-		vars = append(vars, corev1.EnvVar{Name: "PACKET_PROJECT_ID", Value: data.Cluster().Spec.Cloud.Packet.ProjectID})
+		vars = append(vars, corev1.EnvVar{Name: "PACKET_API_KEY", Value: credentials.Packet.APIKey})
+		vars = append(vars, corev1.EnvVar{Name: "PACKET_PROJECT_ID", Value: credentials.Packet.ProjectID})
 	}
 	if data.Cluster().Spec.Cloud.GCP != nil {
-		vars = append(vars, corev1.EnvVar{Name: "GOOGLE_SERVICE_ACCOUNT", Value: data.Cluster().Spec.Cloud.GCP.ServiceAccount})
+		vars = append(vars, corev1.EnvVar{Name: "GOOGLE_SERVICE_ACCOUNT", Value: credentials.GCP.ServiceAccount})
 	}
-	return vars
+	if data.Cluster().Spec.Cloud.Kubevirt != nil {
+		vars = append(vars, corev1.EnvVar{Name: "KUBEVIRT_KUBECONFIG", Value: credentials.Kubevirt.KubeConfig})
+	}
+	vars = append(vars, resources.GetHTTPProxyEnvVarsFromSeed(data.Seed(), data.Cluster().Address.InternalName)...)
+	return vars, nil
 }
 
-func getFlags(clusterDNSIP string, nodeSettings provider.NodeSettings) []string {
+func getFlags(clusterDNSIP string, nodeSettings kubermaticv1.NodeSettings) []string {
 	flags := []string{
 		"-kubeconfig", "/etc/kubernetes/kubeconfig/kubeconfig",
 		"-logtostderr",
@@ -199,11 +226,11 @@ func getFlags(clusterDNSIP string, nodeSettings provider.NodeSettings) []string 
 	if len(nodeSettings.InsecureRegistries) > 0 {
 		flags = append(flags, "-node-insecure-registries", strings.Join(nodeSettings.InsecureRegistries, ","))
 	}
-	if nodeSettings.HTTPProxy != "" {
-		flags = append(flags, "-node-http-proxy", nodeSettings.HTTPProxy)
+	if !nodeSettings.HTTPProxy.Empty() {
+		flags = append(flags, "-node-http-proxy", nodeSettings.HTTPProxy.String())
 	}
-	if nodeSettings.NoProxy != "" {
-		flags = append(flags, "-node-no-proxy", nodeSettings.NoProxy)
+	if !nodeSettings.NoProxy.Empty() {
+		flags = append(flags, "-node-no-proxy", nodeSettings.NoProxy.String())
 	}
 	if nodeSettings.PauseImage != "" {
 		flags = append(flags, "-node-pause-image", nodeSettings.PauseImage)

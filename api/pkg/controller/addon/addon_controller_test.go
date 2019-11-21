@@ -12,6 +12,7 @@ import (
 
 	kubermaticv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
 	kubermaticlog "github.com/kubermatic/kubermatic/api/pkg/log"
+	"github.com/kubermatic/kubermatic/api/pkg/resources"
 	"github.com/kubermatic/kubermatic/api/pkg/semver"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -122,7 +123,7 @@ func TestController_combineManifests(t *testing.T) {
 	}
 }
 
-func setupTestCluster(CIDRBlock string) *kubermaticv1.Cluster {
+func setupTestCluster(cidrBlock string) *kubermaticv1.Cluster {
 	return &kubermaticv1.Cluster{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "test-cluster",
@@ -132,7 +133,7 @@ func setupTestCluster(CIDRBlock string) *kubermaticv1.Cluster {
 			ClusterNetwork: kubermaticv1.ClusterNetworkingConfig{
 				Services: kubermaticv1.NetworkRanges{
 					CIDRBlocks: []string{
-						CIDRBlock,
+						cidrBlock,
 					},
 				},
 				Pods: kubermaticv1.NetworkRanges{
@@ -141,6 +142,7 @@ func setupTestCluster(CIDRBlock string) *kubermaticv1.Cluster {
 					},
 				},
 				DNSDomain: "cluster.local",
+				ProxyMode: resources.IPVSProxyMode,
 			},
 			Cloud: kubermaticv1.CloudSpec{
 				Digitalocean: &kubermaticv1.DigitaloceanCloudSpec{
@@ -164,7 +166,7 @@ func setupTestAddon(name string) *kubermaticv1.Addon {
 }
 
 func TestController_getAddonKubeDNStManifests(t *testing.T) {
-	cluster := setupTestCluster("10.10.10.0/24")
+	cluster := setupTestCluster("10.240.16.0/20")
 	addon := setupTestAddon("kube-dns")
 
 	addonDir, err := ioutil.TempDir("/tmp", "kubermatic-tests-")
@@ -194,7 +196,7 @@ func TestController_getAddonKubeDNStManifests(t *testing.T) {
 		t.Fatalf("invalid number of manifests returned. Expected 1, Got %d", len(manifests))
 	}
 	fmt.Println(manifests)
-	expectedIP := "10.10.10.10"
+	expectedIP := "10.240.16.10"
 	if !strings.Contains(string(manifests[0].Raw), expectedIP) {
 		t.Fatalf("invalid IP returned. Expected \n%s, Got \n%s", expectedIP, manifests[0].String())
 	}
@@ -218,7 +220,7 @@ func TestController_getAddonKubeDNStManifests(t *testing.T) {
 }
 
 func TestController_getAddonDeploymentManifests(t *testing.T) {
-	cluster := setupTestCluster("10.10.10.0/24")
+	cluster := setupTestCluster("10.240.16.0/20")
 	addon := setupTestAddon("test")
 
 	addonDir, err := ioutil.TempDir("/tmp", "kubermatic-tests-")
@@ -257,7 +259,7 @@ func TestController_getAddonDeploymentManifests(t *testing.T) {
 }
 
 func TestController_getAddonDeploymentManifestsDefault(t *testing.T) {
-	cluster := setupTestCluster("10.10.10.0/24")
+	cluster := setupTestCluster("10.240.16.0/20")
 	addon := setupTestAddon("test")
 
 	addonDir, err := ioutil.TempDir("/tmp", "kubermatic-tests-")
@@ -295,7 +297,7 @@ func TestController_getAddonDeploymentManifestsDefault(t *testing.T) {
 }
 
 func TestController_getAddonManifests(t *testing.T) {
-	cluster := setupTestCluster("10.10.10.0/24")
+	cluster := setupTestCluster("10.240.16.0/20")
 	addon := setupTestAddon("test")
 	addonDir, err := ioutil.TempDir("/tmp", "kubermatic-tests-")
 	if err != nil {
@@ -441,7 +443,7 @@ Error from server (NotFound): error when stopping "/tmp/cluster-rwhxp9j5j-metric
 
 func TestHugeManifest(t *testing.T) {
 	log := kubermaticlog.New(true, kubermaticlog.FormatConsole).Sugar()
-	cluster := setupTestCluster("10.10.10.0/24")
+	cluster := setupTestCluster("10.240.16.0/20")
 	addon := setupTestAddon("istio")
 	r := &Reconciler{
 		kubernetesAddonDir: "./testdata",

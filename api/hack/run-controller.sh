@@ -22,6 +22,7 @@ KUBERMATIC_WORKERNAME=${KUBERMATIC_WORKERNAME:-$(uname -n)}
   -master-resources=../config/kubermatic/static/master \
   -kubernetes-addons-path=../addons \
   -openshift-addons-path=../openshift_addons \
+  -feature-gates=OpenIDAuthPlugin=true \
   -worker-name="$(tr -cd '[:alnum:]' <<< $KUBERMATIC_WORKERNAME | tr '[:upper:]' '[:lower:]')" \
   -external-url=dev.kubermatic.io \
   -backup-container=../config/kubermatic/static/backup-container.yaml \
@@ -34,5 +35,6 @@ KUBERMATIC_WORKERNAME=${KUBERMATIC_WORKERNAME:-$(uname -n)}
   -monitoring-scrape-annotation-prefix='kubermatic.io' \
   -log-debug=true \
   -log-format=Console \
-  -logtostderr=1 \
-  -v=4 $@ 2>&1|tee /tmp/kubermatic-controller-manager.log
+  -max-parallel-reconcile=10 \
+	-logtostderr \
+	-v=4 # Log-level for the Kube dependencies. Increase up to 9 to get request-level logs.

@@ -27,7 +27,8 @@ func TestDatacentersEndpoint(t *testing.T) {
 		t.Fatalf("Expected route to return code 200, got %d: %s", res.Code, res.Body.String())
 	}
 
-	test.CompareWithResult(t, res, `[{"metadata":{"name":"private-do1","resourceVersion":"1"},"spec":{"seed":"us-central1","country":"NL","location":"US ","provider":"digitalocean","digitalocean":{"region":"ams2"}}},{"metadata":{"name":"regular-do1","resourceVersion":"1"},"spec":{"seed":"us-central1","country":"NL","location":"Amsterdam","provider":"digitalocean","digitalocean":{"region":"ams2"}}},{"metadata":{"name":"us-central1","resourceVersion":"1"},"spec":{"seed":"","country":"US","location":"us-central","provider":"digitalocean","digitalocean":{"region":"ams2"}},"seed":true}]`)
+	test.CompareWithResult(t, res, ` [{"metadata":{"name":"fake-dc","resourceVersion":"1"},"spec":{"seed":"us-central1","country":"Germany","location":"Henriks basement","provider":"fake"}},{"metadata":{"name":"private-do1","resourceVersion":"1"},"spec":{"seed":"us-central1","country":"NL","location":"US ","provider":"digitalocean","digitalocean":{"region":"ams2"}}},{"metadata":{"name":"regular-do1","resourceVersion":"1"},"spec":{"seed":"us-central1","country":"NL","location":"Amsterdam","provider":"digitalocean","digitalocean":{"region":"ams2"}}},{"metadata":{"name":"us-central1","resourceVersion":"1"},"spec":{"seed":""},"seed":true}]
+`)
 }
 
 func TestDatacenterEndpointNotFound(t *testing.T) {
@@ -61,6 +62,49 @@ func TestDatacenterEndpointPrivate(t *testing.T) {
 
 	if res.Code != http.StatusNotFound {
 		t.Fatalf("Expected route to return code 404, got %d: %s", res.Code, res.Body.String())
+	}
+}
+
+func TestDatacenterEndpointFilteredByEmail(t *testing.T) {
+	t.Parallel()
+	req := httptest.NewRequest("GET", "/api/v1/dc/restricted-fake-dc", nil)
+	apiUserForbidden := test.GetUser(test.UserEmail, test.UserID, test.UserName, false)
+	apiUserPermitted := test.GetUser(test.UserEmail2, test.UserID2, test.UserName2, false)
+
+	{
+		res := httptest.NewRecorder()
+		ep, err := test.CreateTestEndpoint(apiUserForbidden, []runtime.Object{},
+			[]runtime.Object{
+				test.APIUserToKubermaticUser(apiUserForbidden),
+				test.APIUserToKubermaticUser(apiUserPermitted),
+			}, nil, nil, hack.NewTestRouting)
+		if err != nil {
+			t.Fatalf("failed to create test endpoint due to %v", err)
+		}
+		ep.ServeHTTP(res, req)
+
+		if res.Code != http.StatusNotFound {
+			t.Fatalf("Expected route to return code 404, got %d: %s", res.Code, res.Body.String())
+		}
+	}
+
+	{
+		res := httptest.NewRecorder()
+		ep, err := test.CreateTestEndpoint(apiUserPermitted, []runtime.Object{},
+			[]runtime.Object{
+				test.APIUserToKubermaticUser(apiUserForbidden),
+				test.APIUserToKubermaticUser(apiUserPermitted),
+			}, nil, nil, hack.NewTestRouting)
+		if err != nil {
+			t.Fatalf("failed to create test endpoint due to %v", err)
+		}
+		ep.ServeHTTP(res, req)
+
+		if res.Code != http.StatusOK {
+			t.Fatalf("Expected route to return code 200, got %d: %s", res.Code, res.Body.String())
+		}
+
+		test.CompareWithResult(t, res, `{"metadata":{"name":"restricted-fake-dc","resourceVersion":"1"},"spec":{"seed":"us-central1","country":"NL","location":"Amsterdam","provider":"fake","requiredEmailDomain":"example.com"}}`)
 	}
 }
 

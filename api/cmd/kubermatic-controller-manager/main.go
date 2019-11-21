@@ -20,18 +20,20 @@ import (
 	"github.com/kubermatic/kubermatic/api/pkg/leaderelection"
 	kubermaticlog "github.com/kubermatic/kubermatic/api/pkg/log"
 	"github.com/kubermatic/kubermatic/api/pkg/metrics"
+	metricserver "github.com/kubermatic/kubermatic/api/pkg/metrics/server"
 	"github.com/kubermatic/kubermatic/api/pkg/provider"
 	"github.com/kubermatic/kubermatic/api/pkg/signals"
 	"github.com/kubermatic/kubermatic/api/pkg/util/informer"
+	"github.com/kubermatic/kubermatic/api/pkg/util/restmapper"
 
+	clusterv1alpha1 "github.com/kubermatic/machine-controller/pkg/apis/cluster/v1alpha1"
+	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	autoscalingv1beta2 "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/apis/autoscaling.k8s.io/v1beta2"
-	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
-	kubeleaderelection "k8s.io/client-go/tools/leaderelection"
+	"k8s.io/klog"
+	ctrlruntimeclient "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
-	ctrlruntimemetrics "sigs.k8s.io/controller-runtime/pkg/metrics"
 	ctrlruntimelog "sigs.k8s.io/controller-runtime/pkg/runtime/log"
 )
 
@@ -40,6 +42,7 @@ const (
 )
 
 func main() {
+	klog.InitFlags(nil)
 	options, err := newControllerRunOptions()
 	if err != nil {
 		fmt.Printf("Failed to create controller run options due to = %v\n", err)
@@ -51,7 +54,9 @@ func main() {
 		os.Exit(1)
 	}
 	rawLog := kubermaticlog.New(options.log.Debug, kubermaticlog.Format(options.log.Format))
-	log := rawLog.Sugar()
+	log := rawLog.Sugar().With(
+		"worker-name", options.workerName,
+	)
 	defer func() {
 		if err := log.Sync(); err != nil {
 			fmt.Println(err)
@@ -60,7 +65,7 @@ func main() {
 
 	config, err := clientcmd.BuildConfigFromFlags(options.masterURL, options.kubeconfig)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalw("Failed to create a kubernetes config", zap.Error(err))
 	}
 
 	// Set the logger used by sigs.k8s.io/controller-runtime
@@ -70,17 +75,15 @@ func main() {
 	// the metrics of both the ctrltuntime registry and the default registry
 	mgr, err := manager.New(config, manager.Options{MetricsBindAddress: "0"})
 	if err != nil {
-		log.Fatalf("failed to create mgr: %v", err)
+		log.Fatalw("Failed to create the manager", zap.Error(err))
 	}
 	// Add all custom type schemes to our scheme. Otherwise we won't get a informer
 	if err := autoscalingv1beta2.AddToScheme(mgr.GetScheme()); err != nil {
-		log.Fatalf("failed to add the autoscaling.k8s.io scheme to mgr: %v", err)
+		log.Fatalw("Failed to register scheme", zap.Stringer("api", autoscalingv1beta2.SchemeGroupVersion), zap.Error(err))
 	}
-	if err := kubermaticv1.SchemeBuilder.AddToScheme(mgr.GetScheme()); err != nil {
-		log.Fatalf("failed to add kubermatic scheme to mgr: %v", err)
+	if err := clusterv1alpha1.AddToScheme(mgr.GetScheme()); err != nil {
+		kubermaticlog.Logger.Fatalw("failed to register scheme", zap.Stringer("api", clusterv1alpha1.SchemeGroupVersion), zap.Error(err))
 	}
-
-	recorder := mgr.GetRecorder(controllerName)
 
 	// Check if the CRD for the VerticalPodAutoscaler is registered by allocating an informer
 	if _, err := informer.GetSyncedStoreFromDynamicFactory(mgr.GetCache(), &autoscalingv1beta2.VerticalPodAutoscaler{}); err != nil {
@@ -96,17 +99,90 @@ Please install the VerticalPodAutoscaler according to the documentation: https:/
 
 	dockerPullConfigJSON, err := ioutil.ReadFile(options.dockerPullConfigJSONFile)
 	if err != nil {
-		log.Fatalf("Failed to read dockerPullConfigJSON file %q: %v", options.dockerPullConfigJSONFile, err)
+		log.Fatalw(
+			"Failed to read docker pull config file",
+			zap.String("file", options.dockerPullConfigJSONFile),
+			zap.Error(err),
+		)
 	}
 
-	ctrlCtx, err := newControllerContext(options, mgr, log)
+	rootCtx, rootCancel := context.WithCancel(context.Background())
+	seedGetter, err := provider.SeedGetterFactory(rootCtx, mgr.GetClient(), options.dc, options.dcFile, options.namespace, options.dynamicDatacenters)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalw("Unable to create the seed factory", zap.Error(err))
 	}
-	ctrlCtx.dockerPullConfigJSON = dockerPullConfigJSON
+
+	var clientProvider client.UserClusterConnectionProvider
+	if options.kubeconfig != "" {
+		clientProvider, err = client.NewExternal(mgr.GetClient())
+	} else {
+		clientProvider, err = client.NewInternal(mgr.GetClient())
+	}
+	if err != nil {
+		log.Fatalw("Failed to get clientProvider", zap.Error(err))
+	}
+
+	if options.dynamicDatacenters {
+		restMapperCache := restmapper.New()
+		seedValidationWebhookServer, err := options.seedValidationHook.Server(
+			rootCtx,
+			log,
+			options.workerName,
+			// We only have a SeedGetter and not a SeedsGetter, so construct a little
+			// wrapper
+			func() (map[string]*kubermaticv1.Seed, error) {
+				seeds := make(map[string]*kubermaticv1.Seed)
+
+				seed, err := seedGetter()
+				if err != nil {
+					// ignore 404 errors so that on new seed clusters the initial
+					// seed CR creation/validation can succeed
+					if kerrors.IsNotFound(err) {
+						return seeds, nil
+					}
+
+					return nil, err
+				}
+
+				seeds[seed.Name] = seed
+				return seeds, nil
+			},
+			// This controler doesn't necessarily have an explicit kubeconfig, most of the time it
+			// runs with in-cluster config. Just return the config from the manager and only allow
+			// our own seed
+			func(seed *kubermaticv1.Seed) (ctrlruntimeclient.Client, error) {
+				if seed.Name != options.dc {
+					return nil, fmt.Errorf("can only return kubeconfig for our own seed (%q), got request for %q", options.dc, seed.Name)
+				}
+				return restMapperCache.Client(mgr.GetConfig())
+			},
+			false)
+		if err != nil {
+			log.Fatalw("Failed to get seedValidationWebhookServer", zap.Error(err))
+		}
+		if err := mgr.Add(seedValidationWebhookServer); err != nil {
+			log.Fatalw("Failed to add seedValidationWebhookServer to mgr", zap.Error(err))
+		}
+	}
+
+	kcInternal := keycloak.NewClient(requireEnv("KEYCLOAK_INTERNAL_URL"), requireEnv("KEYCLOAK_INTERNAL_ADMIN_USER"), requireEnv("KEYCLOAK_INTERNAL_ADMIN_PASSWORD"))
+	kcExternal := keycloak.NewClient(requireEnv("KEYCLOAK_EXTERNAL_URL"), requireEnv("KEYCLOAK_EXTERNAL_ADMIN_USER"), requireEnv("KEYCLOAK_EXTERNAL_ADMIN_PASSWORD"))
+	keycloakFacade := keycloak.NewGroup()
+	keycloakFacade.RegisterKeycloak(keycloak.NewCache(kcExternal, options.keycloakCacheExpiry))
+	keycloakFacade.RegisterKeycloak(keycloak.NewCache(kcInternal, options.keycloakCacheExpiry))
+
+	ctrlCtx := &controllerContext{
+		runOptions:           options,
+		mgr:                  mgr,
+		clientProvider:       clientProvider,
+		seedGetter:           seedGetter,
+		dockerPullConfigJSON: dockerPullConfigJSON,
+		log:                  log,
+		keycloakFacade:       keycloakFacade,
+	}
 
 	if err := createAllControllers(ctrlCtx); err != nil {
-		log.Fatalf("could not create all controllers: %v", err)
+		log.Fatalw("Could not create all controllers", zap.Error(err))
 	}
 
 	log.Debug("Starting clusters collector")
@@ -115,137 +191,61 @@ Please install the VerticalPodAutoscaler according to the documentation: https:/
 	log.Debug("Starting addons collector")
 	collectors.MustRegisterAddonCollector(prometheus.DefaultRegisterer, ctrlCtx.mgr.GetClient())
 
+	if err := mgr.Add(metricserver.New(options.internalAddr)); err != nil {
+		log.Fatalw("failed to add the metricsserver", zap.Error(err))
+	}
+
 	var g run.Group
 	// This group is forever waiting in a goroutine for signals to stop
 	{
-		signalCtx, stopWaitingForSignal := context.WithCancel(context.Background())
-		defer stopWaitingForSignal()
 		signalChan := signals.SetupSignalHandler()
 		g.Add(func() error {
 			select {
 			case <-signalChan:
 				log.Info("Received a signal to stop")
 				return nil
-			case <-signalCtx.Done():
+			case <-rootCtx.Done():
 				return nil
 			}
 		}, func(err error) {
-			stopWaitingForSignal()
-		})
-	}
-
-	// This group is running an internal http server with metrics and other debug information
-	{
-		metricsServerCtx, stopMetricsServer := context.WithCancel(context.Background())
-		defer stopMetricsServer()
-		m := &metricsServer{
-			gatherers: []prometheus.Gatherer{
-				prometheus.DefaultGatherer, ctrlruntimemetrics.Registry},
-			listenAddress: options.internalAddr,
-		}
-
-		g.Add(func() error {
-			log.Infof("Starting the internal HTTP server: %s\n", options.internalAddr)
-			return m.Start(metricsServerCtx.Done())
-		}, func(err error) {
-			stopMetricsServer()
+			rootCancel()
 		})
 	}
 
 	// This group is running the actual controller logic
 	{
-		leaderCtx, stopLeaderElection := context.WithCancel(context.Background())
+		leaderCtx, stopLeaderElection := context.WithCancel(rootCtx)
 		defer stopLeaderElection()
+
 		g.Add(func() error {
-			leaderElectionClient, err := kubernetes.NewForConfig(rest.AddUserAgent(config, "kubermatic-controller-manager-leader-election"))
-			if err != nil {
-				return err
-			}
-			callbacks := kubeleaderelection.LeaderCallbacks{
-				OnStartedLeading: func(ctx context.Context) {
-					log.Info("Acquired the leader lease")
-
-					log.Info("Executing migrations...")
-					if err := migrations.RunAll(ctrlCtx.mgr.GetConfig(), ctrlCtx.runOptions.workerName, ctrlCtx.dcs); err != nil {
-						log.Errorf("failed to run migrations: %v", err)
-						stopLeaderElection()
-						return
-					}
-					log.Info("Migrations executed successfully")
-
-					log.Info("Starting the controller-manager...")
-					if err := mgr.Start(ctx.Done()); err != nil {
-						log.Errorf("The controller-manager stopped with an error: %v", err)
-						stopLeaderElection()
-					}
-				},
-				OnStoppedLeading: func() {
-					// Gets called when we could not renew the lease or the parent context was closed
-					log.Info("Shutting down the controller-manager...")
-					stopLeaderElection()
-				},
-			}
-
-			leaderName := controllerName
+			electionName := controllerName
 			if options.workerName != "" {
-				leaderName = options.workerName + "-" + leaderName
-			}
-			leader, err := leaderelection.New(leaderName, leaderElectionClient, recorder, callbacks)
-			if err != nil {
-				return fmt.Errorf("failed to create a leaderelection: %v", err)
+				electionName += "-" + options.workerName
 			}
 
-			leader.Run(leaderCtx)
-			return nil
+			return leaderelection.RunAsLeader(leaderCtx, log, config, mgr.GetRecorder(controllerName), electionName, func(ctx context.Context) error {
+				log.Info("Executing migrations...")
+				if err := migrations.RunAll(ctrlCtx.mgr.GetConfig(), options.workerName); err != nil {
+					return fmt.Errorf("failed to run migrations: %v", err)
+				}
+				log.Info("Migrations executed successfully")
+
+				log.Info("Starting the controller-manager...")
+				if err := mgr.Start(ctx.Done()); err != nil {
+					return fmt.Errorf("the controller-manager stopped with an error: %v", err)
+				}
+
+				return nil
+			})
 		}, func(err error) {
 			stopLeaderElection()
 		})
 	}
 
 	if err := g.Run(); err != nil {
-		log.Fatal(err)
+		// Set the error as field so we have a consistent way of logging errors
+		log.Fatalw("Shutting down with error", zap.Error(err))
 	}
-}
-
-func newControllerContext(
-	runOp controllerRunOptions,
-	mgr manager.Manager,
-	log *zap.SugaredLogger,
-) (*controllerContext, error) {
-	ctrlCtx := &controllerContext{
-		mgr:        mgr,
-		runOptions: runOp,
-		log:        log,
-	}
-
-	var err error
-	ctrlCtx.dcs, err = provider.LoadDatacentersMeta(ctrlCtx.runOptions.dcFile)
-	if err != nil {
-		return nil, err
-	}
-
-	var clientProvider client.UserClusterConnectionProvider
-	if ctrlCtx.runOptions.kubeconfig != "" {
-		clientProvider, err = client.NewExternal(mgr.GetClient())
-		if err != nil {
-			return nil, fmt.Errorf("failed to get clientProvider: %v", err)
-		}
-	} else {
-		clientProvider, err = client.NewInternal(mgr.GetClient())
-		if err != nil {
-			return nil, fmt.Errorf("failed to get clientProvider: %v", err)
-		}
-	}
-	ctrlCtx.clientProvider = clientProvider
-
-	kcInternal := keycloak.NewClient(requireEnv("KEYCLOAK_INTERNAL_URL"), requireEnv("KEYCLOAK_INTERNAL_ADMIN_USER"), requireEnv("KEYCLOAK_INTERNAL_ADMIN_PASSWORD"))
-	kcExternal := keycloak.NewClient(requireEnv("KEYCLOAK_EXTERNAL_URL"), requireEnv("KEYCLOAK_EXTERNAL_ADMIN_USER"), requireEnv("KEYCLOAK_EXTERNAL_ADMIN_PASSWORD"))
-	keycloakFacade := keycloak.NewGroup()
-	keycloakFacade.RegisterKeycloak(keycloak.NewCache(kcExternal, runOp.keycloakCacheExpiry))
-	keycloakFacade.RegisterKeycloak(keycloak.NewCache(kcInternal, runOp.keycloakCacheExpiry))
-	ctrlCtx.keycloakFacade = keycloakFacade
-
-	return ctrlCtx, nil
 }
 
 func requireEnv(key string) string {

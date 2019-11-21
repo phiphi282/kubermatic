@@ -2,21 +2,23 @@ package cloud
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
 	kubermaticapiv1 "github.com/kubermatic/kubermatic/api/pkg/api/v1"
 	kubermaticv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
 	"github.com/kubermatic/kubermatic/api/pkg/provider"
+	"github.com/kubermatic/kubermatic/api/pkg/provider/cloud"
 	"github.com/kubermatic/kubermatic/api/pkg/provider/cloud/aws"
 	"github.com/kubermatic/kubermatic/api/pkg/provider/cloud/azure"
 	"github.com/kubermatic/kubermatic/api/pkg/provider/cloud/openstack"
+	providerconfig "github.com/kubermatic/machine-controller/pkg/providerconfig/types"
 
-	"github.com/golang/glog"
+	"go.uber.org/zap"
 
 	corev1 "k8s.io/api/core/v1"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/record"
@@ -49,19 +51,26 @@ var _ reconcile.Reconciler = &Reconciler{}
 
 type Reconciler struct {
 	client.Client
-	scheme        *runtime.Scheme
-	recorder      record.EventRecorder
-	cloudProvider map[string]provider.CloudProvider
+	log        *zap.SugaredLogger
+	recorder   record.EventRecorder
+	seedGetter provider.SeedGetter
 }
 
-func Add(mgr manager.Manager, numWorkers int, cloudProvider map[string]provider.CloudProvider, clusterPredicates predicate.Predicate) error {
-	reconciler := &Reconciler{Client: mgr.GetClient(),
-		scheme:        mgr.GetScheme(),
-		recorder:      mgr.GetRecorder(ControllerName),
-		cloudProvider: cloudProvider}
+func Add(
+	mgr manager.Manager,
+	log *zap.SugaredLogger,
+	numWorkers int,
+	seedGetter provider.SeedGetter,
+	clusterPredicates predicate.Predicate,
+) error {
+	reconciler := &Reconciler{
+		Client:     mgr.GetClient(),
+		log:        log.Named(ControllerName),
+		recorder:   mgr.GetRecorder(ControllerName),
+		seedGetter: seedGetter,
+	}
 
-	c, err := controller.New(ControllerName, mgr,
-		controller.Options{Reconciler: reconciler, MaxConcurrentReconciles: numWorkers})
+	c, err := controller.New(ControllerName, mgr, controller.Options{Reconciler: reconciler, MaxConcurrentReconciles: numWorkers})
 	if err != nil {
 		return err
 	}
@@ -71,6 +80,8 @@ func Add(mgr manager.Manager, numWorkers int, cloudProvider map[string]provider.
 func (r *Reconciler) Reconcile(request reconcile.Request) (reconcile.Result, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	log := r.log.With("request", request)
+	log.Debug("Processing")
 
 	cluster := &kubermaticv1.Cluster{}
 	if err := r.Get(ctx, request.NamespacedName, cluster); err != nil {
@@ -79,15 +90,21 @@ func (r *Reconciler) Reconcile(request reconcile.Request) (reconcile.Result, err
 		}
 		return reconcile.Result{}, err
 	}
+	log = log.With("cluster", cluster.Name)
+
+	if cluster.Spec.Pause {
+		log.Debug("Skipping because the cluster is paused")
+		return reconcile.Result{}, nil
+	}
 
 	// Add a wrapping here so we can emit an event on error
-	result, err := r.reconcile(ctx, cluster)
+	result, err := r.reconcile(ctx, log, cluster)
 	if result == nil {
 		result = &reconcile.Result{}
 	}
 	if err != nil {
 		r.recorder.Eventf(cluster, corev1.EventTypeWarning, "ReconcilingError", "%v", err)
-		glog.Errorf("error reconciling cluster %s: %v", cluster.Name, err)
+		log.Errorw("Reconciling failed", zap.Error(err))
 		return *result, err
 	}
 	_, err = r.updateCluster(cluster.Name, func(c *kubermaticv1.Cluster) {
@@ -96,29 +113,29 @@ func (r *Reconciler) Reconcile(request reconcile.Request) (reconcile.Result, err
 	return *result, err
 }
 
-func (r *Reconciler) reconcile(ctx context.Context, cluster *kubermaticv1.Cluster) (*reconcile.Result, error) {
-	if cluster.Spec.Pause {
-		glog.V(4).Infof("skipping paused cluster %s", cluster.Name)
-		return nil, nil
-	}
-
-	glog.V(4).Infof("syncing cluster %s", cluster.Name)
-	_, prov, err := provider.ClusterCloudProvider(r.cloudProvider, cluster)
+func (r *Reconciler) reconcile(ctx context.Context, log *zap.SugaredLogger, cluster *kubermaticv1.Cluster) (*reconcile.Result, error) {
+	seed, err := r.seedGetter()
 	if err != nil {
 		return nil, err
 	}
-	if prov == nil {
-		return nil, fmt.Errorf("no valid provider specified")
+	datacenter, found := seed.Spec.Datacenters[cluster.Spec.Cloud.DatacenterName]
+	if !found {
+		return nil, fmt.Errorf("couldn't find datacentrer %q for cluster %q", cluster.Spec.Cloud.DatacenterName, cluster.Name)
+	}
+	prov, err := cloud.Provider(datacenter.DeepCopy(), r.getGlobalSecretKeySelectorValue)
+	if err != nil {
+		return nil, err
 	}
 
 	if cluster.DeletionTimestamp != nil {
+		log.Debug("Cleaning up cloud provider")
 		finalizers := sets.NewString(cluster.Finalizers...)
 		if finalizers.Has(kubermaticapiv1.InClusterLBCleanupFinalizer) ||
 			finalizers.Has(kubermaticapiv1.InClusterPVCleanupFinalizer) ||
 			finalizers.Has(kubermaticapiv1.NodeDeletionFinalizer) {
 			return &reconcile.Result{RequeueAfter: 5 * time.Second}, nil
 		}
-		_, err = prov.CleanUpCloudProvider(cluster, r.updateCluster)
+		_, err := prov.CleanUpCloudProvider(cluster, r.updateCluster)
 		return nil, err
 	}
 
@@ -126,7 +143,7 @@ func (r *Reconciler) reconcile(ctx context.Context, cluster *kubermaticv1.Cluste
 	// to invalid credentials) and may take some time and we do not want to block the startup just
 	// because one cluster can not be migrated
 	if cluster.Status.CloudMigrationRevision < icmpMigrationRevision {
-		if err := r.migrateICMP(ctx, cluster, prov); err != nil {
+		if err := r.migrateICMP(ctx, log, cluster, prov); err != nil {
 			return nil, err
 		}
 	}
@@ -141,23 +158,23 @@ func (r *Reconciler) reconcile(ctx context.Context, cluster *kubermaticv1.Cluste
 	return nil, err
 }
 
-func (r *Reconciler) migrateICMP(ctx context.Context, cluster *kubermaticv1.Cluster, cloudProvider provider.CloudProvider) error {
-	switch provider := cloudProvider.(type) {
+func (r *Reconciler) migrateICMP(ctx context.Context, log *zap.SugaredLogger, cluster *kubermaticv1.Cluster, cloudProvider provider.CloudProvider) error {
+	switch prov := cloudProvider.(type) {
 	case *aws.AmazonEC2:
-		if err := provider.AddICMPRulesIfRequired(cluster); err != nil {
+		if err := prov.AddICMPRulesIfRequired(cluster); err != nil {
 			return fmt.Errorf("failed to ensure ICMP rules for cluster %q: %v", cluster.Name, err)
 		}
-		glog.Infof("Successfully ensured ICMP rules in security group of cluster %q", cluster.Name)
+		log.Info("Successfully ensured ICMP rules in security group of cluster")
 	case *openstack.Provider:
-		if err := provider.AddICMPRulesIfRequired(cluster); err != nil {
+		if err := prov.AddICMPRulesIfRequired(cluster); err != nil {
 			return fmt.Errorf("failed to ensure ICMP rules for cluster %q: %v", cluster.Name, err)
 		}
-		glog.Infof("Successfully ensured ICMP rules in security group of cluster %q", cluster.Name)
+		log.Info("Successfully ensured ICMP rules in security group of cluster")
 	case *azure.Azure:
-		if err := provider.AddICMPRulesIfRequired(cluster); err != nil {
+		if err := prov.AddICMPRulesIfRequired(cluster); err != nil {
 			return fmt.Errorf("failed to ensure ICMP rules for cluster %q: %v", cluster.Name, err)
 		}
-		glog.Infof("Successfully ensured ICMP rules in security group of cluster %q", cluster.Name)
+		log.Info("Successfully ensured ICMP rules in security group of cluster %q", cluster.Name)
 	}
 
 	var err error
@@ -172,9 +189,8 @@ func (r *Reconciler) migrateICMP(ctx context.Context, cluster *kubermaticv1.Clus
 }
 
 func (r *Reconciler) migrateAWSMultiAZ(ctx context.Context, cluster *kubermaticv1.Cluster, cloudProvider provider.CloudProvider) error {
-	if awsprovider, ok := cloudProvider.(*aws.AmazonEC2); ok {
-
-		if err := awsprovider.MigrateToMultiAZ(cluster, r.updateCluster); err != nil {
+	if prov, ok := cloudProvider.(*aws.AmazonEC2); ok {
+		if err := prov.MigrateToMultiAZ(cluster, r.updateCluster); err != nil {
 			return fmt.Errorf("failed to migrate AWS cluster %q to multi-AZ: %q", cluster.Name, err)
 		}
 	}
@@ -190,19 +206,36 @@ func (r *Reconciler) migrateAWSMultiAZ(ctx context.Context, cluster *kubermaticv
 	return nil
 }
 
-func (r *Reconciler) updateCluster(name string, modify func(*kubermaticv1.Cluster)) (updatedCluster *kubermaticv1.Cluster, err error) {
-	err = retry.RetryOnConflict(retry.DefaultBackoff, func() error {
-		cluster := &kubermaticv1.Cluster{}
+func (r *Reconciler) updateCluster(name string, modify func(*kubermaticv1.Cluster)) (*kubermaticv1.Cluster, error) {
+	cluster := &kubermaticv1.Cluster{}
+	return cluster, retry.RetryOnConflict(retry.DefaultBackoff, func() error {
 		if err := r.Get(context.Background(), types.NamespacedName{Name: name}, cluster); err != nil {
 			return err
 		}
 		modify(cluster)
-		err := r.Update(context.Background(), cluster)
-		if err == nil {
-			updatedCluster = cluster
-		}
-		return err
+		return r.Update(context.Background(), cluster)
 	})
+}
 
-	return updatedCluster, err
+func (r *Reconciler) getGlobalSecretKeySelectorValue(configVar *providerconfig.GlobalSecretKeySelector, key string) (string, error) {
+	if configVar == nil {
+		return "", errors.New("configVar is nil")
+	}
+	if configVar.Name == "" || configVar.Namespace == "" {
+		return "", fmt.Errorf("both name and namespace must be specified in the secret key selector")
+	}
+	if key == "" {
+		return "", fmt.Errorf("key cannot be empty")
+	}
+
+	secret := &corev1.Secret{}
+	namespacedName := types.NamespacedName{Namespace: configVar.Namespace, Name: configVar.Name}
+	if err := r.Get(context.Background(), namespacedName, secret); err != nil {
+		return "", fmt.Errorf("error retrieving secret %q from namespace %q: %v", configVar.Name, configVar.Namespace, err)
+	}
+
+	if val, ok := secret.Data[key]; ok {
+		return string(val), nil
+	}
+	return "", fmt.Errorf("secret %q in namespace %q has no key %q", configVar.Name, configVar.Namespace, key)
 }

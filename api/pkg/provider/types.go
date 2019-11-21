@@ -1,18 +1,19 @@
 package provider
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"k8s.io/apimachinery/pkg/runtime"
 
 	kubermaticv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
+	providerconfig "github.com/kubermatic/machine-controller/pkg/providerconfig/types"
 
-	apicorev1 "k8s.io/api/core/v1"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	"k8s.io/client-go/tools/record"
-
 	ctrlruntimeclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -35,6 +36,7 @@ const (
 	HetznerCloudProvider      = "hetzner"
 	VSphereCloudProvider      = "vsphere"
 	GCPCloudProvider          = "gcp"
+	KubevirtCloudProvider     = "kubevirt"
 
 	DefaultSSHPort     = 22
 	DefaultKubeletPort = 10250
@@ -65,6 +67,34 @@ type ClusterGetOptions struct {
 	CheckInitStatus bool
 }
 
+type SecretKeySelectorValueFunc func(configVar *providerconfig.GlobalSecretKeySelector, key string) (string, error)
+
+func SecretKeySelectorValueFuncFactory(ctx context.Context, client ctrlruntimeclient.Client) SecretKeySelectorValueFunc {
+	return func(configVar *providerconfig.GlobalSecretKeySelector, key string) (string, error) {
+		if configVar.Name == "" {
+			return "", errors.New("configVar.Name is empty")
+		}
+		if configVar.Namespace == "" {
+			return "", errors.New("configVar.Namspace is empty")
+		}
+		if key == "" {
+			return "", errors.New("key is empty")
+		}
+
+		secret := &corev1.Secret{}
+		namespacedName := types.NamespacedName{Namespace: configVar.Namespace, Name: configVar.Name}
+		if err := client.Get(ctx, namespacedName, secret); err != nil {
+			return "", fmt.Errorf("failed to get secret %q: %v", namespacedName.String(), err)
+		}
+
+		if _, ok := secret.Data[key]; !ok {
+			return "", fmt.Errorf("secret %q has no key %q", namespacedName.String(), key)
+		}
+
+		return string(secret.Data[key]), nil
+	}
+}
+
 // ProjectGetOptions allows to check the status of the Project
 type ProjectGetOptions struct {
 	// IncludeUninitialized if set to true will skip the check if project is initialized. By default the call will return
@@ -93,19 +123,25 @@ type ClusterProvider interface {
 	// Note:
 	// After we get the list of clusters we could try to get each cluster individually using unprivileged account to see if the user have read access,
 	// We don't do this because we assume that if the user was able to get the project (argument) it has to have at least read access.
-	List(project *kubermaticv1.Project, options *ClusterListOptions) ([]*kubermaticv1.Cluster, error)
+	List(project *kubermaticv1.Project, options *ClusterListOptions) (*kubermaticv1.ClusterList, error)
 
 	// Get returns the given cluster, it uses the projectInternalName to determine the group the user belongs to
 	Get(userInfo *UserInfo, clusterName string, options *ClusterGetOptions) (*kubermaticv1.Cluster, error)
 
 	// Update updates a cluster
-	Update(userInfo *UserInfo, newCluster *kubermaticv1.Cluster) (*kubermaticv1.Cluster, error)
+	Update(project *kubermaticv1.Project, userInfo *UserInfo, newCluster *kubermaticv1.Cluster) (*kubermaticv1.Cluster, error)
 
 	// Delete deletes the given cluster
 	Delete(userInfo *UserInfo, clusterName string) error
 
 	// GetAdminKubeconfigForCustomerCluster returns the admin kubeconfig for the given cluster
 	GetAdminKubeconfigForCustomerCluster(cluster *kubermaticv1.Cluster) (*clientcmdapi.Config, error)
+
+	// GetViewerKubeconfigForCustomerCluster returns the viewer kubeconfig for the given cluster
+	GetViewerKubeconfigForCustomerCluster(cluster *kubermaticv1.Cluster) (*clientcmdapi.Config, error)
+
+	// RevokeViewerKubeconfig revokes viewer token and kubeconfig
+	RevokeViewerKubeconfig(c *kubermaticv1.Cluster) error
 
 	// GetAdminClientForCustomerCluster returns a client to interact with all resources in the given cluster
 	//
@@ -130,6 +166,11 @@ type PrivilegedClusterProvider interface {
 	//
 	// Note that the client you will get has admin privileges in the seed cluster
 	GetSeedClusterAdminClient() kubernetes.Interface
+
+	// GetUnsecured returns a cluster for the project and given name.
+	//
+	// Note that the admin privileges are used to get cluster
+	GetUnsecured(project *kubermaticv1.Project, clusterName string) (*kubermaticv1.Cluster, error)
 }
 
 // SSHKeyListOptions allows to set filters that will be applied to filter the result.
@@ -181,7 +222,7 @@ type PrivilegedProjectProvider interface {
 type ProjectProvider interface {
 	// New creates a brand new project in the system with the given name
 	// Note that a user cannot own more than one project with the given name
-	New(user *kubermaticv1.User, name string) (*kubermaticv1.Project, error)
+	New(user *kubermaticv1.User, name string, labels map[string]string) (*kubermaticv1.Project, error)
 
 	// Delete deletes the given project as the given user
 	//
@@ -279,6 +320,9 @@ func ClusterCloudProviderName(spec kubermaticv1.CloudSpec) (string, error) {
 	if spec.GCP != nil {
 		clouds = append(clouds, GCPCloudProvider)
 	}
+	if spec.Kubevirt != nil {
+		clouds = append(clouds, KubevirtCloudProvider)
+	}
 	if len(clouds) == 0 {
 		return "", nil
 	}
@@ -308,7 +352,7 @@ func ClusterCloudProvider(cps map[string]CloudProvider, c *kubermaticv1.Cluster)
 }
 
 // DatacenterCloudProviderName returns the provider name for the given Datacenter.
-func DatacenterCloudProviderName(spec *DatacenterSpec) (string, error) {
+func DatacenterCloudProviderName(spec *kubermaticv1.DatacenterSpec) (string, error) {
 	if spec == nil {
 		return "", nil
 	}
@@ -339,6 +383,12 @@ func DatacenterCloudProviderName(spec *DatacenterSpec) (string, error) {
 	}
 	if spec.GCP != nil {
 		clouds = append(clouds, GCPCloudProvider)
+	}
+	if spec.Fake != nil {
+		clouds = append(clouds, FakeCloudProvider)
+	}
+	if spec.Kubevirt != nil {
+		clouds = append(clouds, KubevirtCloudProvider)
 	}
 	if len(clouds) == 0 {
 		return "", nil
@@ -375,10 +425,10 @@ type ServiceAccountListOptions struct {
 
 // ServiceAccountTokenProvider declares the set of methods for interacting with kubermatic service account token
 type ServiceAccountTokenProvider interface {
-	Create(userInfo *UserInfo, sa *kubermaticv1.User, projectID, tokenName, tokenID, tokenData string) (*apicorev1.Secret, error)
-	List(userInfo *UserInfo, project *kubermaticv1.Project, sa *kubermaticv1.User, options *ServiceAccountTokenListOptions) ([]*apicorev1.Secret, error)
-	Get(userInfo *UserInfo, name string) (*apicorev1.Secret, error)
-	Update(userInfo *UserInfo, secret *apicorev1.Secret) (*apicorev1.Secret, error)
+	Create(userInfo *UserInfo, sa *kubermaticv1.User, projectID, tokenName, tokenID, tokenData string) (*corev1.Secret, error)
+	List(userInfo *UserInfo, project *kubermaticv1.Project, sa *kubermaticv1.User, options *ServiceAccountTokenListOptions) ([]*corev1.Secret, error)
+	Get(userInfo *UserInfo, name string) (*corev1.Secret, error)
+	Update(userInfo *UserInfo, secret *corev1.Secret) (*corev1.Secret, error)
 	Delete(userInfo *UserInfo, name string) error
 }
 
@@ -395,7 +445,7 @@ type PrivilegedServiceAccountTokenProvider interface {
 	// Note that this function:
 	// is unsafe in a sense that it uses privileged account to get the resource
 	// gets resources from the cache
-	ListUnsecured(*ServiceAccountTokenListOptions) ([]*apicorev1.Secret, error)
+	ListUnsecured(*ServiceAccountTokenListOptions) ([]*corev1.Secret, error)
 }
 
 // EventRecorderProvider allows to record events for objects that can be read using K8S API.

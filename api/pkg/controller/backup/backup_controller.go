@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/robfig/cron"
+
 	"go.uber.org/zap"
 
 	kubermaticv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
@@ -27,6 +28,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/tools/record"
+	utilpointer "k8s.io/utils/pointer"
 	ctrlruntimeclient "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
@@ -166,8 +168,8 @@ func (r *Reconciler) cleanupJobs() {
 
 	jobs := &batchv1.JobList{}
 	if err := r.List(ctx, &ctrlruntimeclient.ListOptions{LabelSelector: selector}, jobs); err != nil {
-		log.Errorw("Failed to list jobs", "selector", selector.String(), zap.Error(err))
-		utilruntime.HandleError(fmt.Errorf("Failed to list jobs: %v", err))
+		log.Errorw("failed to list jobs", "selector", selector.String(), zap.Error(err))
+		utilruntime.HandleError(fmt.Errorf("failed to list jobs: %v", err))
 		return
 	}
 
@@ -265,7 +267,7 @@ func (r *Reconciler) reconcile(ctx context.Context, log *zap.SugaredLogger, clus
 		return fmt.Errorf("failed to create backup secret: %v", err)
 	}
 
-	return r.ensureCronJob(ctx, cluster)
+	return reconciling.ReconcileCronJobs(ctx, []reconciling.NamedCronJobCreatorGetter{r.cronjob(cluster)}, metav1.NamespaceSystem, r.Client)
 }
 
 func (r *Reconciler) getEtcdSecretName(cluster *kubermaticv1.Cluster) string {
@@ -302,19 +304,6 @@ func (r *Reconciler) ensureCronJobSecret(ctx context.Context, cluster *kubermati
 	return nil
 }
 
-func (r *Reconciler) ensureCronJob(ctx context.Context, cluster *kubermaticv1.Cluster) error {
-	name, creator := r.cronjob(cluster)
-	err := reconciling.EnsureNamedObject(ctx,
-		types.NamespacedName{Namespace: metav1.NamespaceSystem, Name: name},
-		reconciling.CronJobObjectWrapper(creator),
-		r.Client, &batchv1beta1.CronJob{}, false)
-	if err != nil {
-		return fmt.Errorf("failed to ensure Cronjob kube-system/%q: %v", name, err)
-	}
-
-	return nil
-}
-
 func (r *Reconciler) cleanupJob(cluster *kubermaticv1.Cluster) *batchv1.Job {
 	cleanupContainer := r.cleanupContainer.DeepCopy()
 	cleanupContainer.Env = append(cleanupContainer.Env, corev1.EnvVar{
@@ -331,9 +320,9 @@ func (r *Reconciler) cleanupJob(cluster *kubermaticv1.Cluster) *batchv1.Job {
 			},
 		},
 		Spec: batchv1.JobSpec{
-			BackoffLimit:          int32Ptr(10),
-			Completions:           int32Ptr(1),
-			Parallelism:           int32Ptr(1),
+			BackoffLimit:          utilpointer.Int32Ptr(10),
+			Completions:           utilpointer.Int32Ptr(1),
+			Parallelism:           utilpointer.Int32Ptr(1),
 			ActiveDeadlineSeconds: resources.Int64(30 * 60 * 60),
 			Template: corev1.PodTemplateSpec{
 				Spec: corev1.PodSpec{
@@ -355,94 +344,82 @@ func (r *Reconciler) cleanupJob(cluster *kubermaticv1.Cluster) *batchv1.Job {
 	}
 }
 
-func (r *Reconciler) cronjob(cluster *kubermaticv1.Cluster) (string, reconciling.CronJobCreator) {
-	return fmt.Sprintf("%s-%s", cronJobPrefix, cluster.Name), func(cronJob *batchv1beta1.CronJob) (*batchv1beta1.CronJob, error) {
-		gv := kubermaticv1.SchemeGroupVersion
-		cronJob.OwnerReferences = []metav1.OwnerReference{
-			*metav1.NewControllerRef(cluster, gv.WithKind(kubermaticv1.ClusterKindName)),
-		}
+func (r *Reconciler) cronjob(cluster *kubermaticv1.Cluster) reconciling.NamedCronJobCreatorGetter {
+	return func() (string, reconciling.CronJobCreator) {
+		return fmt.Sprintf("%s-%s", cronJobPrefix, cluster.Name), func(cronJob *batchv1beta1.CronJob) (*batchv1beta1.CronJob, error) {
+			gv := kubermaticv1.SchemeGroupVersion
+			cronJob.OwnerReferences = []metav1.OwnerReference{
+				*metav1.NewControllerRef(cluster, gv.WithKind(kubermaticv1.ClusterKindName)),
+			}
 
-		// Spec
-		cronJob.Spec.Schedule = r.backupScheduleString
-		cronJob.Spec.ConcurrencyPolicy = batchv1beta1.ForbidConcurrent
-		cronJob.Spec.Suspend = boolPtr(false)
-		cronJob.Spec.SuccessfulJobsHistoryLimit = int32Ptr(int32(0))
+			// Spec
+			cronJob.Spec.Schedule = r.backupScheduleString
+			cronJob.Spec.ConcurrencyPolicy = batchv1beta1.ForbidConcurrent
+			cronJob.Spec.Suspend = utilpointer.BoolPtr(false)
+			cronJob.Spec.SuccessfulJobsHistoryLimit = utilpointer.Int32Ptr(0)
 
-		endpoints := etcd.GetClientEndpoints(cluster.Status.NamespaceName)
-		cronJob.Spec.JobTemplate.Spec.Template.Spec.InitContainers = []corev1.Container{
-			{
-				Name:  "backup-creator",
-				Image: r.backupContainerImage,
-				Env: []corev1.EnvVar{
-					{
-						Name:  "ETCDCTL_API",
-						Value: "3",
+			endpoints := etcd.GetClientEndpoints(cluster.Status.NamespaceName)
+			cronJob.Spec.JobTemplate.Spec.Template.Spec.InitContainers = []corev1.Container{
+				{
+					Name:  "backup-creator",
+					Image: r.backupContainerImage,
+					Env: []corev1.EnvVar{
+						{
+							Name:  "ETCDCTL_API",
+							Value: "3",
+						},
 					},
-				},
-				Command: []string{
-					"/bin/sh",
-					"-ec",
-					fmt.Sprintf("/usr/local/bin/etcdctl --endpoints %s --cacert /etc/etcd/client/ca.crt --cert /etc/etcd/client/backup-etcd-client.crt --key /etc/etcd/client/backup-etcd-client.key snapshot save /backup/snapshot.db || "+
+						Command: []string{
+						"/usr/bin/time",
+						"/bin/sh",
+						"-ec",
+						fmt.Sprintf("/usr/local/bin/etcdctl --endpoints %s --cacert /etc/etcd/client/ca.crt --cert /etc/etcd/client/backup-etcd-client.crt --key /etc/etcd/client/backup-etcd-client.key snapshot save /backup/snapshot.db || "+
 						"/usr/local/bin/etcdctl --endpoints %s --cacert /etc/etcd/client/ca.crt --cert /etc/etcd/client/backup-etcd-client.crt --key /etc/etcd/client/backup-etcd-client.key snapshot save /backup/snapshot.db || "+
 						"/usr/local/bin/etcdctl --endpoints %s --cacert /etc/etcd/client/ca.crt --cert /etc/etcd/client/backup-etcd-client.crt --key /etc/etcd/client/backup-etcd-client.key snapshot save /backup/snapshot.db",
 						endpoints[0], endpoints[1], endpoints[2]),
-				},
-				ImagePullPolicy:          corev1.PullIfNotPresent,
-				TerminationMessagePath:   corev1.TerminationMessagePathDefault,
-				TerminationMessagePolicy: corev1.TerminationMessageReadFile,
-				VolumeMounts: []corev1.VolumeMount{
-					{
-						Name:      SharedVolumeName,
-						MountPath: "/backup",
 					},
-					{
-						Name:      r.getEtcdSecretName(cluster),
-						MountPath: "/etc/etcd/client",
+					VolumeMounts: []corev1.VolumeMount{
+						{
+							Name:      SharedVolumeName,
+							MountPath: "/backup",
+						},
+						{
+							Name:      r.getEtcdSecretName(cluster),
+							MountPath: "/etc/etcd/client",
+						},
 					},
 				},
-			},
+			}
+
+			storeContainer := r.storeContainer.DeepCopy()
+			storeContainer.Env = append(storeContainer.Env, corev1.EnvVar{
+				Name:  clusterEnvVarKey,
+				Value: cluster.Name,
+			})
+
+			cronJob.Spec.JobTemplate.Spec.Template.Spec.RestartPolicy = corev1.RestartPolicyOnFailure
+			cronJob.Spec.JobTemplate.Spec.Template.Spec.Containers = []corev1.Container{*storeContainer}
+			cronJob.Spec.JobTemplate.Spec.Template.Spec.Volumes = []corev1.Volume{
+				{
+					Name: SharedVolumeName,
+					VolumeSource: corev1.VolumeSource{
+						EmptyDir: &corev1.EmptyDirVolumeSource{},
+					},
+				},
+				{
+					Name: r.getEtcdSecretName(cluster),
+					VolumeSource: corev1.VolumeSource{
+						Secret: &corev1.SecretVolumeSource{
+							SecretName: r.getEtcdSecretName(cluster),
+						},
+					},
+				},
+			}
+
+			return cronJob, nil
 		}
-
-		storeContainer := r.storeContainer.DeepCopy()
-		storeContainer.Env = append(storeContainer.Env, corev1.EnvVar{
-			Name:  clusterEnvVarKey,
-			Value: cluster.Name,
-		})
-		storeContainer.ImagePullPolicy = corev1.PullIfNotPresent
-		storeContainer.TerminationMessagePath = corev1.TerminationMessagePathDefault
-		storeContainer.TerminationMessagePolicy = corev1.TerminationMessageReadFile
-
-		cronJob.Spec.JobTemplate.Spec.Template.Spec.RestartPolicy = corev1.RestartPolicyOnFailure
-		cronJob.Spec.JobTemplate.Spec.Template.Spec.Containers = []corev1.Container{*storeContainer}
-		cronJob.Spec.JobTemplate.Spec.Template.Spec.Volumes = []corev1.Volume{
-			{
-				Name: SharedVolumeName,
-				VolumeSource: corev1.VolumeSource{
-					EmptyDir: &corev1.EmptyDirVolumeSource{},
-				},
-			},
-			{
-				Name: r.getEtcdSecretName(cluster),
-				VolumeSource: corev1.VolumeSource{
-					Secret: &corev1.SecretVolumeSource{
-						SecretName:  r.getEtcdSecretName(cluster),
-						DefaultMode: resources.Int32(resources.DefaultOwnerReadOnlyMode),
-					},
-				},
-			},
-		}
-
-		return cronJob, nil
 	}
 
-}
-
-func boolPtr(b bool) *bool {
-	return &b
-}
-
-func int32Ptr(i int32) *int32 {
-	return &i
 }
 
 func parseDuration(interval time.Duration) (string, error) {

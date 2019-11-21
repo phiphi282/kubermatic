@@ -257,8 +257,7 @@ func getVolumes() []corev1.Volume {
 			Name: resources.CASecretName,
 			VolumeSource: corev1.VolumeSource{
 				Secret: &corev1.SecretVolumeSource{
-					SecretName:  resources.OpenVPNCASecretName,
-					DefaultMode: resources.Int32(resources.DefaultOwnerReadOnlyMode),
+					SecretName: resources.OpenVPNCASecretName,
 					Items: []corev1.KeyToPath{
 						{
 							Path: resources.OpenVPNCACertKey,
@@ -272,8 +271,7 @@ func getVolumes() []corev1.Volume {
 			Name: resources.OpenVPNServerCertificatesSecretName,
 			VolumeSource: corev1.VolumeSource{
 				Secret: &corev1.SecretVolumeSource{
-					SecretName:  resources.OpenVPNServerCertificatesSecretName,
-					DefaultMode: resources.Int32(resources.DefaultOwnerReadOnlyMode),
+					SecretName: resources.OpenVPNServerCertificatesSecretName,
 				},
 			},
 		},
@@ -284,7 +282,6 @@ func getVolumes() []corev1.Volume {
 					LocalObjectReference: corev1.LocalObjectReference{
 						Name: resources.OpenVPNClientConfigsConfigMapName,
 					},
-					DefaultMode: resources.Int32(resources.DefaultOwnerReadOnlyMode),
 				},
 			},
 		},

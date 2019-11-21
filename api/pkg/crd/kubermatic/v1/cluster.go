@@ -6,9 +6,11 @@ import (
 	"fmt"
 
 	"github.com/kubermatic/kubermatic/api/pkg/semver"
+	providerconfig "github.com/kubermatic/machine-controller/pkg/providerconfig/types"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/sets"
 )
 
 const (
@@ -22,32 +24,19 @@ const (
 	// used to determine if the cluster-autoscaler is enabled for this cluster. It is
 	// enabled when this Annotation is set with any value
 	AnnotationNameClusterAutoscalerEnabled = "kubermatic.io/cluster-autoscaler-enabled"
-)
 
-// ClusterPhase is the life cycle phase of a cluster.
-type ClusterPhase string
-
-const (
-	// NoneClusterStatusPhase is an not assigned cluster phase, the controller will assign a default.
-	NoneClusterStatusPhase ClusterPhase = ""
-
-	// ValidatingClusterStatusPhase means that the cluster will be verified.
-	ValidatingClusterStatusPhase ClusterPhase = "Validating"
-
-	// LaunchingClusterStatusPhase means that the cluster controller starts up the cluster.
-	LaunchingClusterStatusPhase ClusterPhase = "Launching"
-
-	// RunningClusterStatusPhase means that the cluster is cluster is up and running.
-	RunningClusterStatusPhase ClusterPhase = "Running"
-
-	// DeletingClusterStatusPhase means that the cluster controller is deleting the cluster.
-	DeletingClusterStatusPhase ClusterPhase = "Deleting"
+	// CredentialPrefix is the prefix used for the secrets containing cloud provider crednentials.
+	CredentialPrefix = "credential"
 )
 
 const (
 	WorkerNameLabelKey = "worker-name"
 	ProjectIDLabelKey  = "project-id"
 )
+
+// ProtectedClusterLabels is a set of labels that must not be set by users on clusters,
+// as they are security relevant.
+var ProtectedClusterLabels = sets.NewString(WorkerNameLabelKey, ProjectIDLabelKey)
 
 //+genclient
 //+genclient:nonNamespaced
@@ -108,91 +97,33 @@ type ClusterSpec struct {
 	Openshift *Openshift `json:"openshift,omitempty"`
 
 	UsePodSecurityPolicyAdmissionPlugin bool `json:"usePodSecurityPolicyAdmissionPlugin,omitempty"`
-}
 
-type Openshift struct {
-	ImagePullSecret string `json:"imagePullSecret,omitempty"`
-}
-
-type OIDCSettings struct {
-	IssuerURL     string `json:"issuerUrl,omitempty"`
-	ClientID      string `json:"clientId,omitempty"`
-	ClientSecret  string `json:"clientSecret,omitempty"`
-	UsernameClaim string `json:"usernameClaim,omitempty"`
-	GroupsClaim   string `json:"groupsClaim,omitempty"`
-	RequiredClaim string `json:"requiredClaim,omitempty"`
-	ExtraScopes   string `json:"extraScopes,omitempty"`
+	AuditLogging *AuditLoggingSettings `json:"auditLogging,omitempty"`
 }
 
 type Sys11AuthSettings struct {
 	Realm string `json:"realm,omitempty"`
 }
 
-type ComponentSettings struct {
-	Apiserver         DeploymentSettings  `json:"apiserver"`
-	ControllerManager DeploymentSettings  `json:"controllerManager"`
-	Scheduler         DeploymentSettings  `json:"scheduler"`
-	Etcd              StatefulSetSettings `json:"etcd"`
-	Prometheus        StatefulSetSettings `json:"prometheus"`
-}
-
-type DeploymentSettings struct {
-	Replicas  *int32                       `json:"replicas,omitempty"`
-	Resources *corev1.ResourceRequirements `json:"resources,omitempty"`
-}
-
-type StatefulSetSettings struct {
-	Resources *corev1.ResourceRequirements `json:"resources,omitempty"`
-}
-
-// ClusterNetworkingConfig specifies the different networking
-// parameters for a cluster.
-type ClusterNetworkingConfig struct {
-	// The network ranges from which service VIPs are allocated.
-	Services NetworkRanges `json:"services"`
-
-	// The network ranges from which POD networks are allocated.
-	Pods NetworkRanges `json:"pods"`
-
-	// Domain name for services.
-	DNSDomain string `json:"dnsDomain"`
-}
-
-// MachineNetworkingConfig specifies the networking parameters used for IPAM.
-type MachineNetworkingConfig struct {
-	CIDR       string   `json:"cidr"`
-	Gateway    string   `json:"gateway"`
-	DNSServers []string `json:"dnsServers"`
-}
-
-// NetworkRanges represents ranges of network addresses.
-type NetworkRanges struct {
-	CIDRBlocks []string `json:"cidrBlocks"`
-}
-
-// ClusterAddress stores access and address information of a cluster.
-type ClusterAddress struct {
-	// URL under which the Apiserver is available
-	URL string `json:"url"`
-	// Port is the port the API server listens on
-	Port int32 `json:"port"`
-	// ExternalName is the DNS name for this cluster
-	ExternalName string `json:"externalName"`
-	// InternalName is the seed cluster internal absolute DNS name to the API server
-	InternalName string `json:"internalURL"`
-	// AdminToken is the token for the kubeconfig, the user can download
-	AdminToken string `json:"adminToken"`
-	// IP is the external IP under which the apiserver is available
-	IP string `json:"ip"`
-}
-
 type ClusterConditionType string
+
+const (
+	// ClusterConditionSeedResourcesUpToDate indicates that alle controllers have finished setting up the
+	// resources for a user clusters that run inside the seed cluster, i.e. this ignores
+	// the status of cloud provider resources for a given cluster.
+	ClusterConditionSeedResourcesUpToDate ClusterConditionType = "SeedResourcesUpToDate"
+
+	ReasonClusterUpdateSuccessful = "ClusterUpdateSuccessful"
+	ReasonClusterUpadteInProgress = "ClusterUpdateInProgress"
+)
 
 type ClusterCondition struct {
 	// Type of cluster condition.
 	Type ClusterConditionType `json:"type"`
 	// Status of the condition, one of True, False, Unknown.
 	Status corev1.ConditionStatus `json:"status"`
+	// KubermaticVersion current kubermatic version.
+	KubermaticVersion string `json:"kubermatic_version"`
 	// Last time we got an update on a given condition.
 	// +optional
 	LastHeartbeatTime metav1.Time `json:"lastHeartbeatTime,omitempty"`
@@ -210,12 +141,11 @@ type ClusterCondition struct {
 // ClusterStatus stores status information about a cluster.
 type ClusterStatus struct {
 	LastUpdated metav1.Time `json:"lastUpdated,omitempty"`
-	// Phase is Deprecated.
-	Phase ClusterPhase `json:"phase,omitempty"`
 	// ExtendedHealth exposes information about the current health state.
 	// Extends standard health status for new states.
 	ExtendedHealth ExtendedClusterHealth `json:"extendedHealth,omitempty"`
-
+	// KubermaticVersion is the current kubermatic version in a cluster.
+	KubermaticVersion string `json:"kubermatic_version"`
 	// Deprecated
 	RootCA *KeyCert `json:"rootCA,omitempty"`
 	// Deprecated
@@ -248,6 +178,19 @@ type ClusterStatus struct {
 	CloudMigrationRevision int `json:"cloudMigrationRevision"`
 }
 
+// HasConditionValue returns true if the cluster status has the given condition with the given status.
+// It does not verify that the condition has been set by a certain Kubermatic version, it just checks
+// the existence.
+func (cs *ClusterStatus) HasConditionValue(conditionType ClusterConditionType, conditionStatus corev1.ConditionStatus) bool {
+	for _, clusterCondition := range cs.Conditions {
+		if clusterCondition.Type == conditionType {
+			return clusterCondition.Status == conditionStatus
+		}
+	}
+
+	return false
+}
+
 type ClusterStatusError string
 
 const (
@@ -255,6 +198,92 @@ const (
 	UnsupportedChangeClusterError    ClusterStatusError = "UnsupportedChange"
 	ReconcileClusterError            ClusterStatusError = "ReconcileError"
 )
+
+type Openshift struct {
+	ImagePullSecret string `json:"imagePullSecret,omitempty"`
+}
+
+type OIDCSettings struct {
+	IssuerURL     string `json:"issuerUrl,omitempty"`
+	ClientID      string `json:"clientId,omitempty"`
+	ClientSecret  string `json:"clientSecret,omitempty"`
+	UsernameClaim string `json:"usernameClaim,omitempty"`
+	GroupsClaim   string `json:"groupsClaim,omitempty"`
+	RequiredClaim string `json:"requiredClaim,omitempty"`
+	ExtraScopes   string `json:"extraScopes,omitempty"`
+}
+
+type AuditLoggingSettings struct {
+	Enabled bool `json:"enabled,omitempty"`
+}
+
+type ComponentSettings struct {
+	Apiserver         APIServerSettings   `json:"apiserver"`
+	ControllerManager DeploymentSettings  `json:"controllerManager"`
+	Scheduler         DeploymentSettings  `json:"scheduler"`
+	Etcd              StatefulSetSettings `json:"etcd"`
+	Prometheus        StatefulSetSettings `json:"prometheus"`
+}
+
+type APIServerSettings struct {
+	DeploymentSettings `json:",inline"`
+
+	EndpointReconcilingDisabled *bool `json:"endpointReconcilingDisabled,omitempty"`
+}
+
+type DeploymentSettings struct {
+	Replicas  *int32                       `json:"replicas,omitempty"`
+	Resources *corev1.ResourceRequirements `json:"resources,omitempty"`
+}
+
+type StatefulSetSettings struct {
+	Resources *corev1.ResourceRequirements `json:"resources,omitempty"`
+}
+
+// ClusterNetworkingConfig specifies the different networking
+// parameters for a cluster.
+type ClusterNetworkingConfig struct {
+	// The network ranges from which service VIPs are allocated.
+	Services NetworkRanges `json:"services"`
+
+	// The network ranges from which POD networks are allocated.
+	Pods NetworkRanges `json:"pods"`
+
+	// Domain name for services.
+	DNSDomain string `json:"dnsDomain"`
+
+	// ProxyMode defines the kube-proxy mode (ipvs/iptables).
+	// Defaults to ipvs.
+	ProxyMode string `json:"proxyMode"`
+}
+
+// MachineNetworkingConfig specifies the networking parameters used for IPAM.
+type MachineNetworkingConfig struct {
+	CIDR       string   `json:"cidr"`
+	Gateway    string   `json:"gateway"`
+	DNSServers []string `json:"dnsServers"`
+}
+
+// NetworkRanges represents ranges of network addresses.
+type NetworkRanges struct {
+	CIDRBlocks []string `json:"cidrBlocks"`
+}
+
+// ClusterAddress stores access and address information of a cluster.
+type ClusterAddress struct {
+	// URL under which the Apiserver is available
+	URL string `json:"url"`
+	// Port is the port the API server listens on
+	Port int32 `json:"port"`
+	// ExternalName is the DNS name for this cluster
+	ExternalName string `json:"externalName"`
+	// InternalName is the seed cluster internal absolute DNS name to the API server
+	InternalName string `json:"internalURL"`
+	// AdminToken is the token for the kubeconfig, the user can download
+	AdminToken string `json:"adminToken"`
+	// IP is the external IP under which the apiserver is available
+	IP string `json:"ip"`
+}
 
 // CloudSpec mutually stores access data to a cloud provider.
 type CloudSpec struct {
@@ -271,6 +300,7 @@ type CloudSpec struct {
 	Hetzner      *HetznerCloudSpec      `json:"hetzner,omitempty"`
 	VSphere      *VSphereCloudSpec      `json:"vsphere,omitempty"`
 	GCP          *GCPCloudSpec          `json:"gcp,omitempty"`
+	Kubevirt     *KubevirtCloudSpec     `json:"kubevirt,omitempty"`
 }
 
 // KeyCert is a pair of key and cert.
@@ -294,20 +324,26 @@ type FakeCloudSpec struct {
 
 // DigitaloceanCloudSpec specifies access data to DigitalOcean.
 type DigitaloceanCloudSpec struct {
-	Token string `json:"token"` // Token is used to authenticate with the DigitalOcean API.
+	CredentialsReference *providerconfig.GlobalSecretKeySelector `json:"credentialsReference,omitempty"`
+
+	Token string `json:"token,omitempty"` // Token is used to authenticate with the DigitalOcean API.
 }
 
 // HetznerCloudSpec specifies access data to hetzner cloud.
 type HetznerCloudSpec struct {
-	Token string `json:"token"` // Token is used to authenticate with the Hetzner cloud API.
+	CredentialsReference *providerconfig.GlobalSecretKeySelector `json:"credentialsReference,omitempty"`
+
+	Token string `json:"token,omitempty"` // Token is used to authenticate with the Hetzner cloud API.
 }
 
 // AzureCloudSpec specifies acceess credentials to Azure cloud.
 type AzureCloudSpec struct {
-	TenantID       string `json:"tenantID"`
-	SubscriptionID string `json:"subscriptionID"`
-	ClientID       string `json:"clientID"`
-	ClientSecret   string `json:"clientSecret"`
+	CredentialsReference *providerconfig.GlobalSecretKeySelector `json:"credentialsReference,omitempty"`
+
+	TenantID       string `json:"tenantID,omitempty"`
+	SubscriptionID string `json:"subscriptionID,omitempty"`
+	ClientID       string `json:"clientID,omitempty"`
+	ClientSecret   string `json:"clientSecret,omitempty"`
 
 	ResourceGroup   string `json:"resourceGroup"`
 	VNetName        string `json:"vnet"`
@@ -319,14 +355,16 @@ type AzureCloudSpec struct {
 
 // VSphereCredentials credentials represents a credential for accessing vSphere
 type VSphereCredentials struct {
-	Username string `json:"username"`
-	Password string `json:"password"`
+	Username string `json:"username,omitempty"`
+	Password string `json:"password,omitempty"`
 }
 
 // VSphereCloudSpec specifies access data to VSphere cloud.
 type VSphereCloudSpec struct {
-	Username  string `json:"username"`
-	Password  string `json:"password"`
+	CredentialsReference *providerconfig.GlobalSecretKeySelector `json:"credentialsReference,omitempty"`
+
+	Username  string `json:"username,omitempty"`
+	Password  string `json:"password,omitempty"`
 	VMNetName string `json:"vmNetName"`
 	Folder    string `json:"folder,omitempty"`
 
@@ -339,12 +377,13 @@ type BringYourOwnCloudSpec struct{}
 
 // AWSCloudSpec specifies access data to Amazon Web Services.
 type AWSCloudSpec struct {
-	AccessKeyID         string `json:"accessKeyId"`
-	SecretAccessKey     string `json:"secretAccessKey"`
-	VPCID               string `json:"vpcId"`
-	SubnetID            string `json:"subnetId"`
-	RoleName            string `json:"roleName"`
-	RoleARN             string `json:"roleARN"`
+	CredentialsReference *providerconfig.GlobalSecretKeySelector `json:"credentialsReference,omitempty"`
+
+	AccessKeyID     string `json:"accessKeyId,omitempty"`
+	SecretAccessKey string `json:"secretAccessKey,omitempty"`
+	VPCID           string `json:"vpcId"`
+	// The IAM role, the control plane will use. The control plane will perform an assume-role
+	ControlPlaneRoleARN string `json:"roleARN"`
 	RouteTableID        string `json:"routeTableId"`
 	InstanceProfileName string `json:"instanceProfileName"`
 	SecurityGroupID     string `json:"securityGroupID"`
@@ -352,14 +391,22 @@ type AWSCloudSpec struct {
 	AvailabilityZone string `json:"availabilityZone"`
 
 	OpenstackBillingTenant string `json:"openstackBillingTenant"`
+
+	// DEPRECATED. Don't care for the role name. We only require the ControlPlaneRoleARN to be set so the control plane
+	// can perform the assume-role.
+	// We keep it for backwards compatibility (We use this name for cleanup purpose).
+	RoleName string `json:"roleName,omitempty"`
 }
 
-// OpenstackCloudSpec specifies access data to an openstack cloud.
+// OpenstackCloudSpec specifies access data to an OpenStack cloud.
 type OpenstackCloudSpec struct {
-	Username string `json:"username"`
-	Password string `json:"password"`
-	Tenant   string `json:"tenant"`
-	Domain   string `json:"domain"`
+	CredentialsReference *providerconfig.GlobalSecretKeySelector `json:"credentialsReference,omitempty"`
+
+	Username string `json:"username,omitempty"`
+	Password string `json:"password,omitempty"`
+	Tenant   string `json:"tenant,omitempty"`
+	TenantID string `json:"tenantID,omitempty"`
+	Domain   string `json:"domain,omitempty"`
 	// Network holds the name of the internal network
 	// When specified, all worker nodes will be attached to this network. If not specified, a network, subnet & router will be created
 	//
@@ -380,16 +427,27 @@ type OpenstackCloudSpec struct {
 
 // PacketCloudSpec specifies access data to a Packet cloud.
 type PacketCloudSpec struct {
-	APIKey       string `json:"apiKey"`
-	ProjectID    string `json:"projectID"`
+	CredentialsReference *providerconfig.GlobalSecretKeySelector `json:"credentialsReference,omitempty"`
+
+	APIKey       string `json:"apiKey,omitempty"`
+	ProjectID    string `json:"projectID,omitempty"`
 	BillingCycle string `json:"billingCycle"`
 }
 
 // GCPCloudSpec specifies access data to GCP.
 type GCPCloudSpec struct {
-	ServiceAccount string `json:"serviceAccount"`
+	CredentialsReference *providerconfig.GlobalSecretKeySelector `json:"credentialsReference,omitempty"`
+
+	ServiceAccount string `json:"serviceAccount,omitempty"`
 	Network        string `json:"network"`
 	Subnetwork     string `json:"subnetwork"`
+}
+
+// KubevirtCloudSpec specifies the access data to Kubevirt.
+type KubevirtCloudSpec struct {
+	CredentialsReference *providerconfig.GlobalSecretKeySelector `json:"credentialsReference,omitempty"`
+
+	Kubeconfig string `json:"kubeconfig,omitempty"`
 }
 
 type HealthStatus int
@@ -463,4 +521,35 @@ func NewBytes(b64 string) Bytes {
 		panic(fmt.Sprintf("Invalid base64 string %q", b64))
 	}
 	return Bytes(bs)
+}
+
+func (cluster *Cluster) GetSecretName() string {
+	if cluster.Spec.Cloud.AWS != nil {
+		return fmt.Sprintf("%s-aws-%s", CredentialPrefix, cluster.Name)
+	}
+	if cluster.Spec.Cloud.Azure != nil {
+		return fmt.Sprintf("%s-azure-%s", CredentialPrefix, cluster.Name)
+	}
+	if cluster.Spec.Cloud.Digitalocean != nil {
+		return fmt.Sprintf("%s-digitalocean-%s", CredentialPrefix, cluster.Name)
+	}
+	if cluster.Spec.Cloud.GCP != nil {
+		return fmt.Sprintf("%s-gcp-%s", CredentialPrefix, cluster.Name)
+	}
+	if cluster.Spec.Cloud.Hetzner != nil {
+		return fmt.Sprintf("%s-hetzner-%s", CredentialPrefix, cluster.Name)
+	}
+	if cluster.Spec.Cloud.Openstack != nil {
+		return fmt.Sprintf("%s-openstack-%s", CredentialPrefix, cluster.Name)
+	}
+	if cluster.Spec.Cloud.Packet != nil {
+		return fmt.Sprintf("%s-packet-%s", CredentialPrefix, cluster.Name)
+	}
+	if cluster.Spec.Cloud.Kubevirt != nil {
+		return fmt.Sprintf("%s-kubevirt-%s", CredentialPrefix, cluster.Name)
+	}
+	if cluster.Spec.Cloud.VSphere != nil {
+		return fmt.Sprintf("%s-vsphere-%s", CredentialPrefix, cluster.Name)
+	}
+	return ""
 }

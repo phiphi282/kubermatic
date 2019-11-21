@@ -3,8 +3,11 @@ package metricsserver
 import (
 	"fmt"
 
+	kubermaticv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
 	"github.com/kubermatic/kubermatic/api/pkg/resources"
 	"github.com/kubermatic/kubermatic/api/pkg/resources/apiserver"
+	"github.com/kubermatic/kubermatic/api/pkg/resources/certificates/servingcerthelper"
+	"github.com/kubermatic/kubermatic/api/pkg/resources/certificates/triple"
 	"github.com/kubermatic/kubermatic/api/pkg/resources/reconciling"
 	"github.com/kubermatic/kubermatic/api/pkg/resources/vpnsidecar"
 
@@ -12,7 +15,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/util/sets"
 )
 
@@ -31,12 +33,39 @@ var (
 
 const (
 	name = "metrics-server"
+	// ServingCertSecretName is the name of the secret containing the metrics-server
+	// serving cert.
+	ServingCertSecretName  = "metrics-server-serving-cert"
+	servingCertMountFolder = "/etc/serving-cert"
 
-	tag = "v0.3.3"
+	tag = "v0.3.4"
 )
 
+// metricsServerData is the data needed to consturct the metrics-server components
+type metricsServerData interface {
+	Cluster() *kubermaticv1.Cluster
+	GetPodTemplateLabels(string, []corev1.Volume, map[string]string) (map[string]string, error)
+	GetRootCA() (*triple.KeyPair, error)
+	ImageRegistry(string) string
+	DNATControllerImage() string
+	NodeAccessNetwork() string
+}
+
+// TLSServingCertSecretCreator returns a function to manage the TLS serving cert for the metrics
+// server
+func TLSServingCertSecretCreator(caGetter servingcerthelper.CAGetter) reconciling.NamedSecretCreatorGetter {
+	dnsName := "metrics-server.kube-system.svc"
+	return servingcerthelper.ServingCertSecretCreator(caGetter,
+		ServingCertSecretName,
+		// Must match whats configured in the apiservice in pkg/controller/usercluster/resources/metrics-server/external-name-service.go.
+		// Can unfortunately not have a trailing dot, as thats only allowed in Kube 1.16+
+		dnsName,
+		[]string{dnsName},
+		nil)
+}
+
 // DeploymentCreator returns the function to create and update the metrics server deployment
-func DeploymentCreator(data *resources.TemplateData) reconciling.NamedDeploymentCreatorGetter {
+func DeploymentCreator(data metricsServerData) reconciling.NamedDeploymentCreatorGetter {
 	return func() (string, reconciling.DeploymentCreator) {
 		return resources.MetricsServerDeploymentName, func(dep *appsv1.Deployment) (*appsv1.Deployment, error) {
 			dep.Name = resources.MetricsServerDeploymentName
@@ -45,17 +74,6 @@ func DeploymentCreator(data *resources.TemplateData) reconciling.NamedDeployment
 			dep.Spec.Replicas = resources.Int32(2)
 			dep.Spec.Selector = &metav1.LabelSelector{
 				MatchLabels: resources.BaseAppLabel(name, nil),
-			}
-			dep.Spec.Strategy.Type = appsv1.RollingUpdateStatefulSetStrategyType
-			dep.Spec.Strategy.RollingUpdate = &appsv1.RollingUpdateDeployment{
-				MaxSurge: &intstr.IntOrString{
-					Type:   intstr.Int,
-					IntVal: 1,
-				},
-				MaxUnavailable: &intstr.IntOrString{
-					Type:   intstr.Int,
-					IntVal: 0,
-				},
 			}
 			dep.Spec.Template.Spec.ImagePullSecrets = []corev1.LocalObjectReference{{Name: resources.ImagePullSecretName}}
 
@@ -96,12 +114,19 @@ func DeploymentCreator(data *resources.TemplateData) reconciling.NamedDeployment
 						"--kubelet-preferred-address-types", "ExternalIP,InternalIP",
 						"--v", "1",
 						"--logtostderr",
+						"--tls-cert-file", servingCertMountFolder + "/" + resources.ServingCertSecretKey,
+						"--tls-private-key-file", servingCertMountFolder + "/" + resources.ServingCertKeySecretKey,
 					},
 					Resources: defaultResourceRequirements,
 					VolumeMounts: []corev1.VolumeMount{
 						{
 							Name:      resources.MetricsServerKubeconfigSecretName,
 							MountPath: "/etc/kubernetes/kubeconfig",
+							ReadOnly:  true,
+						},
+						{
+							Name:      ServingCertSecretName,
+							MountPath: servingCertMountFolder,
 							ReadOnly:  true,
 						},
 					},
@@ -130,9 +155,6 @@ func getVolumes() []corev1.Volume {
 			VolumeSource: corev1.VolumeSource{
 				Secret: &corev1.SecretVolumeSource{
 					SecretName: resources.MetricsServerKubeconfigSecretName,
-					// We have to make the secret readable for all for now because owner/group cannot be changed.
-					// ( upstream proposal: https://github.com/kubernetes/kubernetes/pull/28733 )
-					DefaultMode: resources.Int32(resources.DefaultAllReadOnlyMode),
 				},
 			},
 		},
@@ -140,8 +162,7 @@ func getVolumes() []corev1.Volume {
 			Name: resources.OpenVPNClientCertificatesSecretName,
 			VolumeSource: corev1.VolumeSource{
 				Secret: &corev1.SecretVolumeSource{
-					SecretName:  resources.OpenVPNClientCertificatesSecretName,
-					DefaultMode: resources.Int32(resources.DefaultOwnerReadOnlyMode),
+					SecretName: resources.OpenVPNClientCertificatesSecretName,
 				},
 			},
 		},
@@ -149,8 +170,15 @@ func getVolumes() []corev1.Volume {
 			Name: resources.KubeletDnatControllerKubeconfigSecretName,
 			VolumeSource: corev1.VolumeSource{
 				Secret: &corev1.SecretVolumeSource{
-					SecretName:  resources.KubeletDnatControllerKubeconfigSecretName,
-					DefaultMode: resources.Int32(resources.DefaultAllReadOnlyMode),
+					SecretName: resources.KubeletDnatControllerKubeconfigSecretName,
+				},
+			},
+		},
+		{
+			Name: ServingCertSecretName,
+			VolumeSource: corev1.VolumeSource{
+				Secret: &corev1.SecretVolumeSource{
+					SecretName: ServingCertSecretName,
 				},
 			},
 		},

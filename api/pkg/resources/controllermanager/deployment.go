@@ -17,6 +17,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/util/sets"
+	utilpointer "k8s.io/utils/pointer"
 )
 
 var (
@@ -56,17 +57,6 @@ func DeploymentCreator(data *resources.TemplateData) reconciling.NamedDeployment
 			dep.Spec.Selector = &metav1.LabelSelector{
 				MatchLabels: resources.BaseAppLabel(name, nil),
 			}
-			dep.Spec.Strategy.Type = appsv1.RollingUpdateStatefulSetStrategyType
-			dep.Spec.Strategy.RollingUpdate = &appsv1.RollingUpdateDeployment{
-				MaxSurge: &intstr.IntOrString{
-					Type:   intstr.Int,
-					IntVal: 1,
-				},
-				MaxUnavailable: &intstr.IntOrString{
-					Type:   intstr.Int,
-					IntVal: 0,
-				},
-			}
 			dep.Spec.Template.Spec.ImagePullSecrets = []corev1.LocalObjectReference{{Name: resources.ImagePullSecretName}}
 
 			volumes := getVolumes()
@@ -75,8 +65,7 @@ func DeploymentCreator(data *resources.TemplateData) reconciling.NamedDeployment
 					Name: resources.GoogleServiceAccountVolumeName,
 					VolumeSource: corev1.VolumeSource{
 						Secret: &corev1.SecretVolumeSource{
-							SecretName:  resources.GoogleServiceAccountSecretName,
-							DefaultMode: resources.Int32(resources.DefaultOwnerReadOnlyMode),
+							SecretName: resources.GoogleServiceAccountSecretName,
 						},
 					},
 				}
@@ -151,6 +140,12 @@ func DeploymentCreator(data *resources.TemplateData) reconciling.NamedDeployment
 			if data.Cluster().Spec.ComponentsOverride.ControllerManager.Resources != nil {
 				resourceRequirements = *data.Cluster().Spec.ComponentsOverride.ControllerManager.Resources
 			}
+
+			envVars, err := GetEnvVars(data)
+			if err != nil {
+				return nil, err
+			}
+
 			dep.Spec.Template.Spec.Containers = []corev1.Container{
 				*openvpnSidecar,
 				{
@@ -160,7 +155,7 @@ func DeploymentCreator(data *resources.TemplateData) reconciling.NamedDeployment
 					Image:     data.ImageRegistry(resources.RegistryDocker) + "/syseleven/hyperkube-amd64:v" + data.Cluster().Spec.Version.String() + "-sys11-1",
 					Command:   []string{"/hyperkube", "kube-controller-manager"},
 					Args:      flags,
-					Env:       getEnvVars(data.Cluster()),
+					Env:       envVars,
 					Resources: resourceRequirements,
 					ReadinessProbe: &corev1.Probe{
 						Handler: corev1.Handler{
@@ -229,22 +224,18 @@ func getFlags(cluster *kubermaticv1.Cluster) ([]string, error) {
 	if cluster.Spec.Cloud.AWS != nil {
 		flags = append(flags, "--cloud-provider", "aws")
 		flags = append(flags, "--cloud-config", "/etc/kubernetes/cloud/config")
-		flags = append(flags, "--configure-cloud-routes=false")
 	}
 	if cluster.Spec.Cloud.Openstack != nil {
 		flags = append(flags, "--cloud-provider", "openstack")
 		flags = append(flags, "--cloud-config", "/etc/kubernetes/cloud/config")
-		flags = append(flags, "--configure-cloud-routes=false")
 	}
 	if cluster.Spec.Cloud.VSphere != nil {
 		flags = append(flags, "--cloud-provider", "vsphere")
 		flags = append(flags, "--cloud-config", "/etc/kubernetes/cloud/config")
-		flags = append(flags, "--configure-cloud-routes=false")
 	}
 	if cluster.Spec.Cloud.Azure != nil {
 		flags = append(flags, "--cloud-provider", "azure")
 		flags = append(flags, "--cloud-config", "/etc/kubernetes/cloud/config")
-		flags = append(flags, "--configure-cloud-routes=false")
 		if cluster.Spec.Version.Semver().Minor() >= 15 {
 			// Required so multiple clusters using the same resource group can
 			// allocate public IPs. Ref: https://github.com/kubernetes/kubernetes/pull/77630
@@ -254,7 +245,10 @@ func getFlags(cluster *kubermaticv1.Cluster) ([]string, error) {
 	if cluster.Spec.Cloud.GCP != nil {
 		flags = append(flags, "--cloud-provider", "gce")
 		flags = append(flags, "--cloud-config", "/etc/kubernetes/cloud/config")
-		flags = append(flags, "--configure-cloud-routes=true")
+	}
+
+	if val := CloudRoutesFlagVal(cluster.Spec.Cloud); val != nil {
+		flags = append(flags, fmt.Sprintf("--configure-cloud-routes=%t", *val))
 	}
 
 	if cluster.Spec.Version.Semver().Minor() >= 12 {
@@ -294,8 +288,7 @@ func getVolumes() []corev1.Volume {
 			Name: resources.CASecretName,
 			VolumeSource: corev1.VolumeSource{
 				Secret: &corev1.SecretVolumeSource{
-					SecretName:  resources.CASecretName,
-					DefaultMode: resources.Int32(resources.DefaultOwnerReadOnlyMode),
+					SecretName: resources.CASecretName,
 				},
 			},
 		},
@@ -303,8 +296,7 @@ func getVolumes() []corev1.Volume {
 			Name: resources.ServiceAccountKeySecretName,
 			VolumeSource: corev1.VolumeSource{
 				Secret: &corev1.SecretVolumeSource{
-					SecretName:  resources.ServiceAccountKeySecretName,
-					DefaultMode: resources.Int32(resources.DefaultOwnerReadOnlyMode),
+					SecretName: resources.ServiceAccountKeySecretName,
 				},
 			},
 		},
@@ -315,7 +307,6 @@ func getVolumes() []corev1.Volume {
 					LocalObjectReference: corev1.LocalObjectReference{
 						Name: resources.CloudConfigConfigMapName,
 					},
-					DefaultMode: resources.Int32(420),
 				},
 			},
 		},
@@ -323,8 +314,7 @@ func getVolumes() []corev1.Volume {
 			Name: resources.OpenVPNClientCertificatesSecretName,
 			VolumeSource: corev1.VolumeSource{
 				Secret: &corev1.SecretVolumeSource{
-					SecretName:  resources.OpenVPNClientCertificatesSecretName,
-					DefaultMode: resources.Int32(resources.DefaultOwnerReadOnlyMode),
+					SecretName: resources.OpenVPNClientCertificatesSecretName,
 				},
 			},
 		},
@@ -332,26 +322,36 @@ func getVolumes() []corev1.Volume {
 			Name: resources.ControllerManagerKubeconfigSecretName,
 			VolumeSource: corev1.VolumeSource{
 				Secret: &corev1.SecretVolumeSource{
-					SecretName:  resources.ControllerManagerKubeconfigSecretName,
-					DefaultMode: resources.Int32(resources.DefaultOwnerReadOnlyMode),
+					SecretName: resources.ControllerManagerKubeconfigSecretName,
 				},
 			},
 		},
 	}
 }
 
-func getEnvVars(cluster *kubermaticv1.Cluster) []corev1.EnvVar {
+type kubeControllerManagerEnvData interface {
+	resources.CredentialsData
+	Seed() *kubermaticv1.Seed
+}
+
+func GetEnvVars(data kubeControllerManagerEnvData) ([]corev1.EnvVar, error) {
+	credentials, err := resources.GetCredentials(data)
+	if err != nil {
+		return nil, err
+	}
+	cluster := data.Cluster()
+
 	var vars []corev1.EnvVar
 	if cluster.Spec.Cloud.AWS != nil {
-		vars = append(vars, corev1.EnvVar{Name: "AWS_ACCESS_KEY_ID", Value: cluster.Spec.Cloud.AWS.AccessKeyID})
-		vars = append(vars, corev1.EnvVar{Name: "AWS_SECRET_ACCESS_KEY", Value: cluster.Spec.Cloud.AWS.SecretAccessKey})
+		vars = append(vars, corev1.EnvVar{Name: "AWS_ACCESS_KEY_ID", Value: credentials.AWS.AccessKeyID})
+		vars = append(vars, corev1.EnvVar{Name: "AWS_SECRET_ACCESS_KEY", Value: credentials.AWS.SecretAccessKey})
 		vars = append(vars, corev1.EnvVar{Name: "AWS_VPC_ID", Value: cluster.Spec.Cloud.AWS.VPCID})
-		vars = append(vars, corev1.EnvVar{Name: "AWS_AVAILABILITY_ZONE", Value: cluster.Spec.Cloud.AWS.AvailabilityZone})
 	}
 	if cluster.Spec.Cloud.GCP != nil {
 		vars = append(vars, corev1.EnvVar{Name: "GOOGLE_APPLICATION_CREDENTIALS", Value: "/etc/gcp/serviceAccount"})
 	}
-	return vars
+	vars = append(vars, resources.GetHTTPProxyEnvVarsFromSeed(data.Seed(), data.Cluster().Address.InternalName)...)
+	return vars, nil
 }
 
 func getPodAnnotations(data *resources.TemplateData) map[string]string {
@@ -383,4 +383,23 @@ func getHealthGetAction(data *resources.TemplateData) *corev1.HTTPGetAction {
 		action.Port = intstr.FromInt(10252)
 	}
 	return action
+}
+
+func CloudRoutesFlagVal(cloudSpec kubermaticv1.CloudSpec) *bool {
+	if cloudSpec.AWS != nil {
+		return utilpointer.BoolPtr(false)
+	}
+	if cloudSpec.Openstack != nil {
+		return utilpointer.BoolPtr(false)
+	}
+	if cloudSpec.VSphere != nil {
+		return utilpointer.BoolPtr(false)
+	}
+	if cloudSpec.Azure != nil {
+		return utilpointer.BoolPtr(false)
+	}
+	if cloudSpec.GCP != nil {
+		return utilpointer.BoolPtr(true)
+	}
+	return nil
 }

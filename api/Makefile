@@ -1,7 +1,6 @@
 export CGO_ENABLED?=0
 REPO=quay.io/kubermatic/api
-GO?=go
-CMD=$(filter-out OWNERS nodeport-proxy, $(notdir $(wildcard ./cmd/*)))
+CMD=$(filter-out OWNERS nodeport-proxy kubeletdnat-controller, $(notdir $(wildcard ./cmd/*)))
 GOBUILDFLAGS?=-v
 GITTAG=$(shell git describe --tags --always)
 TAGS?=$(GITTAG)
@@ -22,28 +21,51 @@ all: check vendor build test
 
 build: $(CMD)
 
-$(CMD):
-	$(GO) build $(GOTOOLFLAGS) -o $(BUILD_DEST)/$@ ./cmd/$@
+$(CMD): download-gocache
+	go build $(GOTOOLFLAGS) -o $(BUILD_DEST)/$@ ./cmd/$@
 
 install:
-	$(GO) install $(GOTOOLFLAGS) ./cmd/...
+	go install $(GOTOOLFLAGS) ./cmd/...
 
 showenv:
-	@$(GO) env
+	@go env
 
 check: gofmt lint
 
-test:
-	CGO_ENABLED=1 $(GO) test -tags=unit -race ./...
+download-gocache:
+	@./hack/ci/ci-download-gocache.sh
+	@# Prevent this from getting executed multiple times
+	@touch download-gocache
+
+test: download-gocache
+	CGO_ENABLED=1 go test -tags=unit -race ./...
+	@# Make sure all e2e tests compile with their individual build tag
+	@# without actually running them by using `-run` with a non-existing test.
+	@# **Imortant:** Do not replace this with one `go test` with multiple tags,
+	@# as that doesn't properly reflect if each individual tag still builds
+	go test -tags cloud -run nope ./pkg/test/e2e/api/...
+	go test -tags create -run nope ./pkg/test/e2e/api/...
+	go test -tags e2e -run nope ./pkg/test/e2e/api/...
+	go test -tags integration -run nope ./...
+
+test-integration : CGO_ENABLED = 1
+test-integration: download-gocache
+	@# Run integration tests and only integration tests by:
+	@# * Finding all files that contain the build tag via grep
+	@# * Extracting the dirname as the `go test` command doesn't play well with individual files as args
+	@# * Prefixing them with `./` as thats needed by `go test` as well
+	@grep --files-with-matches --recursive --extended-regexp '\+build.+integration' cmd/ pkg/ \
+		|xargs dirname \
+		|xargs --max-args=1 -I ^ go test -tags integration  -race ./^
 
 test-update:
-	-$(GO) test ./... -update
+	-go test ./... -update
 
 clean:
 	rm -f $(TARGET)
 	@echo "Cleaned $(BUILD_DEST)"
 
-docker-build:
+docker-build: build
 	docker build $(DOCKER_BUILD_FLAG) .
 
 docker-push:
@@ -66,7 +88,10 @@ fix:
 	@UNFMT=$$($(GFMT)); if [ -n "$$UNFMT" ]; then echo "goimports -w" $$UNFMT; goimports -w $$UNFMT; fi
 
 lint:
-	golangci-lint run -v
+	./hack/ci/ci-run-lint.sh
+
+shellcheck:
+	shellcheck $$(find . -name '*.sh')
 
 cover:
 	./hack/cover.sh --html

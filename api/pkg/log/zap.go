@@ -34,6 +34,25 @@ func (o *Options) Validate() error {
 
 type Format string
 
+// String implements the cli.Value and flag.Value interfaces
+func (f *Format) String() string {
+	return string(*f)
+}
+
+// Set implements the cli.Value and flag.Value interfaces
+func (f *Format) Set(s string) error {
+	switch strings.ToLower(s) {
+	case "json":
+		*f = FormatJSON
+		return nil
+	case "console":
+		*f = FormatConsole
+		return nil
+	default:
+		return fmt.Errorf("invalid format '%s'", s)
+	}
+}
+
 type Formats []Format
 
 const (
@@ -77,6 +96,10 @@ func New(debug bool, format Format) *zap.Logger {
 	// Having a dateformat makes it more easy to look at logs outside of something like Kibana
 	encCfg.TimeKey = "time"
 	encCfg.EncodeTime = zapcore.ISO8601TimeEncoder
+
+	// production config encodes durations as a float of the seconds value, but we want a more
+	// readable, precise representation
+	encCfg.EncodeDuration = zapcore.StringDurationEncoder
 
 	var enc zapcore.Encoder
 	if format == FormatJSON {
