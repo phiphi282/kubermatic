@@ -796,6 +796,11 @@ func (in *DatacenterSpecOpenstack) DeepCopyInto(out *DatacenterSpecOpenstack) {
 		**out = **in
 	}
 	out.NodeSizeRequirements = in.NodeSizeRequirements
+	if in.NodeVolumeAttachLimit != nil {
+		in, out := &in.NodeVolumeAttachLimit, &out.NodeVolumeAttachLimit
+		*out = new(uint)
+		**out = **in
+	}
 	return
 }
 
