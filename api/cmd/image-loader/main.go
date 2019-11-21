@@ -260,6 +260,7 @@ func getTemplateData(version *kubermaticversion.Version) (*resources.TemplateDat
 	schedulerPolicyConfigMap := corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      resources.SchedulerConfigMapName,
+			Namespace: mockNamespaceName,
 		},
 	}
 	auditConfigMap := corev1.ConfigMap{
