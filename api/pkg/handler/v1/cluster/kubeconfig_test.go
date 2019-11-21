@@ -283,7 +283,7 @@ func TestGetMasterKubeconfig(t *testing.T) {
 				t.Fatalf("Expected HTTP status code %d, got %d: %s", tc.HTTPStatus, res.Code, res.Body.String())
 			}
 
-			if res.Code / 100 == 2 {
+			if res.Code/100 == 2 {
 				test.CompareWithResult(t, res, tc.ExpectedResponseString)
 			}
 		})

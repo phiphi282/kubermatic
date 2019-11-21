@@ -25,5 +25,5 @@ func getComputeClient(username, password, domain, tenant, tenantID, authURL, reg
 		}
 	}
 
-	return computeClient, nil;
+	return computeClient, nil
 }
