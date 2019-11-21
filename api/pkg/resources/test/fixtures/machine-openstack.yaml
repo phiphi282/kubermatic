@@ -16,11 +16,7 @@ spec:
         identityEndpoint: os-auth-url
         image: os-image
         network: os-network
-<<<<<<< HEAD
         nodeVolumeAttachLimit: 42
-=======
-        nodeVolumeAttachLimit: null
->>>>>>> v2.12.1
         password: ""
         region: os-region
         rootDiskSizeGB: null
@@ -29,12 +25,8 @@ spec:
         subnet: os-subnet-id
         tags:
           foo: bar
-<<<<<<< HEAD
           metakube-cluster: openstackcluster-1a2b3c4d5e
-=======
-          kubernetes-cluster: openstackcluster-1a2b3c4d5e
           system-cluster: openstackcluster-1a2b3c4d5e
->>>>>>> v2.12.1
         tenantID: ""
         tenantName: ""
         tokenId: ""

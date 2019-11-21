@@ -34,11 +34,8 @@ spec:
         - "1"
         - -command
         - '{"command":"/usr/local/bin/machine-controller","args":["-kubeconfig","/etc/kubernetes/kubeconfig/kubeconfig","-logtostderr","-v","4","-cluster-dns","169.254.20.10","-internal-listen-address","0.0.0.0:8085"]}'
-<<<<<<< HEAD
-=======
         - --crd-to-wait-for
         - Machine,cluster.k8s.io/v1alpha1
->>>>>>> v2.12.1
         command:
         - /http-prober-bin/http-prober
         env:
@@ -52,9 +49,6 @@ spec:
           value: openstack-domain
         - name: OS_TENANT_NAME
           value: openstack-tenant
-<<<<<<< HEAD
-        image: docker.io/syseleven/machine-controller:v1.5.7-sys11-2
-=======
         - name: OS_TENANT_ID
         - name: HTTP_PROXY
           value: http://my-corp
@@ -70,8 +64,7 @@ spec:
           value: apiserver-external.cluster-de-test-01.svc.cluster.local.
         - name: KUBECONFIG
           value: /etc/kubernetes/kubeconfig/kubeconfig
-        image: docker.io/kubermatic/machine-controller:v1.7.0
->>>>>>> v2.12.1
+        image: docker.io/syseleven/machine-controller:v1.7.0-sys11-2
         livenessProbe:
           failureThreshold: 3
           httpGet:
@@ -103,11 +96,7 @@ spec:
         - /bin/cp
         - /usr/local/bin/http-prober
         - /http-prober-bin/http-prober
-<<<<<<< HEAD
-        image: quay.io/kubermatic/http-prober:v0.2
-=======
         image: quay.io/kubermatic/http-prober:v0.3.1
->>>>>>> v2.12.1
         name: copy-http-prober
         resources: {}
         volumeMounts:

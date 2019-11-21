@@ -31,11 +31,6 @@ spec:
         - "1"
         - -command
         - '{"command":"/usr/local/bin/webhook","args":["-kubeconfig","/etc/kubernetes/kubeconfig/kubeconfig","-logtostderr","-v","4","-listen-address","0.0.0.0:9876"]}'
-<<<<<<< HEAD
-        command:
-        - /http-prober-bin/http-prober
-        image: docker.io/syseleven/machine-controller:v1.5.7-sys11-2
-=======
         - --crd-to-wait-for
         - Machine,cluster.k8s.io/v1alpha1
         command:
@@ -63,8 +58,7 @@ spec:
           value: apiserver-external.cluster-de-test-01.svc.cluster.local.
         - name: KUBECONFIG
           value: /etc/kubernetes/kubeconfig/kubeconfig
-        image: docker.io/kubermatic/machine-controller:v1.7.0
->>>>>>> v2.12.1
+        image: docker.io/syseleven/machine-controller:v1.7.0-sys11-2
         livenessProbe:
           failureThreshold: 8
           httpGet:
@@ -108,11 +102,7 @@ spec:
         - /bin/cp
         - /usr/local/bin/http-prober
         - /http-prober-bin/http-prober
-<<<<<<< HEAD
-        image: quay.io/kubermatic/http-prober:v0.2
-=======
         image: quay.io/kubermatic/http-prober:v0.3.1
->>>>>>> v2.12.1
         name: copy-http-prober
         resources: {}
         volumeMounts:

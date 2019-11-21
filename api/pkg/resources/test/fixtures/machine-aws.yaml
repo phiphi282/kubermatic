@@ -11,12 +11,7 @@ spec:
       cloudProviderSpec:
         accessKeyId: ""
         ami: aws-ami
-<<<<<<< HEAD
-        assignPublicIP: null
-        availabilityZone: fra1aws-zone-character
-=======
         availabilityZone: ""
->>>>>>> v2.12.1
         diskSize: 25
         diskType: standard
         instanceProfile: aws-instance-profile-name

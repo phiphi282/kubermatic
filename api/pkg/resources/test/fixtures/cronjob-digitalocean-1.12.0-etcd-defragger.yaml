@@ -44,12 +44,7 @@ spec:
                   echo "$node is not healthy, skipping defrag."
                 fi
               done
-<<<<<<< HEAD
             image: gcr.io/etcd-development/etcd:v3.4.1
-            imagePullPolicy: IfNotPresent
-=======
-            image: gcr.io/etcd-development/etcd:v3.3.15
->>>>>>> v2.12.1
             name: defragger
             resources: {}
             volumeMounts:

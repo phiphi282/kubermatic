@@ -72,21 +72,14 @@ spec:
         - /bin/cp
         - /usr/local/bin/http-prober
         - /http-prober-bin/http-prober
-<<<<<<< HEAD
-        image: quay.io/kubermatic/http-prober:v0.2
-=======
         image: quay.io/kubermatic/http-prober:v0.3.1
->>>>>>> v2.12.1
         name: copy-http-prober
         resources: {}
         volumeMounts:
         - mountPath: /http-prober-bin
           name: http-prober-bin
-<<<<<<< HEAD
       securityContext:
         fsGroup: 1000
-=======
->>>>>>> v2.12.1
       volumes:
       - name: kube-state-metrics-kubeconfig
         secret:
