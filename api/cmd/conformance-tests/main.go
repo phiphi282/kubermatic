@@ -511,7 +511,7 @@ func shuffle(vals []testScenario) []testScenario {
 	return ret
 }
 
-func createProject(client *apiclient.Kubermatic, bearerToken runtime.ClientAuthInfoWriter, log *zap.SugaredLogger) (string, error) {
+func createProject(client *apiclient.MetaKube, bearerToken runtime.ClientAuthInfoWriter, log *zap.SugaredLogger) (string, error) {
 	params := &project.CreateProjectParams{Body: project.CreateProjectBody{Name: "kubermatic-conformance-tester"}}
 	params.WithTimeout(15 * time.Second)
 
