@@ -133,7 +133,7 @@ caused by: test`),
 		},
 		{
 			name: "get instance profile failed",
-			err: errors.New(`failed to create instance profile: failed to load the created instance profile "kubernetes-get instance profile failed": SomethingBadHappened: test
+			err: errors.New(`failed to create instance profile: failed to load the created instance profile "metakube-get instance profile failed": SomethingBadHappened: test
 caused by: test`),
 			getInstanceProfile: func(input *iam.GetInstanceProfileInput) (*iam.GetInstanceProfileOutput, error) {
 				return nil, awserr.New("SomethingBadHappened", "test", errors.New("test"))
