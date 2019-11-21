@@ -248,7 +248,7 @@ func TestGetMasterKubeconfig(t *testing.T) {
 		},
 		{
 			Name:         "scenario 2: viewer gets master kubeconfig",
-			HTTPStatus:   http.StatusOK,
+			HTTPStatus:   http.StatusForbidden,
 			ProjectToGet: "foo-ID",
 			ClusterToGet: "cluster-foo",
 			ExistingKubermaticObjs: []runtime.Object{
@@ -283,7 +283,9 @@ func TestGetMasterKubeconfig(t *testing.T) {
 				t.Fatalf("Expected HTTP status code %d, got %d: %s", tc.HTTPStatus, res.Code, res.Body.String())
 			}
 
-			test.CompareWithResult(t, res, tc.ExpectedResponseString)
+			if res.Code / 100 == 2 {
+				test.CompareWithResult(t, res, tc.ExpectedResponseString)
+			}
 		})
 	}
 
