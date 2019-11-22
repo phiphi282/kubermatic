@@ -22,7 +22,7 @@ import (
 const (
 	resourceNamePrefix = "metakube-"
 
-	regionAnnotationKey                = "kubermatic.io/aws-region"
+	regionAnnotationKey = "kubermatic.io/aws-region"
 
 	securityGroupCleanupFinalizer    = "kubermatic.io/cleanup-aws-security-group"
 	instanceProfileCleanupFinalizer  = "kubermatic.io/cleanup-aws-instance-profile"
