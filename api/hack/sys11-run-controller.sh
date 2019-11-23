@@ -38,7 +38,7 @@ fi
 
 while true; do
     if [[ "${DEBUG}" == "true" ]]; then
-        GOTOOLFLAGS="-v -gcflags='all=-N -l'" make -C ${SRC_DIR} kubermatic-controller-manager
+        make GOTOOLFLAGS_EXTRA="-gcflags='all=-N -l'" LDFLAGS_EXTRA="" -C ${SRC_DIR} kubermatic-controller-manager
     else
         make -C ${SRC_DIR} kubermatic-controller-manager
     fi
