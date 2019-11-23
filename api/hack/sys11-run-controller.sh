@@ -15,8 +15,8 @@ set -x
 KUBERMATIC_ENV=${KUBERMATIC_ENV} KUBERMATIC_CLUSTER=${KUBERMATIC_CLUSTER} make -C ${INSTALLER_DIR}/kubermatic values.yaml
 : "${EXTERNAL_URL:=dev.metakube.de}"
 : "${DEBUG:="false"}"
+: "${KUBERMATICCOMMIT:="$([[ -n "$(git tag --points-at)" ]] && git tag --points-at || git log -1 --format=%H)"}"
 
-export KUBERMATICCOMMIT="${KUBERMATICCOMMIT:-$(git rev-parse origin/master)}"
 export KEYCLOAK_EXTERNAL_ADMIN_PASSWORD="$(cat ${INSTALLER_DIR}/values.yaml | yq .keycloak.external.adminPassword -r)"
 export KEYCLOAK_EXTERNAL_ADMIN_USER="$(cat ${INSTALLER_DIR}/values.yaml | yq .keycloak.external.adminUser -r)"
 export KEYCLOAK_EXTERNAL_URL="$(cat ${INSTALLER_DIR}/values.yaml | yq .keycloak.external.url -r)"
