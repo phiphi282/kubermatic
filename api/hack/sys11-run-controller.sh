@@ -28,10 +28,10 @@ dockercfgjson="$(mktemp)"
 trap "rm -f $dockercfgjson" EXIT
 cat "${INSTALLER_DIR}/kubermatic/values.yaml" | yq .kubermatic.imagePullSecretData -r | base64 --decode | jq . >"$dockercfgjson"
 
-if [[ "${TAG_WORKER}" == "true" ]]; then
-    WORKER_OPTION="-worker-name=$(tr -cd '[:alnum:]' <<< ${KUBERMATIC_WORKERNAME} | tr '[:upper:]' '[:lower:]')"
-else
+if [[ "${TAG_WORKER}" == "false" ]]; then
     WORKER_OPTION=
+else
+    WORKER_OPTION="-worker-name=$(tr -cd '[:alnum:]' <<< ${KUBERMATIC_WORKERNAME} | tr '[:upper:]' '[:lower:]')"
 fi
 
 # TODO extract hack/sys11-store-container.yaml / hack/sys11-cleanup-container.yaml from the installer
