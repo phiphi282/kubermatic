@@ -12,7 +12,9 @@ set -x
 : "${KUBERMATIC_CLUSTER:=dbl1}"
 : "${RESOURCES_DIR:=${INSTALLER_DIR}/environments/${KUBERMATIC_ENV}/clusters/${KUBERMATIC_CLUSTER}/kubermatic/versions}"
 : "${CONFIG_DIR:=${INSTALLER_DIR}/environments/${KUBERMATIC_ENV}/kubermatic}"
+if [[ -z "$SKIP_INSTALLER" ]]; then
 KUBERMATIC_ENV=${KUBERMATIC_ENV} KUBERMATIC_CLUSTER=${KUBERMATIC_CLUSTER} make -C ${INSTALLER_DIR}/kubermatic values.yaml
+fi
 : "${EXTERNAL_URL:=dev.metakube.de}"
 : "${DEBUG:="false"}"
 : "${KUBERMATICCOMMIT:="$([[ -n "$(git tag --points-at)" ]] && git tag --points-at || git log -1 --format=%H)"}"
