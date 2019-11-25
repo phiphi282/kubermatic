@@ -15,7 +15,6 @@ import (
 	"github.com/kubermatic/kubermatic/api/pkg/resources/controllermanager"
 	"github.com/kubermatic/kubermatic/api/pkg/resources/dns"
 	"github.com/kubermatic/kubermatic/api/pkg/resources/etcd"
-	"github.com/kubermatic/kubermatic/api/pkg/resources/kubernetes-dashboard"
 	"github.com/kubermatic/kubermatic/api/pkg/resources/machinecontroller"
 	metricsserver "github.com/kubermatic/kubermatic/api/pkg/resources/metrics-server"
 	"github.com/kubermatic/kubermatic/api/pkg/resources/nodeportproxy"
@@ -215,7 +214,7 @@ func GetDeploymentCreators(data *resources.TemplateData, enableAPIserverOIDCAuth
 		metricsserver.DeploymentCreator(data),
 		usercluster.DeploymentCreator(data, false),
 		clusterproxy.DeploymentCreator(data),
-		kubernetesdashboard.DeploymentCreator(data),
+		//kubernetesdashboard.DeploymentCreator(data),
 	}
 	if data.Cluster().Annotations[kubermaticv1.AnnotationNameClusterAutoscalerEnabled] != "" &&
 		data.Cluster().Spec.Version.Minor() > 13 {
