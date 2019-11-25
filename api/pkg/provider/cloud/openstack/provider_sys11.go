@@ -72,12 +72,17 @@ func GetUsedFloatingIPCount(username, password, domain, tenant, tenantID, authUR
 
 func GetFloatingIPQuota(username, password, domain, tenant, tenantID, authURL, region string) (int, error) {
 	netClient, err := getNetClient(username, password, domain, tenant, tenantID, authURL, region)
-
 	if err != nil {
 		return 0, err
 	}
 
-	quotas, err := GetNeutronQuota(netClient, tenantID).Extract()
+	// tenantID is "" (comes from the client's request, which doesn't have it), we need the real tenant ID for this service
+	realTenantID, err := GetCurrentTenantID(netClient).Extract()
+	if err != nil {
+		return 0, err
+	}
+
+	quotas, err := GetNeutronQuota(netClient, realTenantID).Extract()
 
 	if err != nil {
 		return 0, err
