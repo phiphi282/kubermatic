@@ -1481,12 +1481,19 @@ func (r Routing) getClusterKubeconfig() http.Handler {
 //       401: empty
 //       403: empty
 func (r Routing) getOidcClusterKubeconfig() http.Handler {
+	privilegedUserGroups := map[string]bool{
+		"owners":  true,
+		"editors": true,
+		"viewers": false,
+	}
 	return httptransport.NewServer(
 		endpoint.Chain(
 			middleware.TokenVerifier(r.tokenVerifiers),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
 			middleware.UserInfoExtractor(r.userProjectMapper),
+			middleware.Keycloak(r.keycloakFacade),
+			middleware.PrivilegedUserGroupVerifier(r.userProjectMapper, privilegedUserGroups),
 		)(cluster.GetOidcKubeconfigEndpoint(r.projectProvider)),
 		cluster.DecodeGetAdminKubeconfig,
 		cluster.EncodeKubeconfig,
