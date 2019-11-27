@@ -3,7 +3,6 @@ package usercluster
 import (
 	"context"
 	"fmt"
-
 	openshiftresources "github.com/kubermatic/kubermatic/api/pkg/controller/openshift/resources"
 	"github.com/kubermatic/kubermatic/api/pkg/controller/usercluster/resources/clusterautoscaler"
 	"github.com/kubermatic/kubermatic/api/pkg/controller/usercluster/resources/controller-manager"
@@ -410,15 +409,15 @@ func (r *reconciler) reconcileSecrets(ctx context.Context) error {
 
 func (r *reconciler) reconcileNamespaces(ctx context.Context) error {
 
-	//if !r.openshift {
-	//	creators := []reconciling.NamedNamespaceCreatorGetter{
-	//		kubernetesdashboard.NamespaceCreator,
-	//	}
-	//	if err := reconciling.ReconcileNamespaces(ctx, creators, "", r.Client); err != nil {
-	//		return fmt.Errorf("failed to reconcile namespaces: %v", err)
-	//	}
-	//	return nil
-	//}
+	if !r.openshift {
+		//creators := []reconciling.NamedNamespaceCreatorGetter{
+		//	kubernetesdashboard.NamespaceCreator,
+		//}
+		//if err := reconciling.ReconcileNamespaces(ctx, creators, "", r.Client); err != nil {
+		//	return fmt.Errorf("failed to reconcile namespaces: %v", err)
+		//}
+		return nil
+	}
 
 	creators := []reconciling.NamedNamespaceCreatorGetter{
 		openshift.APIServerNSCreatorGetter,
