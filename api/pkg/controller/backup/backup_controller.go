@@ -370,7 +370,6 @@ func (r *Reconciler) cronjob(cluster *kubermaticv1.Cluster) reconciling.NamedCro
 						},
 					},
 					Command: []string{
-						"/usr/bin/time",
 						"/bin/sh",
 						"-ec",
 						fmt.Sprintf("/usr/local/bin/etcdctl --endpoints %s --cacert /etc/etcd/client/ca.crt --cert /etc/etcd/client/backup-etcd-client.crt --key /etc/etcd/client/backup-etcd-client.key snapshot save /backup/snapshot.db || "+
