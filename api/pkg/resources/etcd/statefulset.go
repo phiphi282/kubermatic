@@ -34,7 +34,7 @@ const (
 	name    = "etcd"
 	dataDir = "/var/run/etcd/pod_${POD_NAME}/"
 	// ImageTag defines the image tag to use for the etcd image
-	ImageTag = "v3.4.1"
+	ImageTag = "v3.4.3"
 )
 
 type etcdStatefulSetCreatorData interface {
