@@ -24,4 +24,6 @@ exec /usr/local/bin/etcd \
     --key-file /etc/etcd/pki/tls/etcd-tls.key \
     --experimental-initial-corrupt-check=true \
     --experimental-corrupt-check-time=10m \
+    --heartbeat-interval=1000 \
+    --election-timeout=5000 \
     --auto-compaction-retention=8

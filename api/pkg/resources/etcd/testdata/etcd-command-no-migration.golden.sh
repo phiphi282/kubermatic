@@ -22,4 +22,6 @@ exec /usr/local/bin/etcd \
     --client-cert-auth \
     --cert-file /etc/etcd/pki/tls/etcd-tls.crt \
     --key-file /etc/etcd/pki/tls/etcd-tls.key \
+    --heartbeat-interval=1000 \
+    --election-timeout=5000 \
     --auto-compaction-retention=8
