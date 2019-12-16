@@ -363,6 +363,8 @@ exec /usr/local/bin/etcd \
     --experimental-initial-corrupt-check=true \
     --experimental-corrupt-check-time=10m \
 {{- end }}
+    --heartbeat-interval=1000 \
+    --election-timeout=5000 \
     --auto-compaction-retention=8
 `
 )
