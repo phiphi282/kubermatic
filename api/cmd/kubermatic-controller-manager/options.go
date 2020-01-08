@@ -96,7 +96,7 @@ func newControllerRunOptions() (controllerRunOptions, error) {
 	flag.StringVar(&c.workerName, "worker-name", "", "The name of the worker that will only processes resources with label=worker-name.")
 	flag.StringVar(&c.versionsFile, "versions", "versions.yaml", "The versions.yaml file path")
 	flag.StringVar(&c.updatesFile, "updates", "updates.yaml", "The updates.yaml file path")
-	flag.IntVar(&c.workerCount, "worker-count", 8, "Number of workers which process the clusters in parallel.")
+	flag.IntVar(&c.workerCount, "worker-count", 4, "Number of workers which process the clusters in parallel.")
 	flag.StringVar(&c.overwriteRegistry, "overwrite-registry", "", "registry to use for all images")
 	flag.StringVar(&c.nodePortRange, "nodeport-range", "30000-32767", "NodePort range to use for new clusters. It must be within the NodePort range of the seed-cluster")
 	flag.StringVar(&c.nodeAccessNetwork, "node-access-network", "10.254.0.0/16", "A network which allows direct access to nodes via VPN. Uses CIDR notation.")
@@ -132,7 +132,7 @@ func newControllerRunOptions() (controllerRunOptions, error) {
 	flag.BoolVar(&c.apiServerEndpointReconcilingDisabled, "apiserver-reconciling-disabled-by-default", false, "Whether to disable reconciling for the apiserver endpoints by default")
 	flag.IntVar(&c.controllerManagerDefaultReplicas, "controller-manager-default-replicas", 1, "The default number of replicas for usercluster controller managers")
 	flag.IntVar(&c.schedulerDefaultReplicas, "scheduler-default-replicas", 1, "The default number of replicas for usercluster schedulers")
-	flag.IntVar(&c.concurrentClusterUpdate, "max-parallel-reconcile", 20, "The default number of resources updates per cluster")
+	flag.IntVar(&c.concurrentClusterUpdate, "max-parallel-reconcile", 10, "The default number of resources updates per cluster")
 	c.seedValidationHook.AddFlags(flag.CommandLine)
 	flag.Parse()
 
