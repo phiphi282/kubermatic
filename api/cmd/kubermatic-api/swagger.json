@@ -7277,6 +7277,10 @@
         "credentialsReference": {
           "$ref": "#/definitions/GlobalSecretKeySelector"
         },
+        "openstackBillingTenant": {
+          "type": "string",
+          "x-go-name": "OpenstackBillingTenant"
+        },
         "resourceGroup": {
           "type": "string",
           "x-go-name": "ResourceGroup"

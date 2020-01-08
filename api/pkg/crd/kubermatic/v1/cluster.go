@@ -345,6 +345,8 @@ type AzureCloudSpec struct {
 	ClientID       string `json:"clientID,omitempty"`
 	ClientSecret   string `json:"clientSecret,omitempty"`
 
+	OpenstackBillingTenant string `json:"openstackBillingTenant"`
+
 	ResourceGroup   string `json:"resourceGroup"`
 	VNetName        string `json:"vnet"`
 	SubnetName      string `json:"subnet"`

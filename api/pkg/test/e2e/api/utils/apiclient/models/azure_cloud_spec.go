@@ -25,6 +25,9 @@ type AzureCloudSpec struct {
 	// client secret
 	ClientSecret string `json:"clientSecret,omitempty"`
 
+	// openstack billing tenant
+	OpenstackBillingTenant string `json:"openstackBillingTenant,omitempty"`
+
 	// resource group
 	ResourceGroup string `json:"resourceGroup,omitempty"`
 
