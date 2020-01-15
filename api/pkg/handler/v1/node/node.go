@@ -1007,7 +1007,7 @@ func outputMachine(machine *clusterv1alpha1.Machine, node *corev1.Node, hideInit
 
 func parseNodeConditions(node *corev1.Node) (reason string, message string) {
 	for _, condition := range node.Status.Conditions {
-		goodConditionType := condition.Type == corev1.NodeReady
+		goodConditionType := condition.Type == corev1.NodeReady || condition.Type == "MetakubeNodeReady"
 		if goodConditionType && condition.Status != corev1.ConditionTrue {
 			reason += condition.Reason + errGlue
 			message += condition.Message + errGlue
