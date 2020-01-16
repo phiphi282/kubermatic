@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/kubermatic/kubermatic/api/pkg/provider"
+
 	kubermaticv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
 	kubermaticlog "github.com/kubermatic/kubermatic/api/pkg/log"
 	"github.com/kubermatic/kubermatic/api/pkg/resources"
@@ -94,6 +96,14 @@ spec:
     k8s-app: kube-dns
   clusterIP: {{.DNSClusterIP}}
   clusterCIDR: "{{first .Cluster.Spec.ClusterNetwork.Pods.CIDRBlocks}}"
+`
+	testManifestExternalURL = `apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: test
+  namespace: test
+data:
+  externalURL: {{ .ExternalURL }}
 `
 )
 
@@ -187,6 +197,8 @@ func TestController_getAddonKubeDNStManifests(t *testing.T) {
 	controller := &Reconciler{
 		kubernetesAddonDir: addonDir,
 		KubeconfigProvider: &fakeKubeconfigProvider{},
+		externalURL:        "example.com",
+		seedGetter:         createSeedGetter(),
 	}
 	manifests, err := controller.getAddonManifests(log, addon, cluster)
 	if err != nil {
@@ -219,6 +231,62 @@ func TestController_getAddonKubeDNStManifests(t *testing.T) {
 	}
 }
 
+func TestController_getExternalURLManifests(t *testing.T) {
+	cluster := setupTestCluster("10.240.16.0/20")
+	addon := setupTestAddon("kube-dns")
+
+	addonDir, err := ioutil.TempDir("/tmp", "kubermatic-tests-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(addonDir)
+
+	if err := os.Mkdir(path.Join(addonDir, addon.Spec.Name), 0777); err != nil {
+		t.Fatal(err)
+	}
+	if err := ioutil.WriteFile(path.Join(addonDir, addon.Spec.Name, "testManifest.yaml"), []byte(testManifestExternalURL), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	log := kubermaticlog.New(true, kubermaticlog.FormatConsole).Sugar()
+
+	externalURL := "example.com"
+
+	controller := &Reconciler{
+		kubernetesAddonDir: addonDir,
+		KubeconfigProvider: &fakeKubeconfigProvider{},
+		externalURL:        externalURL,
+		seedGetter:         createSeedGetter(),
+	}
+	manifests, err := controller.getAddonManifests(log, addon, cluster)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(manifests) != 1 {
+		t.Fatalf("invalid number of manifests returned. Expected 1, Got %d", len(manifests))
+	}
+	fmt.Println(manifests)
+	expected := fmt.Sprintf("app.alias-europe-west3-c.%s", externalURL)
+	if !strings.Contains(string(manifests[0].Raw), expected) {
+		t.Fatalf("invalid externalURL returned. Expected \n%s, Got \n%s", expected, manifests[0].Raw)
+	}
+}
+
+func createSeedGetter() provider.SeedGetter {
+	return func() (*kubermaticv1.Seed, error) {
+		return &kubermaticv1.Seed{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "alias-europe-west3-c",
+			},
+			Spec: kubermaticv1.SeedSpec{
+				Datacenters: map[string]kubermaticv1.Datacenter{
+					"alias-europe-west3-c": {},
+				},
+			},
+		}, nil
+	}
+}
+
 func TestController_getAddonDeploymentManifests(t *testing.T) {
 	cluster := setupTestCluster("10.240.16.0/20")
 	addon := setupTestAddon("test")
@@ -242,6 +310,8 @@ func TestController_getAddonDeploymentManifests(t *testing.T) {
 		kubernetesAddonDir: addonDir,
 		overwriteRegistry:  "bar.io",
 		KubeconfigProvider: &fakeKubeconfigProvider{},
+		externalURL:        "example.com",
+		seedGetter:         createSeedGetter(),
 	}
 	manifests, err := controller.getAddonManifests(log, addon, cluster)
 	if err != nil {
@@ -280,6 +350,8 @@ func TestController_getAddonDeploymentManifestsDefault(t *testing.T) {
 	controller := &Reconciler{
 		kubernetesAddonDir: addonDir,
 		KubeconfigProvider: &fakeKubeconfigProvider{},
+		externalURL:        "example.com",
+		seedGetter:         createSeedGetter(),
 	}
 	manifests, err := controller.getAddonManifests(log, addon, cluster)
 	if err != nil {
@@ -324,6 +396,8 @@ func TestController_getAddonManifests(t *testing.T) {
 	controller := &Reconciler{
 		kubernetesAddonDir: addonDir,
 		KubeconfigProvider: &fakeKubeconfigProvider{},
+		externalURL:        "example.com",
+		seedGetter:         createSeedGetter(),
 	}
 	manifests, err := controller.getAddonManifests(log, addon, cluster)
 	if err != nil {
@@ -351,6 +425,8 @@ func TestController_getAddonManifests(t *testing.T) {
 func TestController_ensureAddonLabelOnManifests(t *testing.T) {
 	controller := &Reconciler{
 		KubeconfigProvider: &fakeKubeconfigProvider{},
+		externalURL:        "example.com",
+		seedGetter:         createSeedGetter(),
 	}
 
 	manifest := runtime.RawExtension{}
@@ -448,6 +524,8 @@ func TestHugeManifest(t *testing.T) {
 	r := &Reconciler{
 		kubernetesAddonDir: "./testdata",
 		KubeconfigProvider: &fakeKubeconfigProvider{},
+		externalURL:        "example.com",
+		seedGetter:         createSeedGetter(),
 	}
 	if _, _, _, err := r.setupManifestInteraction(log, addon, cluster); err != nil {
 		t.Fatalf("failed to setup manifest interaction: %v", err)

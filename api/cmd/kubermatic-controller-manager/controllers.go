@@ -282,6 +282,8 @@ func createAddonController(ctrlCtx *controllerContext) error {
 		ctrlCtx.runOptions.openshiftAddonsPath,
 		ctrlCtx.runOptions.overwriteRegistry,
 		ctrlCtx.clientProvider,
+		ctrlCtx.runOptions.externalURL,
+		ctrlCtx.seedGetter,
 	)
 }
 

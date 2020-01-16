@@ -40,6 +40,7 @@ type TemplateData struct {
 	Variables    map[string]interface{}
 	DNSClusterIP string
 	ClusterCIDR  string
+	ExternalURL  string
 }
 
 func ParseFromFolder(log *zap.SugaredLogger, overwriteRegistry string, manifestPath string, data *TemplateData) ([]runtime.RawExtension, error) {
