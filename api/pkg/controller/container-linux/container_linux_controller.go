@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 
+	kubermaticv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
+
 	"github.com/kubermatic/kubermatic/api/pkg/controller/container-linux/resources"
 	"github.com/kubermatic/kubermatic/api/pkg/resources/reconciling"
 
@@ -29,13 +31,15 @@ const (
 type Reconciler struct {
 	ctrlruntimeclient.Client
 	overwriteRegistry string
+	updateWindow      kubermaticv1.UpdateWindow
 }
 
-func Add(mgr manager.Manager, overwriteRegistry string) error {
+func Add(mgr manager.Manager, overwriteRegistry string, updateWindow kubermaticv1.UpdateWindow) error {
 
 	reconciler := &Reconciler{
 		Client:            mgr.GetClient(),
 		overwriteRegistry: overwriteRegistry,
+		updateWindow:      updateWindow,
 	}
 
 	ctrlOptions := controller.Options{
@@ -61,7 +65,6 @@ func Add(mgr manager.Manager, overwriteRegistry string) error {
 func (r *Reconciler) Reconcile(_ reconcile.Request) (reconcile.Result, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-
 	hasContainerLinuxNodes, err := r.labelAllContainerLinuxNodes(ctx)
 	if err != nil {
 		return reconcile.Result{}, fmt.Errorf("failed to ensure that all ContainerLinux nodes have the %s label: %v", resources.NodeSelectorLabelKey, err)
@@ -140,7 +143,7 @@ func (r *Reconciler) reconcileUpdateOperatorResources(ctx context.Context) error
 		return fmt.Errorf("failed to reconcile the ClusterRoleBindings: %v", err)
 	}
 
-	depCreators := GetDeploymentCreators(r.overwriteRegistry)
+	depCreators := GetDeploymentCreators(r.overwriteRegistry, r.updateWindow)
 	if err := reconciling.ReconcileDeployments(ctx, depCreators, metav1.NamespaceSystem, r.Client); err != nil {
 		return fmt.Errorf("failed to reconcile the Deployments: %v", err)
 	}
@@ -171,9 +174,9 @@ func hasContainerLinuxLabel(node *corev1.Node) bool {
 	return node.Labels[resources.NodeSelectorLabelKey] == resources.NodeSelectorLabelValue
 }
 
-func GetDeploymentCreators(overwriteRegistry string) []reconciling.NamedDeploymentCreatorGetter {
+func GetDeploymentCreators(overwriteRegistry string, updateWindow kubermaticv1.UpdateWindow) []reconciling.NamedDeploymentCreatorGetter {
 	return []reconciling.NamedDeploymentCreatorGetter{
-		resources.DeploymentCreator(getRegistryDefaultFunc(overwriteRegistry)),
+		resources.DeploymentCreator(getRegistryDefaultFunc(overwriteRegistry), updateWindow),
 	}
 }
 func GetDaemonSetCreators(overwriteRegistry string) []reconciling.NamedDaemonSetCreatorGetter {

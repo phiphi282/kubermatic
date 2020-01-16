@@ -39,6 +39,9 @@ type ClusterSpec struct {
 	// sys11auth
 	Sys11auth *Sys11AuthSettings `json:"sys11auth,omitempty"`
 
+	// update window
+	UpdateWindow *UpdateWindow `json:"updateWindow,omitempty"`
+
 	// version
 	Version Semver `json:"version,omitempty"`
 }
@@ -68,6 +71,10 @@ func (m *ClusterSpec) Validate(formats strfmt.Registry) error {
 	}
 
 	if err := m.validateSys11auth(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateUpdateWindow(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -184,6 +191,24 @@ func (m *ClusterSpec) validateSys11auth(formats strfmt.Registry) error {
 		if err := m.Sys11auth.Validate(formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
 				return ve.ValidateName("sys11auth")
+			}
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (m *ClusterSpec) validateUpdateWindow(formats strfmt.Registry) error {
+
+	if swag.IsZero(m.UpdateWindow) { // not required
+		return nil
+	}
+
+	if m.UpdateWindow != nil {
+		if err := m.UpdateWindow.Validate(formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("updateWindow")
 			}
 			return err
 		}

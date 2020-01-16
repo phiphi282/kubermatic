@@ -583,6 +583,8 @@ type ClusterSpec struct {
 
 	Sys11Auth kubermaticv1.Sys11AuthSettings `json:"sys11auth,omitempty"`
 
+	UpdateWindow *kubermaticv1.UpdateWindow `json:"updateWindow,omitempty"`
+
 	// If active the PodSecurityPolicy admission plugin is configured at the apiserver
 	UsePodSecurityPolicyAdmissionPlugin bool `json:"usePodSecurityPolicyAdmissionPlugin,omitempty"`
 
@@ -602,6 +604,7 @@ func (cs *ClusterSpec) MarshalJSON() ([]byte, error) {
 		Version                             ksemver.Semver                         `json:"version"`
 		OIDC                                kubermaticv1.OIDCSettings              `json:"oidc"`
 		Sys11Auth                           kubermaticv1.Sys11AuthSettings         `json:"sys11auth,omitempty"`
+		UpdateWindow                        *kubermaticv1.UpdateWindow             `json:"updateWindow,omitempty"`
 		UsePodSecurityPolicyAdmissionPlugin bool                                   `json:"usePodSecurityPolicyAdmissionPlugin,omitempty"`
 		AuditLogging                        *kubermaticv1.AuditLoggingSettings     `json:"auditLogging,omitempty"`
 	}{
@@ -623,6 +626,7 @@ func (cs *ClusterSpec) MarshalJSON() ([]byte, error) {
 		MachineNetworks:                     cs.MachineNetworks,
 		OIDC:                                cs.OIDC,
 		Sys11Auth:                           cs.Sys11Auth,
+		UpdateWindow:                        cs.UpdateWindow,
 		UsePodSecurityPolicyAdmissionPlugin: cs.UsePodSecurityPolicyAdmissionPlugin,
 		AuditLogging:                        cs.AuditLogging,
 	})

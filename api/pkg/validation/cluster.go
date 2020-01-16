@@ -14,6 +14,7 @@ import (
 	kubernetesprovider "github.com/kubermatic/kubermatic/api/pkg/provider/kubernetes"
 	"github.com/kubermatic/kubermatic/api/pkg/resources"
 
+	"github.com/coreos/locksmith/pkg/timeutil"
 	"k8s.io/apimachinery/pkg/api/equality"
 	utilerror "k8s.io/apimachinery/pkg/util/errors"
 )
@@ -437,6 +438,16 @@ func ValidateSys11AuthSettings(spec *kubermaticv1.ClusterSpec, keycloakFacade ke
 		_, err := keycloakFacade.GetClientData(spec.Sys11Auth.Realm, "metakube-cluster")
 		if err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+func ValidateUpdateWindow(updateWindow *kubermaticv1.UpdateWindow) error {
+	if updateWindow != nil && updateWindow.Start != "" && updateWindow.Length != "" {
+		_, err := timeutil.ParsePeriodic(updateWindow.Start, updateWindow.Length)
+		if err != nil {
+			return fmt.Errorf("error parsing update window: %s", err)
 		}
 	}
 	return nil

@@ -93,6 +93,8 @@ type ClusterSpec struct {
 
 	Sys11Auth Sys11AuthSettings `json:"sys11auth,omitempty"`
 
+	UpdateWindow *UpdateWindow `json:"updateWindow,omitempty"`
+
 	// Openshift holds all openshift-specific settings
 	Openshift *Openshift `json:"openshift,omitempty"`
 
@@ -103,6 +105,11 @@ type ClusterSpec struct {
 
 type Sys11AuthSettings struct {
 	Realm string `json:"realm,omitempty"`
+}
+
+type UpdateWindow struct {
+	Start  string `json:"start,omitempty"`
+	Length string `json:"length,omitempty"`
 }
 
 type ClusterConditionType string
