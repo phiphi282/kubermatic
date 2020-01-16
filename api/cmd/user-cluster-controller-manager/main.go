@@ -15,6 +15,8 @@ import (
 	"strings"
 	"time"
 
+	kubermaticv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
+
 	"github.com/go-logr/zapr"
 	"github.com/heptiolabs/healthcheck"
 	"github.com/oklog/run"
@@ -64,6 +66,8 @@ type controllerRunOptions struct {
 	cloudProviderName             string
 	cloudCredentialSecretTemplate string
 	nodelabels                    string
+	updateWindowStart             string
+	updateWindowLength            string
 	log                           kubermaticlog.Options
 }
 
@@ -89,6 +93,8 @@ func main() {
 	flag.StringVar(&runOp.cloudProviderName, "cloud-provider-name", "", "Name of the cloudprovider")
 	flag.StringVar(&runOp.cloudCredentialSecretTemplate, "cloud-credential-secret-template", "", "A serialized Kubernetes secret whose Name and Data fields will be used to create a secret for the openshift cloud credentials operator.")
 	flag.StringVar(&runOp.nodelabels, "node-labels", "", "A json-encoded map of node labels. If set, those labels will be enforced on all nodes.")
+	flag.StringVar(&runOp.updateWindowStart, "update-window-start", "", "The start time of the update window, e.g. 02:00")
+	flag.StringVar(&runOp.updateWindowLength, "update-window-length", "", "The length of the update window, e.g. 1h")
 
 	flag.Parse()
 
@@ -277,7 +283,11 @@ func main() {
 		log.Info("Registered nodecsrapprover controller")
 	}
 
-	if err := containerlinux.Add(mgr, runOp.overwriteRegistry); err != nil {
+	updateWindow := kubermaticv1.UpdateWindow{
+		Start:  runOp.updateWindowStart,
+		Length: runOp.updateWindowLength,
+	}
+	if err := containerlinux.Add(mgr, runOp.overwriteRegistry, updateWindow); err != nil {
 		log.Fatalw("Failed to register the ContainerLinux controller", zap.Error(err))
 	}
 	log.Info("Registered ContainerLinux controller")

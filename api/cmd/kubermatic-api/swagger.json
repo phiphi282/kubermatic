@@ -7674,6 +7674,9 @@
         "sys11auth": {
           "$ref": "#/definitions/Sys11AuthSettings"
         },
+        "updateWindow": {
+          "$ref": "#/definitions/UpdateWindow"
+        },
         "usePodSecurityPolicyAdmissionPlugin": {
           "description": "If active the PodSecurityPolicy admission plugin is configured at the apiserver",
           "type": "boolean",
@@ -10324,6 +10327,20 @@
         }
       },
       "x-go-package": "github.com/kubermatic/kubermatic/api/pkg/handler/v1/addon"
+    },
+    "UpdateWindow": {
+      "type": "object",
+      "properties": {
+        "length": {
+          "type": "string",
+          "x-go-name": "Length"
+        },
+        "start": {
+          "type": "string",
+          "x-go-name": "Start"
+        }
+      },
+      "x-go-package": "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
     },
     "User": {
       "description": "User represent an API user",

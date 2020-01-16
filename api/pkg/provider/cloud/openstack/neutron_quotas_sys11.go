@@ -9,14 +9,25 @@ const resourcePath = "quotas"
 func GetNeutronQuota(client *gophercloud.ServiceClient, tenantID string) (r GetNeutronQuotaResult) {
 	url := client.ServiceURL(resourcePath, tenantID)
 
-	_, r.Err = client.Get(url, &r.Body, nil)
+	resp, err := client.Get(url, &r.Body, nil)
+	r.Err = err
+	if err != nil {
+		return
+	}
+	defer resp.Body.Close()
+
 	return
 }
 
 func GetCurrentTenantID(client *gophercloud.ServiceClient) (r GetCurrentTenantResult) {
 	url := client.ServiceURL(resourcePath, "tenant")
 
-	_, r.Err = client.Get(url, &r.Body, nil)
+	resp, err := client.Get(url, &r.Body, nil)
+	r.Err = err
+	if err != nil {
+		return
+	}
+	defer resp.Body.Close()
 	return
 }
 

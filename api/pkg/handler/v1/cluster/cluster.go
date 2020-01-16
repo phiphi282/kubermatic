@@ -117,6 +117,9 @@ func CreateEndpoint(sshKeyProvider provider.SSHKeyProvider, projectProvider prov
 		if err = validation.ValidateSys11AuthSettings(spec, keycloakFacade); err != nil {
 			return nil, common.KubernetesErrorToHTTPError(err)
 		}
+		if err = validation.ValidateUpdateWindow(spec.UpdateWindow); err != nil {
+			return nil, common.KubernetesErrorToHTTPError(err)
+		}
 
 		partialCluster := &kubermaticv1.Cluster{}
 		partialCluster.Labels = req.Body.Cluster.Labels
@@ -368,6 +371,7 @@ func PatchEndpoint(projectProvider provider.ProjectProvider, seedsGetter provide
 		newInternalCluster.Spec.AuditLogging = patchedCluster.Spec.AuditLogging
 		newInternalCluster.Spec.Openshift = patchedCluster.Spec.Openshift
 		newInternalCluster.Spec.Sys11Auth = patchedCluster.Spec.Sys11Auth
+		newInternalCluster.Spec.UpdateWindow = patchedCluster.Spec.UpdateWindow
 
 		incompatibleKubelets, err := common.CheckClusterVersionSkew(ctx, userInfo, clusterProvider, newInternalCluster)
 		if err != nil {
@@ -391,6 +395,9 @@ func PatchEndpoint(projectProvider provider.ProjectProvider, seedsGetter provide
 		}
 
 		if err = validation.ValidateSys11AuthSettings(&newInternalCluster.Spec, keycloakFacade); err != nil {
+			return nil, common.KubernetesErrorToHTTPError(err)
+		}
+		if err = validation.ValidateUpdateWindow(newInternalCluster.Spec.UpdateWindow); err != nil {
 			return nil, common.KubernetesErrorToHTTPError(err)
 		}
 
@@ -664,6 +671,7 @@ func convertInternalClusterToExternal(internalCluster *kubermaticv1.Cluster) *ap
 			MachineNetworks:                     internalCluster.Spec.MachineNetworks,
 			OIDC:                                internalCluster.Spec.OIDC,
 			Sys11Auth:                           internalCluster.Spec.Sys11Auth,
+			UpdateWindow:                        internalCluster.Spec.UpdateWindow,
 			AuditLogging:                        internalCluster.Spec.AuditLogging,
 			UsePodSecurityPolicyAdmissionPlugin: internalCluster.Spec.UsePodSecurityPolicyAdmissionPlugin,
 		},
