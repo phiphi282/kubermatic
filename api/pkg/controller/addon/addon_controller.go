@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kubermatic/kubermatic/api/pkg/provider"
+
 	"github.com/ghodss/yaml"
 
 	"go.uber.org/zap"
@@ -63,6 +65,8 @@ type Reconciler struct {
 	recorder record.EventRecorder
 
 	KubeconfigProvider KubeconfigProvider
+	externalURL        string
+	seedGetter         provider.SeedGetter
 }
 
 // Add creates a new Addon controller that is responsible for
@@ -79,6 +83,8 @@ func Add(
 	openshiftAddonDir,
 	overwriteRegistey string,
 	kubeconfigProvider KubeconfigProvider,
+	externalURL string,
+	seedGetter provider.SeedGetter,
 ) error {
 	log = log.Named(ControllerName)
 	client := mgr.GetClient()
@@ -95,6 +101,8 @@ func Add(
 		workerName:              workerName,
 		recorder:                mgr.GetRecorder(ControllerName),
 		overwriteRegistry:       overwriteRegistey,
+		externalURL:             externalURL,
+		seedGetter:              seedGetter,
 	}
 
 	ctrlOptions := controller.Options{
@@ -304,6 +312,18 @@ func (r *Reconciler) getAddonManifests(log *zap.SugaredLogger, addon *kubermatic
 		return nil, fmt.Errorf("failed to get credentials: %v", err)
 	}
 
+	seed, err := r.seedGetter()
+	if err != nil {
+		return nil, err
+	}
+	seedDC := seed.Name
+
+	if seedDC == "dbl1" {
+		seedDC = "syseleven-dbl1-1"
+	} else if seedDC == "bki1" {
+		seedDC = "syseleven-dbl1-1"
+	}
+
 	data := &addonutils.TemplateData{
 		Variables:    make(map[string]interface{}),
 		Cluster:      cluster,
@@ -312,6 +332,7 @@ func (r *Reconciler) getAddonManifests(log *zap.SugaredLogger, addon *kubermatic
 		Kubeconfig:   string(kubeconfig),
 		DNSClusterIP: clusterIP,
 		ClusterCIDR:  cluster.Spec.ClusterNetwork.Pods.CIDRBlocks[0],
+		ExternalURL:  fmt.Sprintf("app.%s.%s", seedDC, r.externalURL),
 	}
 
 	// Add addon variables if available.
