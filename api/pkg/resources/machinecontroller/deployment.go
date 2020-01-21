@@ -220,6 +220,7 @@ func getFlags(clusterDNSIP string, nodeSettings kubermaticv1.NodeSettings) []str
 		"-kubeconfig", "/etc/kubernetes/kubeconfig/kubeconfig",
 		"-logtostderr",
 		"-v", "4",
+		"-node-max-log-size", "100M",
 		"-cluster-dns", clusterDNSIP,
 		"-internal-listen-address", "0.0.0.0:8085",
 	}
