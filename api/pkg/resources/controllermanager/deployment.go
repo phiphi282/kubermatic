@@ -146,13 +146,24 @@ func DeploymentCreator(data *resources.TemplateData) reconciling.NamedDeployment
 				return nil, err
 			}
 
+			// Use sys11-patched controller-manager where necessary (https://github.com/kubernetes/kubernetes/pull/82264)
+			var controllerImage string
+			{
+				upstreamImage := data.ImageRegistry(resources.RegistryGCR) + "/google_containers/hyperkube-amd64:v" + data.Cluster().Spec.Version.String()
+				sys11Image := data.ImageRegistry(resources.RegistryDocker) + "/syseleven/hyperkube-amd64:v" + data.Cluster().Spec.Version.String() + "-sys11-1"
+
+				controllerImage = upstreamImage
+
+				if data.Cluster().Spec.Version.Minor() < 17 {
+					controllerImage = sys11Image
+				}
+			}
+
 			dep.Spec.Template.Spec.Containers = []corev1.Container{
 				*openvpnSidecar,
 				{
-					Name: name,
-					// TODO Revert when upstream Bug is fixed: https://github.com/kubernetes/kubernetes/pull/82264
-					// Image:     data.ImageRegistry(resources.RegistryGCR) + "/google_containers/hyperkube-amd64:v" + data.Cluster().Spec.Version.String(),
-					Image:     data.ImageRegistry(resources.RegistryDocker) + "/syseleven/hyperkube-amd64:v" + data.Cluster().Spec.Version.String() + "-sys11-1",
+					Name:      name,
+					Image:     controllerImage,
 					Command:   []string{"/hyperkube", "kube-controller-manager"},
 					Args:      flags,
 					Env:       envVars,
