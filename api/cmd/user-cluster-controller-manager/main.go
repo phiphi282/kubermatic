@@ -26,6 +26,7 @@ import (
 	"github.com/kubermatic/kubermatic/api/pkg/controller/ipam"
 	"github.com/kubermatic/kubermatic/api/pkg/controller/nodecsrapprover"
 	rbacusercluster "github.com/kubermatic/kubermatic/api/pkg/controller/rbac-user-cluster"
+	sys11nodereadiness "github.com/kubermatic/kubermatic/api/pkg/controller/sys11-node-readiness"
 	nodelabeler "github.com/kubermatic/kubermatic/api/pkg/controller/user-cluster-controller-manager/node-labeler"
 	openshiftmasternodelabeler "github.com/kubermatic/kubermatic/api/pkg/controller/user-cluster-controller-manager/openshift-master-node-labeler"
 	"github.com/kubermatic/kubermatic/api/pkg/controller/usercluster"
@@ -296,6 +297,11 @@ func main() {
 		log.Fatalw("Failed to register nodelabel controller", zap.Error(err))
 	}
 	log.Info("Registered nodelabel controller")
+
+	if err := sys11nodereadiness.Add(ctx, mgr, log); err != nil {
+		log.Fatalw("Failed to register the SysEleven node readiness controller", zap.Error(err))
+	}
+	log.Info("Registered SysEleven node readiness controller")
 
 	// This group is forever waiting in a goroutine for signals to stop
 	{
