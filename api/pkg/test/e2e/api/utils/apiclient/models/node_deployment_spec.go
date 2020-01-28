@@ -17,6 +17,12 @@ import (
 // swagger:model NodeDeploymentSpec
 type NodeDeploymentSpec struct {
 
+	// max replicas
+	MaxReplicas int32 `json:"maxReplicas,omitempty"`
+
+	// min replicas
+	MinReplicas int32 `json:"minReplicas,omitempty"`
+
 	// paused
 	Paused bool `json:"paused,omitempty"`
 

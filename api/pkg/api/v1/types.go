@@ -1156,7 +1156,9 @@ type NodeDeploymentSpec struct {
 	// required: true
 	Template NodeSpec `json:"template"`
 	// required: false
-	Paused *bool `json:"paused,omitempty"`
+	Paused      *bool `json:"paused,omitempty"`
+	MinReplicas int32 `json:"minReplicas,omitempty"`
+	MaxReplicas int32 `json:"maxReplicas,omitempty"`
 }
 
 // Event is a report of an event somewhere in the cluster.

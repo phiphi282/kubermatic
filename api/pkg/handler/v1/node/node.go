@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -168,6 +169,9 @@ func outputMachineDeployment(md *clusterv1alpha1.MachineDeployment) (*apiv1.Node
 		}
 	}
 
+	minReplicas, _ := strconv.ParseInt(md.Annotations["cluster-autoscaler/min-size"], 10, 32)
+	maxReplicas, _ := strconv.ParseInt(md.Annotations["cluster-autoscaler/max-size"], 10, 32)
+
 	return &apiv1.NodeDeployment{
 		ObjectMeta: apiv1.ObjectMeta{
 			ID:                md.Name,
@@ -176,7 +180,9 @@ func outputMachineDeployment(md *clusterv1alpha1.MachineDeployment) (*apiv1.Node
 			CreationTimestamp: apiv1.NewTime(md.CreationTimestamp.Time),
 		},
 		Spec: apiv1.NodeDeploymentSpec{
-			Replicas: *md.Spec.Replicas,
+			Replicas:    *md.Spec.Replicas,
+			MinReplicas: int32(minReplicas),
+			MaxReplicas: int32(maxReplicas),
 			Template: apiv1.NodeSpec{
 				Labels: label.FilterLabels(label.NodeDeploymentResourceType, md.Spec.Template.Spec.Labels),
 				Taints: taints,
@@ -715,6 +721,7 @@ func PatchNodeDeployment(sshKeyProvider provider.SSHKeyProvider, projectProvider
 		machineDeployment.Spec.Template.Spec = patchedMachineDeployment.Spec.Template.Spec
 		machineDeployment.Spec.Replicas = patchedMachineDeployment.Spec.Replicas
 		machineDeployment.Spec.Paused = patchedMachineDeployment.Spec.Paused
+		machineDeployment.Annotations = patchedMachineDeployment.Annotations
 
 		if err := client.Update(ctx, machineDeployment); err != nil {
 			return nil, fmt.Errorf("failed to update machine deployment: %v", err)
