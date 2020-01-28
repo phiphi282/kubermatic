@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/Masterminds/semver"
@@ -66,6 +67,21 @@ func Deployment(c *kubermaticv1.Cluster, nd *apiv1.NodeDeployment, dc *kubermati
 	// Create a copy to avoid changing the ND when changing the MD
 	replicas := nd.Spec.Replicas
 	md.Spec.Replicas = &replicas
+
+	if nd.Spec.MaxReplicas > 0 {
+		if md.Annotations == nil {
+			md.Annotations = map[string]string{}
+		}
+		md.Annotations["cluster-autoscaler/min-size"] = strconv.Itoa(int(nd.Spec.MinReplicas))
+		md.Annotations["cluster-autoscaler/max-size"] = strconv.Itoa(int(nd.Spec.MaxReplicas))
+	} else if md.Annotations != nil {
+		if _, ok := md.Annotations["cluster-autoscaler/min-size"]; ok {
+			delete(md.Annotations, "cluster-autoscaler/min-size")
+		}
+		if _, ok := md.Annotations["cluster-autoscaler/max-size"]; ok {
+			delete(md.Annotations, "cluster-autoscaler/max-size")
+		}
+	}
 
 	md.Spec.Template.Spec.Versions.Kubelet = nd.Spec.Template.Versions.Kubelet
 
