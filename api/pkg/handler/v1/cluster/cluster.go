@@ -140,6 +140,13 @@ func CreateEndpoint(sshKeyProvider provider.SSHKeyProvider, projectProvider prov
 		}
 		kuberneteshelper.AddFinalizer(partialCluster, apiv1.CredentialsSecretsCleanupFinalizer)
 
+		if req.Body.ServicesCIDR != "" {
+			partialCluster.Spec.ClusterNetwork.Services.CIDRBlocks = []string{req.Body.ServicesCIDR}
+		}
+		if req.Body.PodsCIDR != "" {
+			partialCluster.Spec.ClusterNetwork.Pods.CIDRBlocks = []string{req.Body.PodsCIDR}
+		}
+
 		newCluster, err := clusterProvider.New(project, userInfo, partialCluster)
 		if err != nil {
 			return nil, common.KubernetesErrorToHTTPError(err)
@@ -669,6 +676,7 @@ func convertInternalClusterToExternal(internalCluster *kubermaticv1.Cluster, fil
 			Cloud:                               internalCluster.Spec.Cloud,
 			Version:                             internalCluster.Spec.Version,
 			MachineNetworks:                     internalCluster.Spec.MachineNetworks,
+			ClusterNetwork:                      internalCluster.Spec.ClusterNetwork,
 			OIDC:                                internalCluster.Spec.OIDC,
 			Sys11Auth:                           internalCluster.Spec.Sys11Auth,
 			UpdateWindow:                        internalCluster.Spec.UpdateWindow,

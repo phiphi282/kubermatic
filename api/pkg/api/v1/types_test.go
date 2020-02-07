@@ -35,6 +35,7 @@ func TestNewClusterSpec_MarshalJSON(t *testing.T) {
 						RouterID:       "routerID",
 						SecurityGroups: "securityGroups",
 						Tenant:         "tenant",
+						SubnetCIDR:     "subnetCIDR",
 					},
 				},
 			},

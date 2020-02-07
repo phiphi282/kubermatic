@@ -208,3 +208,7 @@ required = [
 [[constraint]]
   name = "github.com/coreos/locksmith"
   version = "v0.6.2"
+
+[[constraint]]
+  name = "github.com/apparentlymart/go-cidr"
+  version = "v1.0.1"

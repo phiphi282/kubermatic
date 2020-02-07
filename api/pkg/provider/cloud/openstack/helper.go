@@ -3,9 +3,11 @@ package openstack
 import (
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"strings"
 
+	"github.com/apparentlymart/go-cidr/cidr"
 	"github.com/gophercloud/gophercloud"
 	goopenstack "github.com/gophercloud/gophercloud/openstack"
 	osflavors "github.com/gophercloud/gophercloud/openstack/compute/v2/flavors"
@@ -274,19 +276,29 @@ func deleteRouter(netClient *gophercloud.ServiceClient, routerID string) error {
 	return res.ExtractErr()
 }
 
-func createKubermaticSubnet(netClient *gophercloud.ServiceClient, clusterName, networkID string, dnsServers []string) (*ossubnets.Subnet, error) {
+func createKubermaticSubnet(netClient *gophercloud.ServiceClient, clusterName, networkID string, dnsServers []string, customSubnetCIDR string) (*ossubnets.Subnet, error) {
 	iTrue := true
+	currentCidr := subnetCIDR
+	startIP := subnetFirstAddress
+	endIP := subnetLastAddress
+	if customSubnetCIDR != "" {
+		currentCidr = customSubnetCIDR
+		_, cidrNet, _ := net.ParseCIDR(customSubnetCIDR)
+		startIPObj, endIPObj := cidr.AddressRange(cidrNet)
+		startIP = cidr.Inc(cidr.Inc(startIPObj)).String()
+		endIP = cidr.Dec(endIPObj).String()
+	}
 	res := ossubnets.Create(netClient, ossubnets.CreateOpts{
 		Name:       resourceNamePrefix + clusterName,
 		NetworkID:  networkID,
 		IPVersion:  gophercloud.IPv4,
-		CIDR:       subnetCIDR,
+		CIDR:       currentCidr,
 		GatewayIP:  nil,
 		EnableDHCP: &iTrue,
 		AllocationPools: []ossubnets.AllocationPool{
 			{
-				Start: subnetFirstAddress,
-				End:   subnetLastAddress,
+				Start: startIP,
+				End:   endIP,
 			},
 		},
 		DNSNameservers: dnsServers,

@@ -90,6 +90,14 @@
   version = "v1.0.1"
 
 [[projects]]
+  digest = "1:aef9339f69dda1ca77fdb2fd83cf64c3f5087c1f00f69719eaa14679f5321512"
+  name = "github.com/apparentlymart/go-cidr"
+  packages = ["cidr"]
+  pruneopts = "NUT"
+  revision = "c0fb5fbe0acb592411e2db59add389a43260ad44"
+  version = "v1.0.1"
+
+[[projects]]
   digest = "1:680b63a131506e668818d630d3ca36123ff290afa0afc9f4be21940adca3f27d"
   name = "github.com/appscode/jsonpatch"
   packages = ["."]
@@ -1966,6 +1974,7 @@
     "github.com/Azure/go-autorest/autorest/to",
     "github.com/Masterminds/semver",
     "github.com/Masterminds/sprig",
+    "github.com/apparentlymart/go-cidr/cidr",
     "github.com/aws/aws-sdk-go/aws",
     "github.com/aws/aws-sdk-go/aws/awserr",
     "github.com/aws/aws-sdk-go/aws/credentials",

@@ -542,6 +542,8 @@ type MasterVersion struct {
 type CreateClusterSpec struct {
 	Cluster        Cluster         `json:"cluster"`
 	NodeDeployment *NodeDeployment `json:"nodeDeployment,omitempty"`
+	ServicesCIDR   string          `json:"servicesCIDR,omitempty"`
+	PodsCIDR       string          `json:"podsCIDR,omitempty"`
 }
 
 const (
@@ -572,6 +574,7 @@ type ClusterSpec struct {
 	// Cloud specifies the cloud providers configuration
 	Cloud kubermaticv1.CloudSpec `json:"cloud"`
 
+	ClusterNetwork kubermaticv1.ClusterNetworkingConfig `json:"clusterNetwork,omitempty"`
 	// MachineNetworks optionally specifies the parameters for IPAM.
 	MachineNetworks []kubermaticv1.MachineNetworkingConfig `json:"machineNetworks,omitempty"`
 
@@ -600,6 +603,7 @@ type ClusterSpec struct {
 func (cs *ClusterSpec) MarshalJSON() ([]byte, error) {
 	ret, err := json.Marshal(struct {
 		Cloud                               PublicCloudSpec                        `json:"cloud"`
+		ClusterNetwork                      kubermaticv1.ClusterNetworkingConfig   `json:"clusterNetwork,omitempty"`
 		MachineNetworks                     []kubermaticv1.MachineNetworkingConfig `json:"machineNetworks,omitempty"`
 		Version                             ksemver.Semver                         `json:"version"`
 		OIDC                                kubermaticv1.OIDCSettings              `json:"oidc"`
@@ -623,6 +627,7 @@ func (cs *ClusterSpec) MarshalJSON() ([]byte, error) {
 			Kubevirt:       newPublicKubevirtCloudSpec(cs.Cloud.Kubevirt),
 		},
 		Version:                             cs.Version,
+		ClusterNetwork:                      cs.ClusterNetwork,
 		MachineNetworks:                     cs.MachineNetworks,
 		OIDC:                                cs.OIDC,
 		Sys11Auth:                           cs.Sys11Auth,
@@ -730,6 +735,7 @@ func newPublicAWSCloudSpec(internal *kubermaticv1.AWSCloudSpec) (public *PublicA
 // PublicOpenstackCloudSpec is a public counterpart of apiv1.OpenstackCloudSpec.
 type PublicOpenstackCloudSpec struct {
 	FloatingIPPool string `json:"floatingIpPool"`
+	SubnetCIDR     string `json:"subnetCIDR,omitempty"`
 }
 
 func newPublicOpenstackCloudSpec(internal *kubermaticv1.OpenstackCloudSpec) (public *PublicOpenstackCloudSpec) {
@@ -739,6 +745,7 @@ func newPublicOpenstackCloudSpec(internal *kubermaticv1.OpenstackCloudSpec) (pub
 
 	return &PublicOpenstackCloudSpec{
 		FloatingIPPool: internal.FloatingIPPool,
+		SubnetCIDR:     internal.SubnetCIDR,
 	}
 }
 

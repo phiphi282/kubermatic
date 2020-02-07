@@ -7569,6 +7569,29 @@
       "x-go-name": "ControlPlaneMetrics",
       "x-go-package": "github.com/kubermatic/kubermatic/api/pkg/api/v1"
     },
+    "ClusterNetworkingConfig": {
+      "description": "ClusterNetworkingConfig specifies the different networking\nparameters for a cluster.",
+      "type": "object",
+      "properties": {
+        "dnsDomain": {
+          "description": "Domain name for services.",
+          "type": "string",
+          "x-go-name": "DNSDomain"
+        },
+        "pods": {
+          "$ref": "#/definitions/NetworkRanges"
+        },
+        "proxyMode": {
+          "description": "ProxyMode defines the kube-proxy mode (ipvs/iptables).\nDefaults to ipvs.",
+          "type": "string",
+          "x-go-name": "ProxyMode"
+        },
+        "services": {
+          "$ref": "#/definitions/NetworkRanges"
+        }
+      },
+      "x-go-package": "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
+    },
     "ClusterRole": {
       "description": "ClusterRole defines cluster RBAC role for the user cluster",
       "type": "object",
@@ -7656,6 +7679,9 @@
         },
         "cloud": {
           "$ref": "#/definitions/CloudSpec"
+        },
+        "clusterNetwork": {
+          "$ref": "#/definitions/ClusterNetworkingConfig"
         },
         "machineNetworks": {
           "description": "MachineNetworks optionally specifies the parameters for IPAM.",
@@ -7754,6 +7780,14 @@
         },
         "nodeDeployment": {
           "$ref": "#/definitions/NodeDeployment"
+        },
+        "podsCIDR": {
+          "type": "string",
+          "x-go-name": "PodsCIDR"
+        },
+        "servicesCIDR": {
+          "type": "string",
+          "x-go-name": "ServicesCIDR"
         }
       },
       "x-go-package": "github.com/kubermatic/kubermatic/api/pkg/api/v1"
@@ -8861,6 +8895,20 @@
       },
       "x-go-package": "github.com/kubermatic/kubermatic/api/pkg/api/v1"
     },
+    "NetworkRanges": {
+      "type": "object",
+      "title": "NetworkRanges represents ranges of network addresses.",
+      "properties": {
+        "cidrBlocks": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "x-go-name": "CIDRBlocks"
+        }
+      },
+      "x-go-package": "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
+    },
     "Node": {
       "description": "Node represents a worker node that is part of a cluster",
       "type": "object",
@@ -9326,6 +9374,10 @@
         "securityGroups": {
           "type": "string",
           "x-go-name": "SecurityGroups"
+        },
+        "subnetCIDR": {
+          "type": "string",
+          "x-go-name": "SubnetCIDR"
         },
         "subnetID": {
           "type": "string",
@@ -9899,6 +9951,10 @@
         "floatingIpPool": {
           "type": "string",
           "x-go-name": "FloatingIPPool"
+        },
+        "subnetCIDR": {
+          "type": "string",
+          "x-go-name": "SubnetCIDR"
         }
       },
       "x-go-package": "github.com/kubermatic/kubermatic/api/pkg/api/v1"

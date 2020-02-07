@@ -43,6 +43,9 @@ type OpenstackCloudSpec struct {
 	// security groups
 	SecurityGroups string `json:"securityGroups,omitempty"`
 
+	// subnet c ID r
+	SubnetCIDR string `json:"subnetCIDR,omitempty"`
+
 	// subnet ID
 	SubnetID string `json:"subnetID,omitempty"`
 

@@ -197,13 +197,14 @@ func (os *Provider) InitializeCloudProvider(cluster *kubermaticv1.Cluster, updat
 	}
 
 	if cluster.Spec.Cloud.Openstack.SubnetID == "" {
-		subnet, err := createKubermaticSubnet(netClient, cluster.Name, network.ID, os.dc.DNSServers)
+		subnet, err := createKubermaticSubnet(netClient, cluster.Name, network.ID, os.dc.DNSServers, cluster.Spec.Cloud.Openstack.SubnetCIDR)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create the kubermatic subnet: %v", err)
 		}
 
 		cluster, err = update(cluster.Name, func(cluster *kubermaticv1.Cluster) {
 			cluster.Spec.Cloud.Openstack.SubnetID = subnet.ID
+			cluster.Spec.Cloud.Openstack.SubnetCIDR = subnet.CIDR
 			kubernetes.AddFinalizer(cluster, SubnetCleanupFinalizer)
 		})
 		if err != nil {
