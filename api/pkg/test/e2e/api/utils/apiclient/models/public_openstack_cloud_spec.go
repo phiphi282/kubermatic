@@ -17,6 +17,9 @@ type PublicOpenstackCloudSpec struct {
 
 	// floating IP pool
 	FloatingIPPool string `json:"floatingIpPool,omitempty"`
+
+	// subnet c ID r
+	SubnetCIDR string `json:"subnetCIDR,omitempty"`
 }
 
 // Validate validates this public openstack cloud spec

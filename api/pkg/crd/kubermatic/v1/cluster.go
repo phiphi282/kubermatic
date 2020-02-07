@@ -251,17 +251,17 @@ type StatefulSetSettings struct {
 // parameters for a cluster.
 type ClusterNetworkingConfig struct {
 	// The network ranges from which service VIPs are allocated.
-	Services NetworkRanges `json:"services"`
+	Services NetworkRanges `json:"services,omitempty"`
 
 	// The network ranges from which POD networks are allocated.
-	Pods NetworkRanges `json:"pods"`
+	Pods NetworkRanges `json:"pods,omitempty"`
 
 	// Domain name for services.
-	DNSDomain string `json:"dnsDomain"`
+	DNSDomain string `json:"dnsDomain,omitempty"`
 
 	// ProxyMode defines the kube-proxy mode (ipvs/iptables).
 	// Defaults to ipvs.
-	ProxyMode string `json:"proxyMode"`
+	ProxyMode string `json:"proxyMode,omitempty"`
 }
 
 // MachineNetworkingConfig specifies the networking parameters used for IPAM.
@@ -273,7 +273,7 @@ type MachineNetworkingConfig struct {
 
 // NetworkRanges represents ranges of network addresses.
 type NetworkRanges struct {
-	CIDRBlocks []string `json:"cidrBlocks"`
+	CIDRBlocks []string `json:"cidrBlocks,omitempty"`
 }
 
 // ClusterAddress stores access and address information of a cluster.
@@ -432,6 +432,7 @@ type OpenstackCloudSpec struct {
 	FloatingIPPool string `json:"floatingIpPool"`
 	RouterID       string `json:"routerID"`
 	SubnetID       string `json:"subnetID"`
+	SubnetCIDR     string `json:"subnetCIDR,omitempty"`
 }
 
 // PacketCloudSpec specifies access data to a Packet cloud.

@@ -16,6 +16,12 @@ import (
 // swagger:model CreateClusterSpec
 type CreateClusterSpec struct {
 
+	// pods c ID r
+	PodsCIDR string `json:"podsCIDR,omitempty"`
+
+	// services c ID r
+	ServicesCIDR string `json:"servicesCIDR,omitempty"`
+
 	// cluster
 	Cluster *Cluster `json:"cluster,omitempty"`
 
