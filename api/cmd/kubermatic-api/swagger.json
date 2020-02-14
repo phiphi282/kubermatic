@@ -7778,6 +7778,10 @@
         "cluster": {
           "$ref": "#/definitions/Cluster"
         },
+        "dnsDomain": {
+          "type": "string",
+          "x-go-name": "DNSDomain"
+        },
         "nodeDeployment": {
           "$ref": "#/definitions/NodeDeployment"
         },

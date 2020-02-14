@@ -544,6 +544,7 @@ type CreateClusterSpec struct {
 	NodeDeployment *NodeDeployment `json:"nodeDeployment,omitempty"`
 	ServicesCIDR   string          `json:"servicesCIDR,omitempty"`
 	PodsCIDR       string          `json:"podsCIDR,omitempty"`
+	DNSDomain      string          `json:"dnsDomain,omitempty"`
 }
 
 const (

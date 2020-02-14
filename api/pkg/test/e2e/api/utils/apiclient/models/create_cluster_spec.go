@@ -16,6 +16,9 @@ import (
 // swagger:model CreateClusterSpec
 type CreateClusterSpec struct {
 
+	// DNS domain
+	DNSDomain string `json:"dnsDomain,omitempty"`
+
 	// pods c ID r
 	PodsCIDR string `json:"podsCIDR,omitempty"`
 

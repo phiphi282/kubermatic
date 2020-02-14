@@ -146,6 +146,9 @@ func CreateEndpoint(sshKeyProvider provider.SSHKeyProvider, projectProvider prov
 		if req.Body.PodsCIDR != "" {
 			partialCluster.Spec.ClusterNetwork.Pods.CIDRBlocks = []string{req.Body.PodsCIDR}
 		}
+		if req.Body.DNSDomain != "" {
+			partialCluster.Spec.ClusterNetwork.DNSDomain = req.Body.DNSDomain
+		}
 
 		newCluster, err := clusterProvider.New(project, userInfo, partialCluster)
 		if err != nil {
