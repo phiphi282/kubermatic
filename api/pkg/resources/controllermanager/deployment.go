@@ -154,8 +154,23 @@ func DeploymentCreator(data *resources.TemplateData) reconciling.NamedDeployment
 
 				controllerImage = upstreamImage
 
-				if data.Cluster().Spec.Version.Minor() < 17 {
+				semVersion := data.Cluster().Spec.Version
+
+				if semVersion.Minor() < 15 {
 					controllerImage = sys11Image
+
+				} else {
+					switch semVersion.Minor() {
+					case 15:
+						if semVersion.Patch() < 10 {
+							controllerImage = sys11Image
+						}
+
+					case 16:
+						if semVersion.Patch() < 7 {
+							controllerImage = sys11Image
+						}
+					}
 				}
 			}
 
