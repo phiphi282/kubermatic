@@ -12,6 +12,8 @@ type Interface interface {
 	Addons() AddonInformer
 	// Clusters returns a ClusterInformer.
 	Clusters() ClusterInformer
+	// MachineDeploymentRequests returns a MachineDeploymentRequestInformer.
+	MachineDeploymentRequests() MachineDeploymentRequestInformer
 	// Projects returns a ProjectInformer.
 	Projects() ProjectInformer
 	// Users returns a UserInformer.
@@ -41,6 +43,11 @@ func (v *version) Addons() AddonInformer {
 // Clusters returns a ClusterInformer.
 func (v *version) Clusters() ClusterInformer {
 	return &clusterInformer{factory: v.factory, tweakListOptions: v.tweakListOptions}
+}
+
+// MachineDeploymentRequests returns a MachineDeploymentRequestInformer.
+func (v *version) MachineDeploymentRequests() MachineDeploymentRequestInformer {
+	return &machineDeploymentRequestInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
 }
 
 // Projects returns a ProjectInformer.

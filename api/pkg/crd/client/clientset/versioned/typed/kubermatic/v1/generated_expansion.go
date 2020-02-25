@@ -6,6 +6,8 @@ type AddonExpansion interface{}
 
 type ClusterExpansion interface{}
 
+type MachineDeploymentRequestExpansion interface{}
+
 type ProjectExpansion interface{}
 
 type UserExpansion interface{}

@@ -14,6 +14,14 @@ type AddonNamespaceListerExpansion interface{}
 // ClusterLister.
 type ClusterListerExpansion interface{}
 
+// MachineDeploymentRequestListerExpansion allows custom methods to be added to
+// MachineDeploymentRequestLister.
+type MachineDeploymentRequestListerExpansion interface{}
+
+// MachineDeploymentRequestNamespaceListerExpansion allows custom methods to be added to
+// MachineDeploymentRequestNamespaceLister.
+type MachineDeploymentRequestNamespaceListerExpansion interface{}
+
 // ProjectListerExpansion allows custom methods to be added to
 // ProjectLister.
 type ProjectListerExpansion interface{}
