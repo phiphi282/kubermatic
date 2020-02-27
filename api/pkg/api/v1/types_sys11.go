@@ -121,3 +121,17 @@ type Absolute struct {
 	// TotalServerGroupsUsed is the total number of server groups in use.
 	TotalServerGroupsUsed int `json:"totalServerGroupsUsed"`
 }
+
+// NodeDeploymentRequest represents an asynchronous request to create a NodeDeployment in a user cluster
+// swagger:model NodeDeploymentRequest
+type NodeDeploymentRequest struct {
+	ObjectMeta `json:",inline"`
+
+	Spec NodeDeploymentRequestSpec `json:"spec"`
+}
+
+// NodeDeploymentRequestSpec node deployment request specification
+// swagger:model NodeDeploymentRequestSpec
+type NodeDeploymentRequestSpec struct {
+	NdSpec NodeDeploymentSpec `json:"ndspec"`
+}
