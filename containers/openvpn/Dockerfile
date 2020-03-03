@@ -1,5 +1,6 @@
-FROM alpine:3.9
-LABEL maintainer="tobias.hintze@loodse.com"
+FROM alpine:3.11
+ARG OPENVPN_VERSION
+LABEL maintainer="support@loodse.com"
 
 RUN apk add -U \
 	bash \
@@ -8,7 +9,7 @@ RUN apk add -U \
 	iptables \
 	jq \
 	openssl \
-	openvpn \
+	openvpn=$OPENVPN_VERSION \
 	--no-cache
 
 # add kubectl
