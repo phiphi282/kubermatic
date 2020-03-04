@@ -133,5 +133,5 @@ type NodeDeploymentRequest struct {
 // NodeDeploymentRequestSpec node deployment request specification
 // swagger:model NodeDeploymentRequestSpec
 type NodeDeploymentRequestSpec struct {
-	NdSpec NodeDeploymentSpec `json:"ndspec"`
+	Nd NodeDeployment `json:"nd"`
 }

@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/Masterminds/semver"
 	jsonpatch "github.com/evanphx/json-patch"
+	"github.com/kubermatic/kubermatic/api/pkg/validation/nodeupdate"
 	"io/ioutil"
 	"net/http"
 
@@ -12,36 +14,39 @@ import (
 	"github.com/gorilla/mux"
 
 	apiv1 "github.com/kubermatic/kubermatic/api/pkg/api/v1"
-	kubermaticapiv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
+	kubermaticv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
 	"github.com/kubermatic/kubermatic/api/pkg/handler/middleware"
 	"github.com/kubermatic/kubermatic/api/pkg/handler/v1/common"
 	"github.com/kubermatic/kubermatic/api/pkg/provider"
+	kubernetesprovider "github.com/kubermatic/kubermatic/api/pkg/provider/kubernetes"
+	machineresource "github.com/kubermatic/kubermatic/api/pkg/resources/machine"
+	k8cerrors "github.com/kubermatic/kubermatic/api/pkg/util/errors"
 )
 
-// ndrReq defines HTTP request for getAddon and deleteAddon
-// swagger:parameters getAddon deleteAddon
+// ndrReq defines HTTP request for getNodeDeploymentRequest and deleteNodeDeploymentRequest
+// swagger:parameters getNodeDeploymentRequest deleteNodeDeploymentRequest
 type ndrReq struct {
 	common.GetClusterReq
 	// in: path
 	NdrName string `json:"ndrequest_id"`
 }
 
-// listReq defines HTTP request for listAddons endpoint
-// swagger:parameters listAddons
+// listReq defines HTTP request for listNodeDeploymentRequests endpoint
+// swagger:parameters listNodeDeploymentRequests
 type listReq struct {
 	common.GetClusterReq
 }
 
-// createReq defines HTTP request for createAddon endpoint
-// swagger:parameters createAddon
+// createReq defines HTTP request for createNodeDeploymentRequest endpoint
+// swagger:parameters createNodeDeploymentRequest
 type createReq struct {
 	common.GetClusterReq
 	// in: body
 	Body apiv1.NodeDeploymentRequest
 }
 
-// patchReq defines HTTP request for patchAddon endpoint
-// swagger:parameters patchAddon
+// patchReq defines HTTP request for patchNodeDeploymentRequest endpoint
+// swagger:parameters patchNodeDeploymentRequest
 type patchReq struct {
 	ndrReq
 	// in: body
@@ -179,12 +184,12 @@ func ListNodeDeploymentRequestEndpoint(projectProvider provider.ProjectProvider)
 	}
 }
 
-func CreateNodeDeploymentRequestEndpoint(projectProvider provider.ProjectProvider) endpoint.Endpoint {
+func CreateNodeDeploymentRequestEndpoint(sshKeyProvider provider.SSHKeyProvider, projectProvider provider.ProjectProvider, seedsGetter provider.SeedsGetter) endpoint.Endpoint {
 	return func(ctx context.Context, request interface{}) (interface{}, error) {
 		req := request.(createReq)
 		clusterProvider := ctx.Value(middleware.ClusterProviderContextKey).(provider.ClusterProvider)
 		userInfo := ctx.Value(middleware.UserInfoContextKey).(*provider.UserInfo)
-		_, err := projectProvider.Get(userInfo, req.ProjectID, &provider.ProjectGetOptions{})
+		project, err := projectProvider.Get(userInfo, req.ProjectID, &provider.ProjectGetOptions{})
 		if err != nil {
 			return nil, common.KubernetesErrorToHTTPError(err)
 		}
@@ -193,13 +198,38 @@ func CreateNodeDeploymentRequestEndpoint(projectProvider provider.ProjectProvide
 			return nil, common.KubernetesErrorToHTTPError(err)
 		}
 
-		mdr, err := convertNdrToMdr(&req.Body)
+		assertedClusterProvider, ok := clusterProvider.(*kubernetesprovider.ClusterProvider)
+		if !ok {
+			return nil, k8cerrors.New(http.StatusInternalServerError, "clusterprovider is not a kubernetesprovider.Clusterprovider, can not create secret")
+		}
+
+		data := common.CredentialsData{
+			KubermaticCluster: cluster,
+			Client:            assertedClusterProvider.GetSeedClusterAdminRuntimeClient(),
+		}
+
+		keys, err := sshKeyProvider.List(project, &provider.SSHKeyListOptions{ClusterName: req.ClusterID})
 		if err != nil {
 			return nil, common.KubernetesErrorToHTTPError(err)
 		}
 
+		_, dc, err := provider.DatacenterFromSeedMap(userInfo, seedsGetter, cluster.Spec.Cloud.DatacenterName)
+		if err != nil {
+			return nil, fmt.Errorf("error getting dc: %v", err)
+		}
+
+		nd, err := machineresource.Validate(&req.Body.Spec.Nd, cluster.Spec.Version.Semver())
+		if err != nil {
+			return nil, k8cerrors.NewBadRequest(fmt.Sprintf("node deployment validation failed: %s", err.Error()))
+		}
+
+		md, err := machineresource.Deployment(cluster, nd, dc, keys, data)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create machine deployment from template: %v", err)
+		}
+
 		mdrProvider := ctx.Value(middleware.MachineDeploymentRequestProviderContextKey).(provider.MachineDeploymentRequestProvider)
-		mdr, err = mdrProvider.New(userInfo, cluster, mdr.Name, &mdr.Spec.MdSpec)
+		mdr, err := mdrProvider.New(userInfo, cluster, md.Name, md)
 		if err != nil {
 			return nil, common.KubernetesErrorToHTTPError(err)
 		}
@@ -212,12 +242,12 @@ func CreateNodeDeploymentRequestEndpoint(projectProvider provider.ProjectProvide
 	}
 }
 
-func PatchNodeDeploymentRequestEndpoint(projectProvider provider.ProjectProvider) endpoint.Endpoint {
+func PatchNodeDeploymentRequestEndpoint(sshKeyProvider provider.SSHKeyProvider, projectProvider provider.ProjectProvider, seedsGetter provider.SeedsGetter) endpoint.Endpoint {
 	return func(ctx context.Context, request interface{}) (interface{}, error) {
 		req := request.(patchReq)
 		clusterProvider := ctx.Value(middleware.ClusterProviderContextKey).(provider.ClusterProvider)
 		userInfo := ctx.Value(middleware.UserInfoContextKey).(*provider.UserInfo)
-		_, err := projectProvider.Get(userInfo, req.ProjectID, &provider.ProjectGetOptions{})
+		project, err := projectProvider.Get(userInfo, req.ProjectID, &provider.ProjectGetOptions{})
 		if err != nil {
 			return nil, common.KubernetesErrorToHTTPError(err)
 		}
@@ -252,14 +282,43 @@ func PatchNodeDeploymentRequestEndpoint(projectProvider provider.ProjectProvider
 			return nil, fmt.Errorf("cannot decode patched cluster: %v", err)
 		}
 
-		// TODO validate patchedNdr here; see node.go / PatchNodeDeployment
+		// version validation as in node.go / PatchNodeDeployment
+		kversion, err := semver.NewVersion(patchedNdr.Spec.Nd.Spec.Template.Versions.Kubelet)
+		if err != nil {
+			return nil, k8cerrors.NewBadRequest("failed to parse kubelet version: %v", err)
+		}
+		if err = nodeupdate.EnsureVersionCompatible(cluster.Spec.Version.Semver(), kversion); err != nil {
+			return nil, k8cerrors.NewBadRequest(err.Error())
+		}
 
-		patchedMdr, err := convertNdrToMdr(patchedNdr)
+		assertedClusterProvider, ok := clusterProvider.(*kubernetesprovider.ClusterProvider)
+		if !ok {
+			return nil, k8cerrors.New(http.StatusInternalServerError, "clusterprovider is not a kubernetesprovider.Clusterprovider, can not create secret")
+		}
+
+		data := common.CredentialsData{
+			KubermaticCluster: cluster,
+			Client:            assertedClusterProvider.GetSeedClusterAdminRuntimeClient(),
+		}
+
+		keys, err := sshKeyProvider.List(project, &provider.SSHKeyListOptions{ClusterName: req.ClusterID})
 		if err != nil {
 			return nil, common.KubernetesErrorToHTTPError(err)
 		}
 
-		_, err = mdrProvider.Update(userInfo, cluster, patchedMdr)
+		_, dc, err := provider.DatacenterFromSeedMap(userInfo, seedsGetter, cluster.Spec.Cloud.DatacenterName)
+		if err != nil {
+			return nil, fmt.Errorf("error getting dc: %v", err)
+		}
+
+		patchedMd, err := machineresource.Deployment(cluster, &patchedNdr.Spec.Nd, dc, keys, data)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create machine deployment from template: %v", err)
+		}
+
+		mdr.Spec.Md = *patchedMd
+
+		_, err = mdrProvider.Update(userInfo, cluster, mdr)
 		if err != nil {
 			return nil, common.KubernetesErrorToHTTPError(err)
 		}
@@ -288,8 +347,8 @@ func DeleteNodeDeploymentRequestEndpoint(projectProvider provider.ProjectProvide
 	}
 }
 
-func convertMdrToNdr(mdr *kubermaticapiv1.MachineDeploymentRequest) (*apiv1.NodeDeploymentRequest, error) {
-	ndSpec, err := mdSpecToNdSpec(&mdr.Spec.MdSpec)
+func convertMdrToNdr(mdr *kubermaticv1.MachineDeploymentRequest) (*apiv1.NodeDeploymentRequest, error) {
+	nd, err := outputMachineDeployment(&mdr.Spec.Md)
 	if err != nil {
 		return nil, err
 	}
@@ -308,13 +367,13 @@ func convertMdrToNdr(mdr *kubermaticapiv1.MachineDeploymentRequest) (*apiv1.Node
 			}(),
 		},
 		Spec: apiv1.NodeDeploymentRequestSpec{
-			NdSpec: *ndSpec,
+			Nd: *nd,
 		},
 	}
 	return result, nil
 }
 
-func convertMdrToNdrList(mdrs []*kubermaticapiv1.MachineDeploymentRequest) ([]*apiv1.NodeDeploymentRequest, error) {
+func convertMdrToNdrList(mdrs []*kubermaticv1.MachineDeploymentRequest) ([]*apiv1.NodeDeploymentRequest, error) {
 	result := []*apiv1.NodeDeploymentRequest{}
 
 	for _, mdr := range mdrs {
@@ -326,9 +385,4 @@ func convertMdrToNdrList(mdrs []*kubermaticapiv1.MachineDeploymentRequest) ([]*a
 	}
 
 	return result, nil
-}
-
-func convertNdrToMdr(mdr *apiv1.NodeDeploymentRequest) (*kubermaticapiv1.MachineDeploymentRequest, error) {
-	// TODO impl
-	return nil, nil
 }

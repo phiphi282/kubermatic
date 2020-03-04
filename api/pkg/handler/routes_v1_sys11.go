@@ -243,7 +243,7 @@ func (r Routing) unsealVaultAddon() http.Handler {
 	)
 }
 
-// swagger:route POST /api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/ndrequests ndrequest createNodeDeploymentRequest
+// swagger:route POST /api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/ndrequests project createNodeDeploymentRequest
 //
 //     Creates a NodeDeploymentRequest that will belong to the given cluster
 //
@@ -266,14 +266,14 @@ func (r Routing) createNodeDeploymentRequest() http.Handler {
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
 			middleware.MachineDeploymentRequests(r.mdRequestProviderGetter, r.seedsGetter),
 			middleware.UserInfoExtractor(r.userProjectMapper),
-		)(node.CreateNodeDeploymentRequestEndpoint(r.projectProvider)),
+		)(node.CreateNodeDeploymentRequestEndpoint(r.sshKeyProvider, r.projectProvider, r.seedsGetter)),
 		node.DecodeCreateNodeDeploymentRequest,
 		setStatusCreatedHeader(encodeJSON),
 		r.defaultServerOptions()...,
 	)
 }
 
-// swagger:route GET /api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/ndrequests ndrequest listNodeDeploymentRequests
+// swagger:route GET /api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/ndrequests project listNodeDeploymentRequests
 //
 //     Lists NodeDeploymentRequests that belong to the given cluster
 //
@@ -300,7 +300,7 @@ func (r Routing) listNodeDeploymentRequests() http.Handler {
 	)
 }
 
-// swagger:route GET /api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/ndrequests/{ndrequest_id} ndrequest getNodeDeploymentRequest
+// swagger:route GET /api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/ndrequests/{ndrequest_id} project getNodeDeploymentRequest
 //
 //     Gets a NodeDeploymentRequest that is assigned to the given cluster.
 //
@@ -327,7 +327,7 @@ func (r Routing) getNodeDeploymentRequest() http.Handler {
 	)
 }
 
-// swagger:route PATCH /api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/ndrequests/{ndrequest_id} ndrequest patchNodeDeploymentRequest
+// swagger:route PATCH /api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/ndrequests/{ndrequest_id} project patchNodeDeploymentRequest
 //
 //     Patches a NodeDeploymentRequest that is assigned to the given cluster.
 //
@@ -350,14 +350,14 @@ func (r Routing) patchNodeDeploymentRequest() http.Handler {
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
 			middleware.MachineDeploymentRequests(r.mdRequestProviderGetter, r.seedsGetter),
 			middleware.UserInfoExtractor(r.userProjectMapper),
-		)(node.PatchNodeDeploymentRequestEndpoint(r.projectProvider)),
+		)(node.PatchNodeDeploymentRequestEndpoint(r.sshKeyProvider, r.projectProvider, r.seedsGetter)),
 		node.DecodePatchNodeDeploymentRequest,
 		encodeJSON,
 		r.defaultServerOptions()...,
 	)
 }
 
-// swagger:route DELETE /api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/ndrequests/{ndrequest_id} ndrequest deleteNodeDeploymentRequest
+// swagger:route DELETE /api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/ndrequests/{ndrequest_id} project deleteNodeDeploymentRequest
 //
 //    Deletes the given NodeDeploymentRequest that belongs to the cluster.
 //

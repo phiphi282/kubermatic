@@ -19,6 +19,7 @@ import (
 	kubermaticv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
 	"github.com/kubermatic/kubermatic/api/pkg/handler/middleware"
 	"github.com/kubermatic/kubermatic/api/pkg/handler/v1/common"
+	"github.com/kubermatic/kubermatic/api/pkg/handler/v1/label"
 	machineconversions "github.com/kubermatic/kubermatic/api/pkg/machine"
 	"github.com/kubermatic/kubermatic/api/pkg/provider"
 	kubernetesprovider "github.com/kubermatic/kubermatic/api/pkg/provider/kubernetes"
@@ -149,15 +150,27 @@ func outputMachineDeployment(md *clusterv1alpha1.MachineDeployment) (*apiv1.Node
 		deletionTimestamp = &dt
 	}
 
-	ndSpec, err := mdSpecToNdSpec(&md.Spec)
+	operatingSystemSpec, err := machineconversions.GetAPIV1OperatingSystemSpec(md.Spec.Template.Spec)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to get operating system spec from machine deployment: %v", err)
+	}
+
+	cloudSpec, err := machineconversions.GetAPIV2NodeCloudSpec(md.Spec.Template.Spec)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get node cloud spec from machine deployment: %v", err)
+	}
+
+	taints := make([]apiv1.TaintSpec, len(md.Spec.Template.Spec.Taints))
+	for i, taint := range md.Spec.Template.Spec.Taints {
+		taints[i] = apiv1.TaintSpec{
+			Effect: string(taint.Effect),
+			Key:    taint.Key,
+			Value:  taint.Value,
+		}
 	}
 
 	minReplicas, _ := strconv.ParseInt(md.Annotations["cluster-autoscaler/min-size"], 10, 32)
 	maxReplicas, _ := strconv.ParseInt(md.Annotations["cluster-autoscaler/max-size"], 10, 32)
-	ndSpec.MinReplicas = int32(minReplicas)
-	ndSpec.MaxReplicas = int32(maxReplicas)
 
 	return &apiv1.NodeDeployment{
 		ObjectMeta: apiv1.ObjectMeta{
@@ -166,7 +179,21 @@ func outputMachineDeployment(md *clusterv1alpha1.MachineDeployment) (*apiv1.Node
 			DeletionTimestamp: deletionTimestamp,
 			CreationTimestamp: apiv1.NewTime(md.CreationTimestamp.Time),
 		},
-		Spec: *ndSpec,
+		Spec: apiv1.NodeDeploymentSpec{
+			Replicas:    *md.Spec.Replicas,
+			MinReplicas: int32(minReplicas),
+			MaxReplicas: int32(maxReplicas),
+			Template: apiv1.NodeSpec{
+				Labels: label.FilterLabels(label.NodeDeploymentResourceType, md.Spec.Template.Spec.Labels),
+				Taints: taints,
+				Versions: apiv1.NodeVersionInfo{
+					Kubelet: md.Spec.Template.Spec.Versions.Kubelet,
+				},
+				OperatingSystem: *operatingSystemSpec,
+				Cloud:           *cloudSpec,
+			},
+			Paused: &md.Spec.Paused,
+		},
 		Status: md.Status,
 	}, nil
 }

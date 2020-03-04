@@ -7,8 +7,8 @@ import (
 
 // MachineDeploymentRequestProvider declares the set of methods for interacting with MachineDeploymentRequests
 type MachineDeploymentRequestProvider interface {
-	// New creates a new MachineDeploymentRequest for the given cluster
-	New(userInfo *UserInfo, cluster *kubermaticv1.Cluster, mdrName string, mdSpec *v1alpha1.MachineDeploymentSpec) (*kubermaticv1.MachineDeploymentRequest, error)
+	// New creates a new MachineDeploymentRequest for the given cluster and MachineDeployment
+	New(userInfo *UserInfo, cluster *kubermaticv1.Cluster, mdrName string, md *v1alpha1.MachineDeployment) (*kubermaticv1.MachineDeploymentRequest, error)
 
 	// List gets all MachineDeploymentRequests that belong to the given cluster
 	// If you want to filter the result please take a look at ClusterListOptions

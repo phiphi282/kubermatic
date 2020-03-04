@@ -131,6 +131,7 @@ type newRoutingFunc func(
 	serviceAccountProvider provider.ServiceAccountProvider,
 	serviceAccountTokenProvider provider.ServiceAccountTokenProvider,
 	projectProvider provider.ProjectProvider,
+	mdRequestProviderGetter provider.MachineDeploymentRequestProviderGetter,
 	privilegedProjectProvider provider.PrivilegedProjectProvider,
 	oidcIssuerVerifier auth.OIDCIssuerVerifier,
 	tokenVerifiers auth.TokenVerifier,
@@ -238,6 +239,15 @@ func initTestEndpoint(user apiv1.User, seedsGetter provider.SeedsGetter, kubeObj
 		return nil, fmt.Errorf("can not find clusterprovider for cluster %q", seed.Name)
 	}
 
+	machineDeploymentRequestProvider := kubernetes.NewMachineDeploymentRequestProvider(fakeKubermaticImpersonationClient)
+	machineDeploymentRequestProviders := map[string]provider.MachineDeploymentRequestProvider{"us-central1": machineDeploymentRequestProvider}
+	machineDeploymentRequestProviderGetter := func(seed *kubermaticv1.Seed) (provider.MachineDeploymentRequestProvider, error) {
+		if mdrProvider, exists := machineDeploymentRequestProviders[seed.Name]; exists {
+			return mdrProvider, nil
+		}
+		return nil, fmt.Errorf("can not find MachineDeploymentRequestProvider for cluster %q", seed.Name)
+	}
+
 	addonProvider := kubernetes.NewAddonProvider(
 		fakeKubermaticImpersonationClient,
 		sets.NewString("addon1", "addon2"),
@@ -272,6 +282,7 @@ func initTestEndpoint(user apiv1.User, seedsGetter provider.SeedsGetter, kubeObj
 		serviceAccountProvider,
 		serviceAccountTokenProvider,
 		projectProvider,
+		machineDeploymentRequestProviderGetter,
 		privilegedProjectProvider,
 		fakeOIDCClient,
 		tokenVerifiers,

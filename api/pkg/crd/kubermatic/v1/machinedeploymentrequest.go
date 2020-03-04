@@ -26,7 +26,7 @@ type MachineDeploymentRequest struct {
 
 // MachineDeploymentRequestSpec specifies details of a MachineDeploymentRequest
 type MachineDeploymentRequestSpec struct {
-	MdSpec v1alpha1.MachineDeploymentSpec `json:"mdspec"`
+	Md v1alpha1.MachineDeployment `json:"machinedeployment"`
 }
 
 // MachineDeploymentRequestList is a list of MachineDeploymentRequests

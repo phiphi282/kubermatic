@@ -26,7 +26,7 @@ func NewMachineDeploymentRequestProvider(
 }
 
 // New creates a new MachineDeploymentRequest for the given cluster
-func (p *MachineDeploymentRequestProvider) New(userInfo *provider.UserInfo, cluster *kubermaticv1.Cluster, mdrName string, mdSpec *v1alpha1.MachineDeploymentSpec) (*kubermaticv1.MachineDeploymentRequest, error) {
+func (p *MachineDeploymentRequestProvider) New(userInfo *provider.UserInfo, cluster *kubermaticv1.Cluster, mdrName string, md *v1alpha1.MachineDeployment) (*kubermaticv1.MachineDeploymentRequest, error) {
 	seedImpersonatedClient, err := createKubermaticImpersonationClientWrapperFromUserInfo(userInfo, p.createSeedImpersonatedClient)
 	if err != nil {
 		return nil, err
@@ -42,7 +42,7 @@ func (p *MachineDeploymentRequestProvider) New(userInfo *provider.UserInfo, clus
 			Labels:          map[string]string{},
 		},
 		Spec: kubermaticv1.MachineDeploymentRequestSpec{
-			MdSpec: *mdSpec,
+			Md: *md,
 		},
 	}
 
