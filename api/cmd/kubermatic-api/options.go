@@ -149,6 +149,7 @@ type providers struct {
 	memberMapper                          provider.ProjectMemberMapper
 	eventRecorderProvider                 provider.EventRecorderProvider
 	clusterProviderGetter                 provider.ClusterProviderGetter
+	mdRequestProviderGetter               provider.MachineDeploymentRequestProviderGetter
 	seedsGetter                           provider.SeedsGetter
 	addons                                provider.AddonProviderGetter
 	userInfoGetter                        provider.UserInfoGetter

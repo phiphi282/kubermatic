@@ -34,6 +34,7 @@ func NewTestRouting(
 	serviceAccountProvider provider.ServiceAccountProvider,
 	serviceAccountTokenProvider provider.ServiceAccountTokenProvider,
 	projectProvider provider.ProjectProvider,
+	mdRequestProviderGetter provider.MachineDeploymentRequestProviderGetter,
 	privilegedProjectProvider provider.PrivilegedProjectProvider,
 	issuerVerifier auth.OIDCIssuerVerifier,
 	tokenVerifiers auth.TokenVerifier,
@@ -59,6 +60,7 @@ func NewTestRouting(
 		serviceAccountProvider,
 		serviceAccountTokenProvider,
 		projectProvider,
+		mdRequestProviderGetter,
 		privilegedProjectProvider,
 		issuerVerifier,
 		tokenVerifiers,
@@ -86,6 +88,7 @@ func NewTestRouting(
 		*generateDefaultOicdCfg(),
 		mainRouter,
 	)
+	r.RegisterV1SysEleven(v1Router)
 	return mainRouter
 }
 

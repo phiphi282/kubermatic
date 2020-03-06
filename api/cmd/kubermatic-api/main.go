@@ -228,6 +228,8 @@ func createInitProviders(options serverRunOptions) (providers, error) {
 
 	eventRecorderProvider := kubernetesprovider.NewEventRecorder()
 
+	machineDeploymentRequestProviderGetter := kubernetesprovider.MachineDeploymentRequestProviderFactory(seedKubeconfigGetter)
+
 	addonProviderGetter := kubernetesprovider.AddonProviderFactory(seedKubeconfigGetter, options.accessibleAddons)
 
 	return providers{
@@ -242,6 +244,7 @@ func createInitProviders(options serverRunOptions) (providers, error) {
 		memberMapper:                          projectMemberProvider,
 		eventRecorderProvider:                 eventRecorderProvider,
 		clusterProviderGetter:                 clusterProviderGetter,
+		mdRequestProviderGetter:               machineDeploymentRequestProviderGetter,
 		seedsGetter:                           seedsGetter,
 		addons:                                addonProviderGetter,
 		userInfoGetter:                        userInfoGetter}, nil
@@ -317,6 +320,7 @@ func createAPIHandler(options serverRunOptions, prov providers, oidcIssuerVerifi
 		prov.serviceAccountProvider,
 		prov.serviceAccountTokenProvider,
 		prov.project,
+		prov.mdRequestProviderGetter,
 		prov.privilegedProject,
 		oidcIssuerVerifier,
 		tokenVerifiers,

@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"context"
+	"fmt"
 	"github.com/kubermatic/kubermatic/api/pkg/keycloak"
 	contextutil "github.com/kubermatic/kubermatic/api/pkg/util/context"
 	"net/http"
@@ -11,12 +12,16 @@ import (
 	"github.com/go-kit/kit/endpoint"
 	kubermaticapiv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
 	"github.com/kubermatic/kubermatic/api/pkg/provider"
+	kubermaticcontext "github.com/kubermatic/kubermatic/api/pkg/util/context"
 	k8cerrors "github.com/kubermatic/kubermatic/api/pkg/util/errors"
 )
 
 const (
 	// KeycloakFacadeContextKey key under which the current keycloak.Facade is kept in the ctx
 	KeycloakFacadeContextKey contextutil.Key = "keycloak-facade"
+
+	// MachineDeploymentRequestProviderContextKey key under which the current MachineDeploymentRequestProvider is kept in the ctx
+	MachineDeploymentRequestProviderContextKey kubermaticcontext.Key = "machinedeploymentrequest-provider"
 )
 
 func PrivilegedUserGroupVerifier(userProjectMapper provider.ProjectMemberMapper, privilegedUserGroups map[string]bool) endpoint.Middleware {
@@ -55,6 +60,30 @@ func Keycloak(keycloakFacade keycloak.Facade) endpoint.Middleware {
 	return func(next endpoint.Endpoint) endpoint.Endpoint {
 		return func(ctx context.Context, request interface{}) (response interface{}, err error) {
 			ctx = context.WithValue(ctx, KeycloakFacadeContextKey, keycloakFacade)
+			return next(ctx, request)
+		}
+	}
+}
+
+// MachineDeploymentRequests is a middleware that injects the current MachineDeploymentRequestProvider into the ctx
+func MachineDeploymentRequests(mdrProviderGetter provider.MachineDeploymentRequestProviderGetter, seedsGetter provider.SeedsGetter) endpoint.Middleware {
+	return func(next endpoint.Endpoint) endpoint.Endpoint {
+		return func(ctx context.Context, request interface{}) (response interface{}, err error) {
+			seeds, err := seedsGetter()
+			if err != nil {
+				return nil, err
+			}
+			seedName := request.(dCGetter).GetDC()
+			seed, found := seeds[seedName]
+			if !found {
+				return nil, fmt.Errorf("couldn't find seed %q", seedName)
+			}
+
+			mdrProvider, err := mdrProviderGetter(seed)
+			if err != nil {
+				return nil, err
+			}
+			ctx = context.WithValue(ctx, MachineDeploymentRequestProviderContextKey, mdrProvider)
 			return next(ctx, request)
 		}
 	}

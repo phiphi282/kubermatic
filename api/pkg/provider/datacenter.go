@@ -53,6 +53,9 @@ type ClusterProviderGetter = func(seed *kubermaticv1.Seed) (ClusterProvider, err
 // AddonProviderGetterr is used to get an AddonProvider
 type AddonProviderGetter = func(seed *kubermaticv1.Seed) (AddonProvider, error)
 
+// MachineDeploymentRequestProviderGetter is used to get an MachineDeploymentRequestProvider
+type MachineDeploymentRequestProviderGetter = func(seed *kubermaticv1.Seed) (MachineDeploymentRequestProvider, error)
+
 // DatacenterMeta describes a Kubermatic datacenter.
 type DatacenterMeta struct {
 	Location         string                      `json:"location"`

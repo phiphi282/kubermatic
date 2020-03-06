@@ -2,6 +2,7 @@ package handler
 
 import (
 	"github.com/kubermatic/kubermatic/api/pkg/handler/v1/addon"
+	"github.com/kubermatic/kubermatic/api/pkg/handler/v1/node"
 	"net/http"
 
 	"github.com/go-kit/kit/endpoint"
@@ -61,6 +62,26 @@ func (r Routing) RegisterV1SysEleven(mux *mux.Router) {
 	mux.Methods(http.MethodDelete).
 		Path("/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/addons/{addon_id}").
 		Handler(r.deleteAddon())
+
+	mux.Methods(http.MethodPost).
+		Path("/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/ndrequests").
+		Handler(r.createNodeDeploymentRequest())
+
+	mux.Methods(http.MethodGet).
+		Path("/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/ndrequests").
+		Handler(r.listNodeDeploymentRequests())
+
+	mux.Methods(http.MethodGet).
+		Path("/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/ndrequests/{ndrequest_id}").
+		Handler(r.getNodeDeploymentRequest())
+
+	mux.Methods(http.MethodPatch).
+		Path("/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/ndrequests/{ndrequest_id}").
+		Handler(r.patchNodeDeploymentRequest())
+
+	mux.Methods(http.MethodDelete).
+		Path("/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/ndrequests/{ndrequest_id}").
+		Handler(r.deleteNodeDeploymentRequest())
 
 	// Metakube Vault Unsealing
 	mux.Methods(http.MethodPost).
@@ -217,6 +238,147 @@ func (r Routing) unsealVaultAddon() http.Handler {
 			middleware.UserInfoExtractor(r.userProjectMapper),
 		)(addon.UnsealVaultAddonEndpoint(r.seedsGetter)),
 		addon.DecodeUnsealVaultAddon,
+		encodeJSON,
+		r.defaultServerOptions()...,
+	)
+}
+
+// swagger:route POST /api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/ndrequests project createNodeDeploymentRequest
+//
+//     Creates a NodeDeploymentRequest that will belong to the given cluster
+//
+//     Consumes:
+//     - application/json
+//
+//     Produces:
+//     - application/json
+//
+//     Responses:
+//       default: errorResponse
+//       201: NodeDeploymentRequest
+//       401: empty
+//       403: empty
+func (r Routing) createNodeDeploymentRequest() http.Handler {
+	return httptransport.NewServer(
+		endpoint.Chain(
+			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.UserSaver(r.userProvider),
+			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
+			middleware.MachineDeploymentRequests(r.mdRequestProviderGetter, r.seedsGetter),
+			middleware.UserInfoExtractor(r.userProjectMapper),
+		)(node.CreateNodeDeploymentRequestEndpoint(r.sshKeyProvider, r.projectProvider, r.seedsGetter)),
+		node.DecodeCreateNodeDeploymentRequest,
+		setStatusCreatedHeader(encodeJSON),
+		r.defaultServerOptions()...,
+	)
+}
+
+// swagger:route GET /api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/ndrequests project listNodeDeploymentRequests
+//
+//     Lists NodeDeploymentRequests that belong to the given cluster
+//
+//     Produces:
+//     - application/json
+//
+//     Responses:
+//       default: errorResponse
+//       200: []NodeDeploymentRequest
+//       401: empty
+//       403: empty
+func (r Routing) listNodeDeploymentRequests() http.Handler {
+	return httptransport.NewServer(
+		endpoint.Chain(
+			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.UserSaver(r.userProvider),
+			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
+			middleware.MachineDeploymentRequests(r.mdRequestProviderGetter, r.seedsGetter),
+			middleware.UserInfoExtractor(r.userProjectMapper),
+		)(node.ListNodeDeploymentRequestEndpoint(r.projectProvider)),
+		node.DecodeListNodeDeploymentRequests,
+		encodeJSON,
+		r.defaultServerOptions()...,
+	)
+}
+
+// swagger:route GET /api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/ndrequests/{ndrequest_id} project getNodeDeploymentRequest
+//
+//     Gets a NodeDeploymentRequest that is assigned to the given cluster.
+//
+//     Produces:
+//     - application/json
+//
+//     Responses:
+//       default: errorResponse
+//       200: NodeDeploymentRequest
+//       401: empty
+//       403: empty
+func (r Routing) getNodeDeploymentRequest() http.Handler {
+	return httptransport.NewServer(
+		endpoint.Chain(
+			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.UserSaver(r.userProvider),
+			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
+			middleware.MachineDeploymentRequests(r.mdRequestProviderGetter, r.seedsGetter),
+			middleware.UserInfoExtractor(r.userProjectMapper),
+		)(node.GetNodeDeploymentRequestEndpoint(r.projectProvider)),
+		node.DecodeGetNodeDeploymentRequest,
+		encodeJSON,
+		r.defaultServerOptions()...,
+	)
+}
+
+// swagger:route PATCH /api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/ndrequests/{ndrequest_id} project patchNodeDeploymentRequest
+//
+//     Patches a NodeDeploymentRequest that is assigned to the given cluster.
+//
+//     Consumes:
+//     - application/json
+//
+//     Produces:
+//     - application/json
+//
+//     Responses:
+//       default: errorResponse
+//       200: NodeDeploymentRequest
+//       401: empty
+//       403: empty
+func (r Routing) patchNodeDeploymentRequest() http.Handler {
+	return httptransport.NewServer(
+		endpoint.Chain(
+			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.UserSaver(r.userProvider),
+			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
+			middleware.MachineDeploymentRequests(r.mdRequestProviderGetter, r.seedsGetter),
+			middleware.UserInfoExtractor(r.userProjectMapper),
+		)(node.PatchNodeDeploymentRequestEndpoint(r.sshKeyProvider, r.projectProvider, r.seedsGetter)),
+		node.DecodePatchNodeDeploymentRequest,
+		encodeJSON,
+		r.defaultServerOptions()...,
+	)
+}
+
+// swagger:route DELETE /api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/ndrequests/{ndrequest_id} project deleteNodeDeploymentRequest
+//
+//    Deletes the given NodeDeploymentRequest that belongs to the cluster.
+//
+//     Produces:
+//     - application/json
+//
+//     Responses:
+//       default: errorResponse
+//       200: empty
+//       401: empty
+//       403: empty
+func (r Routing) deleteNodeDeploymentRequest() http.Handler {
+	return httptransport.NewServer(
+		endpoint.Chain(
+			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.UserSaver(r.userProvider),
+			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
+			middleware.MachineDeploymentRequests(r.mdRequestProviderGetter, r.seedsGetter),
+			middleware.UserInfoExtractor(r.userProjectMapper),
+		)(node.DeleteNodeDeploymentRequestEndpoint(r.projectProvider)),
+		node.DecodeGetNodeDeploymentRequest,
 		encodeJSON,
 		r.defaultServerOptions()...,
 	)
