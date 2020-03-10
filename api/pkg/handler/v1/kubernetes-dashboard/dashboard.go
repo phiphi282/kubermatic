@@ -2,7 +2,6 @@ package kubernetesdashboard
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httputil"
@@ -12,9 +11,7 @@ import (
 	"github.com/go-kit/kit/endpoint"
 	transporthttp "github.com/go-kit/kit/transport/http"
 	"go.uber.org/zap"
-	"k8s.io/client-go/tools/clientcmd/api"
 
-	"github.com/kubermatic/kubermatic/api/pkg/handler/middleware"
 	"github.com/kubermatic/kubermatic/api/pkg/handler/v1/cluster"
 	"github.com/kubermatic/kubermatic/api/pkg/handler/v1/common"
 	"github.com/kubermatic/kubermatic/api/pkg/provider"
@@ -34,11 +31,24 @@ func ProxyEndpoint(
 	log *zap.SugaredLogger,
 	extractor transporthttp.RequestFunc,
 	projectProvider provider.ProjectProvider,
+	userInfoGetter provider.UserInfoGetter,
+	settingsProvider provider.SettingsProvider,
 	middlewares endpoint.Middleware) http.Handler {
 	return dynamicHTTPHandler(func(w http.ResponseWriter, r *http.Request) {
-
 		log := log.With("endpoint", "kubernetes-dashboard-proxy", "uri", r.URL.Path)
 		ctx := extractor(r.Context(), r)
+
+		settings, err := settingsProvider.GetGlobalSettings()
+		if err != nil {
+			common.WriteHTTPError(log, w, kubermaticerrors.New(http.StatusInternalServerError, "could not read global settings"))
+			return
+		}
+
+		if !settings.Spec.EnableDashboard {
+			common.WriteHTTPError(log, w, kubermaticerrors.New(http.StatusForbidden, "Kubernetes Dashboard access is disabled by the global settings"))
+			return
+		}
+
 		request, err := common.DecodeGetClusterReq(ctx, r)
 		if err != nil {
 			common.WriteHTTPError(log, w, kubermaticerrors.New(http.StatusBadRequest, err.Error()))
@@ -54,34 +64,32 @@ func ProxyEndpoint(
 				return nil, nil
 			}
 
-			userCluster, clusterProvider, err := cluster.GetClusterProviderFromRequest(ctx, request, projectProvider)
-			userInfo := ctx.Value(middleware.UserInfoContextKey).(*provider.UserInfo)
+			userCluster, clusterProvider, err := cluster.GetClusterProviderFromRequest(ctx, request, projectProvider, userInfoGetter)
 			if err != nil {
 				common.WriteHTTPError(log, w, err)
 				return nil, nil
 			}
-
-			adminClientCfg, err := clusterProvider.GetAdminKubeconfigForCustomerCluster(userCluster)
+			req, ok := request.(common.GetClusterReq)
+			if !ok {
+				common.WriteHTTPError(log, w, kubermaticerrors.New(http.StatusBadRequest, "invalid request"))
+				return nil, nil
+			}
+			userInfo, err := userInfoGetter(ctx, req.ProjectID)
 			if err != nil {
-				common.WriteHTTPError(log, w, err)
+				common.WriteHTTPError(log, w, kubermaticerrors.New(http.StatusInternalServerError, "couldn't get userInfo"))
 				return nil, nil
 			}
 
-			if !strings.HasPrefix(userInfo.Group, "editors") && !strings.HasPrefix(userInfo.Group, "owners") {
-				common.WriteHTTPError(log, w, kubermaticerrors.New(http.StatusBadRequest, fmt.Sprintf("user %q does not belong to the owners|editors group", userInfo.Email)))
-				return nil, nil
-			}
-
-			token, err := extractBearerToken(adminClientCfg)
+			token, err := clusterProvider.GetTokenForCustomerCluster(userInfo, userCluster)
 			if err != nil {
-				common.WriteHTTPError(log, w, err)
+				common.WriteHTTPError(log, w, kubermaticerrors.New(http.StatusBadRequest, fmt.Sprintf("error getting token for user %q: %v", userInfo.Email, err)))
 				return nil, nil
 			}
 
 			log = log.With("cluster", userCluster.Name)
 
 			// Ideally we would cache these to not open a port for every single request
-			portforwarder, outBuffer, closeChan, err := common.GetPortForwarder(
+			portforwarder, closeChan, err := common.GetPortForwarder(
 				clusterProvider.GetSeedClusterAdminClient().CoreV1(),
 				clusterProvider.SeedAdminConfig(),
 				userCluster.Status.NamespaceName,
@@ -100,15 +108,19 @@ func ProxyEndpoint(
 				return nil, nil
 			}
 
-			port, err := common.GetLocalPortFromPortForwardOutput(outBuffer.String())
+			ports, err := portforwarder.GetPorts()
 			if err != nil {
 				common.WriteHTTPError(log, w, fmt.Errorf("failed to get backend port: %v", err))
+				return nil, nil
+			}
+			if len(ports) != 1 {
+				common.WriteHTTPError(log, w, fmt.Errorf("didn't get exactly one port but %d", len(ports)))
 				return nil, nil
 			}
 
 			proxyURL := &url.URL{
 				Scheme: "http",
-				Host:   fmt.Sprintf("127.0.0.1:%d", port),
+				Host:   fmt.Sprintf("127.0.0.1:%d", ports[0].Local),
 			}
 
 			// Override strict CSP policy for proxy
@@ -171,14 +183,4 @@ func newDashboardProxyDirector(proxyURL *url.URL, token string, request *http.Re
 		token:           token,
 		originalRequest: request,
 	}
-}
-
-func extractBearerToken(kubeconfig *api.Config) (string, error) {
-	for _, info := range kubeconfig.AuthInfos {
-		if len(info.Token) > 0 {
-			return info.Token, nil
-		}
-	}
-
-	return "", errors.New("could not find bearer token in kubeconfig file")
 }

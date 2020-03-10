@@ -4,14 +4,12 @@ import (
 	"context"
 	"fmt"
 
+	"go.uber.org/zap"
+
 	kubermaticapiv1 "github.com/kubermatic/kubermatic/api/pkg/api/v1"
 	kubermaticv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
 	kuberneteshelper "github.com/kubermatic/kubermatic/api/pkg/kubernetes"
 
-	"go.uber.org/zap"
-
-	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/util/retry"
 	controllerruntimeclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -38,6 +36,16 @@ func (d *Deletion) CleanupCluster(ctx context.Context, log *zap.SugaredLogger, c
 	// Delete Volumes and LB's inside the user cluster
 	if err := d.cleanupInClusterResources(ctx, log, cluster); err != nil {
 		return err
+	}
+
+	// If cleanup didn't finish we have to go back, because if there are controllers running
+	// inside the cluster and we delete the nodes, we get stuck.
+	if kuberneteshelper.HasAnyFinalizer(cluster,
+		kubermaticapiv1.InClusterLBCleanupFinalizer,
+		kubermaticapiv1.InClusterPVCleanupFinalizer,
+		kubermaticapiv1.InClusterCredentialsRequestsCleanupFinalizer,
+		kubermaticapiv1.InClusterImageRegistryConfigCleanupFinalizer) {
+		return nil
 	}
 
 	if err := d.cleanupNodes(ctx, cluster); err != nil {
@@ -136,25 +144,10 @@ func (d *Deletion) cleanupInClusterResources(ctx context.Context, log *zap.Sugar
 		return nil
 	}
 
-	return d.updateCluster(ctx, cluster, func(c *kubermaticv1.Cluster) {
-		kuberneteshelper.RemoveFinalizer(c, kubermaticapiv1.InClusterLBCleanupFinalizer)
-		kuberneteshelper.RemoveFinalizer(c, kubermaticapiv1.InClusterPVCleanupFinalizer)
-		kuberneteshelper.RemoveFinalizer(c, kubermaticapiv1.InClusterCredentialsRequestsCleanupFinalizer)
-		kuberneteshelper.RemoveFinalizer(c, kubermaticapiv1.InClusterImageRegistryConfigCleanupFinalizer)
-	})
-}
-
-func (d *Deletion) updateCluster(ctx context.Context, cluster *kubermaticv1.Cluster, modify func(*kubermaticv1.Cluster)) error {
-	// Store it here because it may be unset later on if an update request failed
-	name := cluster.Name
-	return retry.RetryOnConflict(retry.DefaultBackoff, func() (err error) {
-		//Get latest version
-		if err := d.seedClient.Get(ctx, types.NamespacedName{Name: name}, cluster); err != nil {
-			return err
-		}
-		// Apply modifications
-		modify(cluster)
-		// Update the cluster
-		return d.seedClient.Update(ctx, cluster)
-	})
+	oldCluster := cluster.DeepCopy()
+	kuberneteshelper.RemoveFinalizer(cluster, kubermaticapiv1.InClusterLBCleanupFinalizer)
+	kuberneteshelper.RemoveFinalizer(cluster, kubermaticapiv1.InClusterPVCleanupFinalizer)
+	kuberneteshelper.RemoveFinalizer(cluster, kubermaticapiv1.InClusterCredentialsRequestsCleanupFinalizer)
+	kuberneteshelper.RemoveFinalizer(cluster, kubermaticapiv1.InClusterImageRegistryConfigCleanupFinalizer)
+	return d.seedClient.Patch(ctx, cluster, controllerruntimeclient.MergeFrom(oldCluster))
 }

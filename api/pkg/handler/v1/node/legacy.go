@@ -23,13 +23,16 @@ import (
 	ctrlruntimeclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-func DeleteNodeForClusterLegacyEndpoint(projectProvider provider.ProjectProvider) endpoint.Endpoint {
+func DeleteNodeForClusterLegacyEndpoint(projectProvider provider.ProjectProvider, userInfoGetter provider.UserInfoGetter) endpoint.Endpoint {
 	return func(ctx context.Context, request interface{}) (interface{}, error) {
 		req := request.(deleteNodeForClusterLegacyReq)
 		clusterProvider := ctx.Value(middleware.ClusterProviderContextKey).(provider.ClusterProvider)
-		userInfo := ctx.Value(middleware.UserInfoContextKey).(*provider.UserInfo)
+		userInfo, err := userInfoGetter(ctx, req.ProjectID)
+		if err != nil {
+			return nil, common.KubernetesErrorToHTTPError(err)
+		}
 
-		_, err := projectProvider.Get(userInfo, req.ProjectID, &provider.ProjectGetOptions{})
+		_, err = projectProvider.Get(userInfo, req.ProjectID, &provider.ProjectGetOptions{})
 		if err != nil {
 			return nil, common.KubernetesErrorToHTTPError(err)
 		}
@@ -61,13 +64,16 @@ func DeleteNodeForClusterLegacyEndpoint(projectProvider provider.ProjectProvider
 	}
 }
 
-func ListNodesForClusterLegacyEndpoint(projectProvider provider.ProjectProvider) endpoint.Endpoint {
+func ListNodesForClusterLegacyEndpoint(projectProvider provider.ProjectProvider, userInfoGetter provider.UserInfoGetter) endpoint.Endpoint {
 	return func(ctx context.Context, request interface{}) (interface{}, error) {
 		req := request.(listNodesForClusterReq)
 		clusterProvider := ctx.Value(middleware.ClusterProviderContextKey).(provider.ClusterProvider)
-		userInfo := ctx.Value(middleware.UserInfoContextKey).(*provider.UserInfo)
+		userInfo, err := userInfoGetter(ctx, req.ProjectID)
+		if err != nil {
+			return nil, common.KubernetesErrorToHTTPError(err)
+		}
 
-		_, err := projectProvider.Get(userInfo, req.ProjectID, &provider.ProjectGetOptions{})
+		_, err = projectProvider.Get(userInfo, req.ProjectID, &provider.ProjectGetOptions{})
 		if err != nil {
 			return nil, common.KubernetesErrorToHTTPError(err)
 		}
@@ -83,7 +89,7 @@ func ListNodesForClusterLegacyEndpoint(projectProvider provider.ProjectProvider)
 		}
 
 		machineList := &clusterv1alpha1.MachineList{}
-		if err := client.List(ctx, &ctrlruntimeclient.ListOptions{Namespace: metav1.NamespaceSystem}, machineList); err != nil {
+		if err := client.List(ctx, machineList, ctrlruntimeclient.InNamespace(metav1.NamespaceSystem)); err != nil {
 			return nil, fmt.Errorf("failed to load machines from cluster: %v", err)
 		}
 
@@ -126,13 +132,16 @@ func ListNodesForClusterLegacyEndpoint(projectProvider provider.ProjectProvider)
 	}
 }
 
-func GetNodeForClusterLegacyEndpoint(projectProvider provider.ProjectProvider) endpoint.Endpoint {
+func GetNodeForClusterLegacyEndpoint(projectProvider provider.ProjectProvider, userInfoGetter provider.UserInfoGetter) endpoint.Endpoint {
 	return func(ctx context.Context, request interface{}) (interface{}, error) {
 		req := request.(getNodeLegacyReq)
 		clusterProvider := ctx.Value(middleware.ClusterProviderContextKey).(provider.ClusterProvider)
-		userInfo := ctx.Value(middleware.UserInfoContextKey).(*provider.UserInfo)
+		userInfo, err := userInfoGetter(ctx, req.ProjectID)
+		if err != nil {
+			return nil, common.KubernetesErrorToHTTPError(err)
+		}
 
-		_, err := projectProvider.Get(userInfo, req.ProjectID, &provider.ProjectGetOptions{})
+		_, err = projectProvider.Get(userInfo, req.ProjectID, &provider.ProjectGetOptions{})
 		if err != nil {
 			return nil, common.KubernetesErrorToHTTPError(err)
 		}
@@ -296,12 +305,12 @@ func DecodeGetNodeForClusterLegacy(c context.Context, r *http.Request) (interfac
 
 func findMachineAndNode(ctx context.Context, name string, client ctrlruntimeclient.Client) (*clusterv1alpha1.Machine, *corev1.Node, error) {
 	machineList := &clusterv1alpha1.MachineList{}
-	if err := client.List(ctx, &ctrlruntimeclient.ListOptions{Namespace: metav1.NamespaceSystem}, machineList); err != nil {
+	if err := client.List(ctx, machineList, ctrlruntimeclient.InNamespace(metav1.NamespaceSystem)); err != nil {
 		return nil, nil, fmt.Errorf("failed to load machines from cluster: %v", err)
 	}
 
 	nodeList := &corev1.NodeList{}
-	if err := client.List(ctx, &ctrlruntimeclient.ListOptions{}, nodeList); err != nil {
+	if err := client.List(ctx, nodeList); err != nil {
 		return nil, nil, fmt.Errorf("failed to load nodes from cluster: %v", err)
 	}
 

@@ -19,6 +19,8 @@ import (
 	"github.com/kubermatic/kubermatic/api/pkg/handler/test/hack"
 	"github.com/kubermatic/kubermatic/api/pkg/handler/v1/cluster"
 
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
@@ -71,6 +73,7 @@ func TestCreateOIDCKubeconfig(t *testing.T) {
 		Nonce                     string
 		HTTPStatusInitPhase       int
 		ExistingKubermaticObjects []runtime.Object
+		ExistingObjects           []runtime.Object
 		ExistingAPIUser           *apiv1.User
 		ExpectedRedirectURI       string
 		ExpectedExchangeCodePhase ExpectedKubeconfigResp
@@ -115,8 +118,19 @@ func TestCreateOIDCKubeconfig(t *testing.T) {
 			Datacenter:                test.TestSeedDatacenter,
 			HTTPStatusInitPhase:       http.StatusSeeOther,
 			ExistingKubermaticObjects: genTestKubeconfigKubermaticObjects(),
-			ExpectedRedirectURI:       testExpectedRedirectURI,
-			ExistingAPIUser:           test.GenDefaultAPIUser(),
+			ExistingObjects: []runtime.Object{
+				&corev1.Secret{
+					ObjectMeta: metav1.ObjectMeta{
+						Namespace: "cluster-" + test.ClusterID,
+						Name:      "admin-kubeconfig",
+					},
+					Data: map[string][]byte{
+						"kubeconfig": []byte(test.GenerateTestKubeconfig(test.ClusterID, test.IDToken)),
+					},
+				},
+			},
+			ExpectedRedirectURI: testExpectedRedirectURI,
+			ExistingAPIUser:     test.GenDefaultAPIUser(),
 			ExpectedExchangeCodePhase: ExpectedKubeconfigResp{
 				BodyResponse: testKubeconfig,
 				HTTPStatus:   http.StatusOK,
@@ -129,7 +143,7 @@ func TestCreateOIDCKubeconfig(t *testing.T) {
 			reqURL := fmt.Sprintf("/api/v1/kubeconfig?cluster_id=%s&project_id=%s&user_id=%s&datacenter=%s", tc.ClusterID, tc.ProjectID, tc.UserID, tc.Datacenter)
 			req := httptest.NewRequest("GET", reqURL, strings.NewReader(""))
 			res := httptest.NewRecorder()
-			ep, err := test.CreateTestEndpoint(*tc.ExistingAPIUser, []runtime.Object{}, tc.ExistingKubermaticObjects, nil, nil, hack.NewTestRouting)
+			ep, err := test.CreateTestEndpoint(*tc.ExistingAPIUser, tc.ExistingObjects, tc.ExistingKubermaticObjects, nil, nil, hack.NewTestRouting)
 			if err != nil {
 				t.Fatalf("failed to create test endpoint due to %v", err)
 			}
@@ -227,6 +241,7 @@ func TestGetMasterKubeconfig(t *testing.T) {
 		HTTPStatus             int
 		ExistingAPIUser        apiv1.User
 		ExistingKubermaticObjs []runtime.Object
+		ExistingObjects        []runtime.Object
 	}{
 		{
 			Name:         "scenario 1: owner gets master kubeconfig",
@@ -243,12 +258,23 @@ func TestGetMasterKubeconfig(t *testing.T) {
 				test.GenUser("", "john", "john@acme.com"),
 				test.GenCluster("cluster-foo", "cluster-foo", "foo-ID", test.DefaultCreationTimestamp()),
 			},
+			ExistingObjects: []runtime.Object{
+				&corev1.Secret{
+					ObjectMeta: metav1.ObjectMeta{
+						Namespace: "cluster-cluster-foo",
+						Name:      "admin-kubeconfig",
+					},
+					Data: map[string][]byte{
+						"kubeconfig": []byte(test.GenerateTestKubeconfig("cluster-foo", test.IDToken)),
+					},
+				},
+			},
 			ExistingAPIUser:        *test.GenAPIUser("john", "john@acme.com"),
 			ExpectedResponseString: genToken(test.IDToken),
 		},
 		{
-			Name:         "scenario 2: viewer gets master kubeconfig",
-			HTTPStatus:   http.StatusForbidden,
+			Name:         "scenario 2: viewer gets viewer kubeconfig",
+			HTTPStatus:   http.StatusOK,
 			ProjectToGet: "foo-ID",
 			ClusterToGet: "cluster-foo",
 			ExistingKubermaticObjs: []runtime.Object{
@@ -261,6 +287,17 @@ func TestGetMasterKubeconfig(t *testing.T) {
 				test.GenUser("", "john", "john@acme.com"),
 				test.GenCluster("cluster-foo", "cluster-foo", "foo-ID", test.DefaultCreationTimestamp()),
 			},
+			ExistingObjects: []runtime.Object{
+				&corev1.Secret{
+					ObjectMeta: metav1.ObjectMeta{
+						Namespace: "cluster-cluster-foo",
+						Name:      "viewer-kubeconfig",
+					},
+					Data: map[string][]byte{
+						"kubeconfig": []byte(test.GenerateTestKubeconfig("cluster-foo", test.IDViewerToken)),
+					},
+				},
+			},
 			ExistingAPIUser:        *test.GenAPIUser("john", "john@acme.com"),
 			ExpectedResponseString: genToken(test.IDViewerToken),
 		},
@@ -270,9 +307,9 @@ func TestGetMasterKubeconfig(t *testing.T) {
 		t.Run(tc.Name, func(t *testing.T) {
 			req := httptest.NewRequest("GET", fmt.Sprintf("/api/v1/projects/%s/dc/us-central1/clusters/%s/kubeconfig", tc.ProjectToGet, tc.ClusterToGet), nil)
 			res := httptest.NewRecorder()
-			kubermaticObj := []runtime.Object{}
+			var kubermaticObj []runtime.Object
 			kubermaticObj = append(kubermaticObj, tc.ExistingKubermaticObjs...)
-			ep, _, err := test.CreateTestEndpointAndGetClients(tc.ExistingAPIUser, nil, []runtime.Object{}, []runtime.Object{}, kubermaticObj, nil, nil, hack.NewTestRouting)
+			ep, _, err := test.CreateTestEndpointAndGetClients(tc.ExistingAPIUser, nil, tc.ExistingObjects, []runtime.Object{}, kubermaticObj, nil, nil, hack.NewTestRouting)
 			if err != nil {
 				t.Fatalf("failed to create test endpoint due to %v", err)
 			}
@@ -283,9 +320,7 @@ func TestGetMasterKubeconfig(t *testing.T) {
 				t.Fatalf("Expected HTTP status code %d, got %d: %s", tc.HTTPStatus, res.Code, res.Body.String())
 			}
 
-			if res.Code/100 == 2 {
-				test.CompareWithResult(t, res, tc.ExpectedResponseString)
-			}
+			test.CompareWithResult(t, res, tc.ExpectedResponseString)
 		})
 	}
 
@@ -332,10 +367,10 @@ func genToken(tokenID string) string {
 clusters:
 - cluster:
     server: test.fake.io
-  name: AbcClusterID
+  name: cluster-foo
 contexts:
 - context:
-    cluster: AbcClusterID
+    cluster: cluster-foo
     user: default
   name: default
 current-context: default
@@ -344,6 +379,5 @@ preferences: {}
 users:
 - name: default
   user:
-    token: %s
-`, tokenID)
+    token: %s`, tokenID)
 }

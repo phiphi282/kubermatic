@@ -1,6 +1,6 @@
 // +build e2e
 
-package e2e
+package api
 
 import (
 	"sort"
@@ -20,20 +20,20 @@ func TestGCPZones(t *testing.T) {
 		{
 			name:                "test, get GCP zones",
 			provider:            "gcp",
-			expectedCredentials: []string{"loodse"},
+			expectedCredentials: []string{"e2e-gcp"},
 			datacenter:          "gcp-westeurope",
 			resultList:          []string{"europe-west3-a", "europe-west3-b", "europe-west3-c"},
 		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			masterToken, err := GetMasterToken()
+			masterToken, err := retrieveMasterToken()
 			if err != nil {
 				t.Fatalf("can not get master token due error: %v", err)
 			}
 
-			apiRunner := CreateAPIRunner(masterToken, t)
-			credentialList, err := apiRunner.ListCredentials(tc.provider)
+			apiRunner := createRunner(masterToken, t)
+			credentialList, err := apiRunner.ListCredentials(tc.provider, "")
 			if err != nil {
 				t.Fatalf("can not get credential names for provider %s: %v", tc.provider, err)
 			}
@@ -68,20 +68,20 @@ func TestGCPDiskTypes(t *testing.T) {
 		{
 			name:                "test, get GCP disk types",
 			provider:            "gcp",
-			expectedCredentials: []string{"loodse"},
+			expectedCredentials: []string{"e2e-gcp"},
 			zone:                "europe-west3-c",
 			resultList:          []string{"pd-ssd", "pd-standard"},
 		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			masterToken, err := GetMasterToken()
+			masterToken, err := retrieveMasterToken()
 			if err != nil {
 				t.Fatalf("can not get master token due error: %v", err)
 			}
 
-			apiRunner := CreateAPIRunner(masterToken, t)
-			credentialList, err := apiRunner.ListCredentials(tc.provider)
+			apiRunner := createRunner(masterToken, t)
+			credentialList, err := apiRunner.ListCredentials(tc.provider, "")
 			if err != nil {
 				t.Fatalf("can not get credential names for provider %s: %v", tc.provider, err)
 			}
@@ -115,19 +115,19 @@ func TestGCPSizes(t *testing.T) {
 		{
 			name:                "test, get GCP sizes",
 			provider:            "gcp",
-			expectedCredentials: []string{"loodse"},
+			expectedCredentials: []string{"e2e-gcp"},
 			zone:                "europe-west3-c",
 		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			masterToken, err := GetMasterToken()
+			masterToken, err := retrieveMasterToken()
 			if err != nil {
 				t.Fatalf("can not get master token due error: %v", err)
 			}
 
-			apiRunner := CreateAPIRunner(masterToken, t)
-			credentialList, err := apiRunner.ListCredentials(tc.provider)
+			apiRunner := createRunner(masterToken, t)
+			credentialList, err := apiRunner.ListCredentials(tc.provider, "")
 			if err != nil {
 				t.Fatalf("can not get credential names for provider %s: %v", tc.provider, err)
 			}

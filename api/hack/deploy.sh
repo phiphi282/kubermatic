@@ -23,6 +23,7 @@ fi
 DEPLOY_NODEPORT_PROXY=${DEPLOY_NODEPORT_PROXY:-true}
 DEPLOY_ALERTMANAGER=${DEPLOY_ALERTMANAGER:-true}
 DEPLOY_MINIO=${DEPLOY_MINIO:-true}
+USE_KUBERMATIC_OPERATOR=${USE_KUBERMATIC_OPERATOR:-false}
 DEPLOY_STACK=${DEPLOY_STACK:-kubermatic}
 TILLER_NAMESPACE=${TILLER_NAMESPACE:-kubermatic}
 HELM_INIT_ARGS=${HELM_INIT_ARGS:-""}
@@ -100,6 +101,8 @@ LATEST_DASHBOARD="$(get_latest_dashboard_hash "${PULL_BASE_REF}")"
 sed -i "s/__DASHBOARD_TAG__/$LATEST_DASHBOARD/g" ./config/kubermatic/*.yaml
 sed -i "s/__KUBERMATIC_TAG__/${GIT_HEAD_HASH}/g" ./config/kubermatic/*.yaml
 sed -i "s/__KUBERMATIC_TAG__/${GIT_HEAD_HASH}/g" ./config/kubermatic-operator/*.yaml
+sed -i "s/__NAMESPACE__/kubermatic/g" ./config/kubermatic-operator/*.yaml
+sed -i "s/__WORKER_NAME__//g" ./config/kubermatic-operator/*.yaml
 sed -i "s/__KUBERMATIC_TAG__/${GIT_HEAD_HASH}/g" ./config/nodeport-proxy/*.yaml
 
 echodate "Deploying ${DEPLOY_STACK} stack..."
@@ -163,11 +166,31 @@ case "${DEPLOY_STACK}" in
     fi
 
     # Kubermatic
-    deploy "kubermatic" "kubermatic" ./config/kubermatic/
-    ;;
+    if [[ "${USE_KUBERMATIC_OPERATOR}" = true ]]; then
+      echodate "Deploying Kubermatic Operator..."
 
-  kubermatic-operator)
-    kubectl create namespace kubermatic-operator || true
-    kubectl apply -f ./config/kubermatic-operator/
+      DOCKER_CONFIG_SECRET="$(mktemp)"
+      cat <<EOF >$DOCKER_CONFIG_SECRET
+apiVersion: v1
+kind: Secret
+metadata:
+  name: dockercfg
+  namespace: kubermatic
+type: kubernetes.io/dockerconfigjson
+data:
+  .dockerconfigjson: "$(cat "$DOCKER_CONFIG" | base64 -w0)"
+EOF
+      retry 3 kubectl apply -f $DOCKER_CONFIG_SECRET
+      retry 3 kubectl apply -f ./config/kubermatic-operator/
+
+      # only deploy KubermaticConfigurations on masters, on seed clusters
+      # the relevant Seed CR is copied by Kubermatic itself
+      if [ -n "${KUBERMATIC_CONFIG:-}" ]; then
+        echodate "Deploying KubermaticConfiguration..."
+        retry 3 kubectl apply -f $KUBERMATIC_CONFIG
+      fi
+    else
+      deploy "kubermatic" "kubermatic" ./config/kubermatic/
+    fi
     ;;
 esac

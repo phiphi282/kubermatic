@@ -22,6 +22,7 @@ import (
 // Routing represents an object which binds endpoints to http handlers.
 type Routing struct {
 	log                         *zap.SugaredLogger
+	presetsProvider             provider.PresetProvider
 	seedsGetter                 provider.SeedsGetter
 	sshKeyProvider              provider.SSHKeyProvider
 	userProvider                provider.UserProvider
@@ -36,6 +37,7 @@ type Routing struct {
 	tokenExtractors             auth.TokenExtractor
 	clusterProviderGetter       provider.ClusterProviderGetter
 	addonProviderGetter         provider.AddonProviderGetter
+	addonConfigProvider         provider.AddonConfigProvider
 	updateManager               common.UpdateManager
 	prometheusClient            prometheusapi.Client
 	projectMemberProvider       provider.ProjectMemberProvider
@@ -43,19 +45,22 @@ type Routing struct {
 	saTokenAuthenticator        serviceaccount.TokenAuthenticator
 	saTokenGenerator            serviceaccount.TokenGenerator
 	eventRecorderProvider       provider.EventRecorderProvider
-	presetsManager              common.PresetsManager
 	keycloakFacade              keycloak.Facade
 	exposeStrategy              corev1.ServiceType
 	accessibleAddons            sets.String
 	userInfoGetter              provider.UserInfoGetter
+	settingsProvider            provider.SettingsProvider
+	adminProvider               provider.AdminProvider
 }
 
 // NewRouting creates a new Routing.
 func NewRouting(
 	logger *zap.SugaredLogger,
+	presetsProvider provider.PresetProvider,
 	seedsGetter provider.SeedsGetter,
 	clusterProviderGetter provider.ClusterProviderGetter,
 	addonProviderGetter provider.AddonProviderGetter,
+	addonConfigProvider provider.AddonConfigProvider,
 	newSSHKeyProvider provider.SSHKeyProvider,
 	userProvider provider.UserProvider,
 	serviceAccountProvider provider.ServiceAccountProvider,
@@ -73,17 +78,20 @@ func NewRouting(
 	saTokenAuthenticator serviceaccount.TokenAuthenticator,
 	saTokenGenerator serviceaccount.TokenGenerator,
 	eventRecorderProvider provider.EventRecorderProvider,
-	presetsManager common.PresetsManager,
 	keycloakFacade keycloak.Facade,
 	exposeStrategy corev1.ServiceType,
 	accessibleAddons sets.String,
 	userInfoGetter provider.UserInfoGetter,
+	settingsProvider provider.SettingsProvider,
+	adminProvider provider.AdminProvider,
 ) Routing {
 	return Routing{
 		log:                         logger,
+		presetsProvider:             presetsProvider,
 		seedsGetter:                 seedsGetter,
 		clusterProviderGetter:       clusterProviderGetter,
 		addonProviderGetter:         addonProviderGetter,
+		addonConfigProvider:         addonConfigProvider,
 		sshKeyProvider:              newSSHKeyProvider,
 		userProvider:                userProvider,
 		serviceAccountProvider:      serviceAccountProvider,
@@ -102,11 +110,12 @@ func NewRouting(
 		saTokenAuthenticator:        saTokenAuthenticator,
 		saTokenGenerator:            saTokenGenerator,
 		eventRecorderProvider:       eventRecorderProvider,
-		presetsManager:              presetsManager,
 		keycloakFacade:              keycloakFacade,
 		exposeStrategy:              exposeStrategy,
 		accessibleAddons:            accessibleAddons,
 		userInfoGetter:              userInfoGetter,
+		settingsProvider:            settingsProvider,
+		adminProvider:               adminProvider,
 	}
 }
 

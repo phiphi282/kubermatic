@@ -139,12 +139,15 @@ func AWSSizeEndpoint() endpoint.Endpoint {
 }
 
 // AWSSizeNoCredentialsEndpoint handles the request to list available AWS sizes.
-func AWSSizeNoCredentialsEndpoint(projectProvider provider.ProjectProvider, seedsGetter provider.SeedsGetter) endpoint.Endpoint {
+func AWSSizeNoCredentialsEndpoint(projectProvider provider.ProjectProvider, seedsGetter provider.SeedsGetter, userInfoGetter provider.UserInfoGetter) endpoint.Endpoint {
 	return func(ctx context.Context, request interface{}) (interface{}, error) {
 		req := request.(common.GetClusterReq)
-		userInfo := ctx.Value(middleware.UserInfoContextKey).(*provider.UserInfo)
 		clusterProvider := ctx.Value(middleware.ClusterProviderContextKey).(provider.ClusterProvider)
-		_, err := projectProvider.Get(userInfo, req.ProjectID, &provider.ProjectGetOptions{})
+		userInfo, err := userInfoGetter(ctx, req.ProjectID)
+		if err != nil {
+			return nil, common.KubernetesErrorToHTTPError(err)
+		}
+		_, err = projectProvider.Get(userInfo, req.ProjectID, &provider.ProjectGetOptions{})
 		if err != nil {
 			return nil, common.KubernetesErrorToHTTPError(err)
 		}
@@ -204,7 +207,7 @@ func awsSizes(region string) (apiv1.AWSSizeList, error) {
 }
 
 // AWSSubnetEndpoint handles the request to list AWS availability subnets in a given vpc, using provided credentials
-func AWSSubnetEndpoint(credentialManager common.PresetsManager, seedsGetter provider.SeedsGetter) endpoint.Endpoint {
+func AWSSubnetEndpoint(presetsProvider provider.PresetProvider, seedsGetter provider.SeedsGetter, userInfoGetter provider.UserInfoGetter) endpoint.Endpoint {
 	return func(ctx context.Context, request interface{}) (interface{}, error) {
 		req := request.(AWSSubnetReq)
 
@@ -212,13 +215,13 @@ func AWSSubnetEndpoint(credentialManager common.PresetsManager, seedsGetter prov
 		secretAccessKey := req.SecretAccessKey
 		vpcID := req.VPC
 
-		userInfo, ok := ctx.Value(middleware.UserInfoContextKey).(*provider.UserInfo)
-		if !ok {
-			return nil, errors.New(http.StatusInternalServerError, "can not get user info")
+		userInfo, err := userInfoGetter(ctx, "")
+		if err != nil {
+			return nil, common.KubernetesErrorToHTTPError(err)
 		}
 
 		if len(req.Credential) > 0 {
-			preset, err := credentialManager.GetPreset(userInfo, req.Credential)
+			preset, err := presetsProvider.GetPreset(userInfo, req.Credential)
 			if err != nil {
 				return nil, errors.New(http.StatusInternalServerError, fmt.Sprintf("can not get preset %s for user %s", req.Credential, userInfo.Email))
 			}
@@ -247,12 +250,15 @@ func AWSSubnetEndpoint(credentialManager common.PresetsManager, seedsGetter prov
 }
 
 // AWSSubnetWithClusterCredentialsEndpoint handles the request to list AWS availability subnets in a given vpc, using credentials
-func AWSSubnetWithClusterCredentialsEndpoint(projectProvider provider.ProjectProvider, seedsGetter provider.SeedsGetter) endpoint.Endpoint {
+func AWSSubnetWithClusterCredentialsEndpoint(projectProvider provider.ProjectProvider, seedsGetter provider.SeedsGetter, userInfoGetter provider.UserInfoGetter) endpoint.Endpoint {
 	return func(ctx context.Context, request interface{}) (interface{}, error) {
 		req := request.(common.GetClusterReq)
 		clusterProvider := ctx.Value(middleware.ClusterProviderContextKey).(provider.ClusterProvider)
-		userInfo := ctx.Value(middleware.UserInfoContextKey).(*provider.UserInfo)
-		_, err := projectProvider.Get(userInfo, req.ProjectID, &provider.ProjectGetOptions{})
+		userInfo, err := userInfoGetter(ctx, req.ProjectID)
+		if err != nil {
+			return nil, common.KubernetesErrorToHTTPError(err)
+		}
+		_, err = projectProvider.Get(userInfo, req.ProjectID, &provider.ProjectGetOptions{})
 		if err != nil {
 			return nil, common.KubernetesErrorToHTTPError(err)
 		}
@@ -290,7 +296,7 @@ func AWSSubnetWithClusterCredentialsEndpoint(projectProvider provider.ProjectPro
 		}
 
 		machineDeployments := &clusterv1alpha1.MachineDeploymentList{}
-		if err := client.List(ctx, &ctrlruntimeclient.ListOptions{Namespace: metav1.NamespaceSystem}, machineDeployments); err != nil {
+		if err := client.List(ctx, machineDeployments, ctrlruntimeclient.InNamespace(metav1.NamespaceSystem)); err != nil {
 			return nil, common.KubernetesErrorToHTTPError(err)
 		}
 
@@ -402,20 +408,20 @@ func listAWSSubnets(accessKeyID, secretAccessKey, vpcID string, datacenter *kube
 }
 
 // AWSVPCEndpoint handles the request to list AWS VPC's, using provided credentials
-func AWSVPCEndpoint(credentialManager common.PresetsManager, seedsGetter provider.SeedsGetter) endpoint.Endpoint {
+func AWSVPCEndpoint(presetsProvider provider.PresetProvider, seedsGetter provider.SeedsGetter, userInfoGetter provider.UserInfoGetter) endpoint.Endpoint {
 	return func(ctx context.Context, request interface{}) (interface{}, error) {
 		req := request.(AWSVPCReq)
 
 		accessKeyID := req.AccessKeyID
 		secretAccessKey := req.SecretAccessKey
 
-		userInfo, ok := ctx.Value(middleware.UserInfoContextKey).(*provider.UserInfo)
-		if !ok {
-			return nil, errors.New(http.StatusInternalServerError, "can not get user info")
+		userInfo, err := userInfoGetter(ctx, "")
+		if err != nil {
+			return nil, common.KubernetesErrorToHTTPError(err)
 		}
 
 		if len(req.Credential) > 0 {
-			preset, err := credentialManager.GetPreset(userInfo, req.Credential)
+			preset, err := presetsProvider.GetPreset(userInfo, req.Credential)
 			if err != nil {
 				return nil, errors.New(http.StatusInternalServerError, fmt.Sprintf("can not get preset %s for user %s", req.Credential, userInfo.Email))
 			}
@@ -442,7 +448,7 @@ func listAWSVPCS(accessKeyID, secretAccessKey string, datacenter *kubermaticv1.D
 
 	vpcsResults, err := awsprovider.GetVPCS(accessKeyID, secretAccessKey, datacenter.Spec.AWS.Region)
 	if err != nil {
-		return nil, fmt.Errorf("couldn't get vpc's: %v", err)
+		return nil, err
 	}
 
 	vpcs := apiv1.AWSVPCList{}

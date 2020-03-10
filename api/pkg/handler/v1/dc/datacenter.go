@@ -12,23 +12,23 @@ import (
 
 	apiv1 "github.com/kubermatic/kubermatic/api/pkg/api/v1"
 	kubermaticv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
-	"github.com/kubermatic/kubermatic/api/pkg/handler/middleware"
+	"github.com/kubermatic/kubermatic/api/pkg/handler/v1/common"
 	"github.com/kubermatic/kubermatic/api/pkg/log"
 	"github.com/kubermatic/kubermatic/api/pkg/provider"
 	"github.com/kubermatic/kubermatic/api/pkg/util/errors"
 )
 
 // ListEndpoint an HTTP endpoint that returns a list of apiv1.Datacenter
-func ListEndpoint(seedsGetter provider.SeedsGetter) endpoint.Endpoint {
+func ListEndpoint(seedsGetter provider.SeedsGetter, userInfoGetter provider.UserInfoGetter) endpoint.Endpoint {
 	return func(ctx context.Context, request interface{}) (interface{}, error) {
 		seeds, err := seedsGetter()
 		if err != nil {
 			return nil, errors.New(http.StatusInternalServerError, fmt.Sprintf("failed to list seeds: %v", err))
 		}
 
-		userInfo, ok := ctx.Value(middleware.UserInfoContextKey).(*provider.UserInfo)
-		if !ok {
-			return nil, errors.New(http.StatusInternalServerError, "can not get user info")
+		userInfo, err := userInfoGetter(ctx, "")
+		if err != nil {
+			return nil, common.KubernetesErrorToHTTPError(err)
 		}
 
 		// Get the DCs and immediately filter out the ones restricted by e-mail domain.
@@ -46,13 +46,13 @@ func ListEndpoint(seedsGetter provider.SeedsGetter) endpoint.Endpoint {
 }
 
 // GetEndpoint an HTTP endpoint that returns a single apiv1.Datacenter object
-func GetEndpoint(seedsGetter provider.SeedsGetter) endpoint.Endpoint {
+func GetEndpoint(seedsGetter provider.SeedsGetter, userInfoGetter provider.UserInfoGetter) endpoint.Endpoint {
 	return func(ctx context.Context, request interface{}) (interface{}, error) {
 		req := request.(LegacyDCReq)
 
-		userInfo, ok := ctx.Value(middleware.UserInfoContextKey).(*provider.UserInfo)
-		if !ok {
-			return nil, errors.New(http.StatusInternalServerError, "can not get user info")
+		userInfo, err := userInfoGetter(ctx, "")
+		if err != nil {
+			return nil, common.KubernetesErrorToHTTPError(err)
 		}
 
 		return GetDatacenter(userInfo, seedsGetter, req.DC)
@@ -97,17 +97,33 @@ func filterDCsByEmail(userInfo *provider.UserInfo, list []apiv1.Datacenter) ([]a
 	}
 	var dcList []apiv1.Datacenter
 
+iterateOverDCs:
 	for _, dc := range list {
 		requiredEmailDomain := dc.Spec.RequiredEmailDomain
-		// find datacenter for specific email domain
-		if requiredEmailDomain != "" {
-			userDomain := strings.Split(userInfo.Email, "@")
-			if len(userDomain) == 2 && strings.EqualFold(userDomain[1], requiredEmailDomain) {
-				dcList = append(dcList, dc)
-			}
-		} else {
-			// find datacenter for "all" without RequiredEmailDomain field
+		requiredEmailDomainsList := dc.Spec.RequiredEmailDomains
+
+		if requiredEmailDomain == "" && len(requiredEmailDomainsList) == 0 {
+			// find datacenter for "all" without RequiredEmailDomain(s) field
 			dcList = append(dcList, dc)
+		} else {
+			// find datacenter for specific email domain
+			split := strings.Split(userInfo.Email, "@")
+			if len(split) != 2 {
+				return nil, fmt.Errorf("invalid email address")
+			}
+			userDomain := split[1]
+
+			if requiredEmailDomain != "" && strings.EqualFold(userDomain, requiredEmailDomain) {
+				dcList = append(dcList, dc)
+				continue iterateOverDCs
+			}
+
+			for _, whitelistedDomain := range requiredEmailDomainsList {
+				if whitelistedDomain != "" && strings.EqualFold(userDomain, whitelistedDomain) {
+					dcList = append(dcList, dc)
+					continue iterateOverDCs
+				}
+			}
 		}
 	}
 	return dcList, nil
@@ -214,6 +230,7 @@ func apiSpec(dc *kubermaticv1.Datacenter) (*apiv1.DatacenterSpec, error) {
 	}
 
 	spec.RequiredEmailDomain = dc.Spec.RequiredEmailDomain
+	spec.RequiredEmailDomains = dc.Spec.RequiredEmailDomains
 
 	return spec, nil
 }

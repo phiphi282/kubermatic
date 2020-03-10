@@ -34,8 +34,7 @@ func (r Routing) prometheusProxyHandler() http.Handler {
 			middleware.TokenVerifier(r.tokenVerifiers),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
-			middleware.UserInfoExtractor(r.userProjectMapper),
-		)(getPrometheusProxyEndpoint(r.seedsGetter)),
+		)(getPrometheusProxyEndpoint(r.seedsGetter, r.userInfoGetter)),
 		decodePrometheusProxyReq,
 		encodeRawResponse,
 		r.defaultServerOptions()...,
@@ -76,11 +75,14 @@ func decodePrometheusProxyReq(c context.Context, r *http.Request) (interface{}, 
 	return req, nil
 }
 
-func getPrometheusProxyEndpoint(seedsGetter provider.SeedsGetter) endpoint.Endpoint {
+func getPrometheusProxyEndpoint(seedsGetter provider.SeedsGetter, userInfoGetter provider.UserInfoGetter) endpoint.Endpoint {
 	return func(ctx context.Context, request interface{}) (interface{}, error) {
-		userInfo := ctx.Value(middleware.UserInfoContextKey).(*provider.UserInfo)
 		clusterProvider := ctx.Value(middleware.ClusterProviderContextKey).(provider.ClusterProvider)
 		req := request.(GetPrometheusProxyReq)
+		userInfo, err := userInfoGetter(ctx, req.ProjectID)
+		if err != nil {
+			return nil, common.KubernetesErrorToHTTPError(err)
+		}
 		c, err := clusterProvider.Get(userInfo, req.ClusterID, &provider.ClusterGetOptions{})
 		if err != nil {
 			return nil, common.KubernetesErrorToHTTPError(err)

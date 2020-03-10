@@ -25,10 +25,13 @@ import (
 // NewTestRouting is a hack that helps us avoid circular imports
 // for example handler package uses v1/dc and v1/dc needs handler for testing
 func NewTestRouting(
+	adminProvider provider.AdminProvider,
+	settingsProvider provider.SettingsProvider,
 	userInfoGetter provider.UserInfoGetter,
 	seedsGetter provider.SeedsGetter,
 	clusterProvidersGetter provider.ClusterProviderGetter,
 	addonProviderGetter provider.AddonProviderGetter,
+	addonConfigProvider provider.AddonConfigProvider,
 	sshKeyProvider provider.SSHKeyProvider,
 	userProvider provider.UserProvider,
 	serviceAccountProvider provider.ServiceAccountProvider,
@@ -47,14 +50,16 @@ func NewTestRouting(
 	saTokenGenerator serviceaccount.TokenGenerator,
 	eventRecorderProvider provider.EventRecorderProvider,
 	keycloakFacade keycloak.Facade,
-	credentialManager common.PresetsManager) http.Handler {
+	presetsProvider provider.PresetProvider) http.Handler {
 
 	updateManager := version.New(versions, updates)
 	r := handler.NewRouting(
 		kubermaticlog.Logger,
+		presetsProvider,
 		seedsGetter,
 		clusterProvidersGetter,
 		addonProviderGetter,
+		addonConfigProvider,
 		sshKeyProvider,
 		userProvider,
 		serviceAccountProvider,
@@ -72,11 +77,12 @@ func NewTestRouting(
 		saTokenAuthenticator,
 		saTokenGenerator,
 		eventRecorderProvider,
-		credentialManager,
 		keycloakFacade,
 		corev1.ServiceTypeNodePort,
 		sets.String{},
 		userInfoGetter,
+		settingsProvider,
+		adminProvider,
 	)
 
 	mainRouter := mux.NewRouter()
@@ -88,6 +94,7 @@ func NewTestRouting(
 		*generateDefaultOicdCfg(),
 		mainRouter,
 	)
+	r.RegisterV1Admin(v1Router)
 	r.RegisterV1SysEleven(v1Router)
 	return mainRouter
 }

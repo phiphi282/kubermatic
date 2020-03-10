@@ -7,19 +7,23 @@ TAGS?=$(GITTAG)
 DOCKERTAGS=$(TAGS) latestbuild
 DOCKER_BUILD_FLAG += $(foreach tag, $(DOCKERTAGS), -t $(REPO):$(tag))
 KUBERMATICCOMMIT?=$(shell git log -1 --format=%H)
+KUBERMATICDOCKERTAG?=$(KUBERMATICCOMMIT)
+UIDOCKERTAG?=NA
 LDFLAGS += -extldflags '-static' \
   -X github.com/kubermatic/kubermatic/api/pkg/resources.KUBERMATICCOMMIT=$(KUBERMATICCOMMIT) \
-  -X github.com/kubermatic/kubermatic/api/pkg/resources.KUBERMATICGITTAG=$(GITTAG)
-LDFLAGS_EXTRA=-w
+  -X github.com/kubermatic/kubermatic/api/pkg/resources.KUBERMATICGITTAG=$(GITTAG) \
+  -X github.com/kubermatic/kubermatic/api/pkg/controller/operator/common.KUBERMATICDOCKERTAG=$(KUBERMATICDOCKERTAG) \
+  -X github.com/kubermatic/kubermatic/api/pkg/controller/operator/common.UIDOCKERTAG=$(UIDOCKERTAG)
 HAS_DEP:= $(shell command -v dep 2> /dev/null)
 HAS_GIT:= $(shell command -v git 2> /dev/null)
 BUILD_DEST?=_build
-GOTOOLFLAGS?=$(GOBUILDFLAGS) -ldflags '$(LDFLAGS_EXTRA) $(LDFLAGS)' $(GOTOOLFLAGS_EXTRA)
+GOTOOLFLAGS?=$(GOBUILDFLAGS) -ldflags '-w $(LDFLAGS)'
 
 default: all
 
 all: check vendor build test
 
+.PHONY: $(CMD)
 build: $(CMD)
 
 $(CMD): download-gocache
@@ -103,13 +107,16 @@ run-controller-manager:
 run-api-server:
 	./hack/run-api.sh
 
+run-operator:
+	./hack/run-operator.sh
+
 run-master-controller-manager:
 	./hack/run-master-controller-manager.sh
 
 verify: gofmt
-		./hack/verify-codegen.sh
-		./hack/verify-swagger.sh
-		./hack/verify-api-client.sh
+	./hack/verify-codegen.sh
+	./hack/verify-swagger.sh
+	./hack/verify-api-client.sh
 
 check-dependencies:
 	# We need mercurial for bitbucket.org/ww/goautoneg, otherwise dep hangs forever

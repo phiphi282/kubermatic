@@ -1,23 +1,21 @@
 package resources
 
 import (
-	"bufio"
 	"context"
 	"crypto/ecdsa"
 	"crypto/rsa"
 	"crypto/x509"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/ioutil"
 	"net"
-	"os"
 	"time"
 
 	"github.com/kubermatic/kubermatic/api/pkg/semver"
 
 	kubermaticv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
 	"github.com/kubermatic/kubermatic/api/pkg/resources/certificates/triple"
-	providerconfig "github.com/kubermatic/machine-controller/pkg/providerconfig/types"
 
 	corev1 "k8s.io/api/core/v1"
 	apiextensionsv1beta1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1beta1"
@@ -36,6 +34,15 @@ var KUBERMATICCOMMIT string
 
 // KUBERMATICGITTAG is a magic variable containing the output of `git describe` for the current (as in currently executing) kubermatic api. It gets fed by Makefile as an ldflag.
 var KUBERMATICGITTAG = "manual_build"
+
+const (
+	RancherStatefulSetName              = "rancher-server"
+	RancherServerServiceAccountName     = "rancher-server-sa"
+	RancherServerClusterRoleBindingName = "rancher-server-crb"
+	RancherServerClusterRoleName        = "rancher-server-rb"
+	RancherServerServiceName            = "rancher-server-svc"
+	RancherServerIngressName            = "rancher-server-ingress"
+)
 
 const (
 	// ApiserverDeploymentName is the name of the apiserver deployment
@@ -119,6 +126,8 @@ const (
 	ControllerManagerKubeconfigSecretName = "controllermanager-kubeconfig"
 	//MachineControllerKubeconfigSecretName is the name for the secret containing the kubeconfig used by the machinecontroller
 	MachineControllerKubeconfigSecretName = "machinecontroller-kubeconfig"
+	//CloudControllerManagerKubeconfigSecretName is the name for the secret containing the kubeconfig used by the external cloud provider
+	CloudControllerManagerKubeconfigSecretName = "cloud-controller-manager-kubeconfig"
 	//MachineControllerWebhookServingCertSecretName is the name for the secret containing the serving cert for the
 	//machine-controller webhook
 	MachineControllerWebhookServingCertSecretName = "machinecontroller-webhook-serving-cert"
@@ -157,6 +166,8 @@ const (
 	OpenVPNServerCertificatesSecretName = "openvpn-server-certificates"
 	//OpenVPNClientCertificatesSecretName is the name for the secret containing the openvpn client certificates
 	OpenVPNClientCertificatesSecretName = "openvpn-client-certificates"
+	//CloudConfigSecretName is the name for the secret containing the cloud-config inside the user cluster.
+	CloudConfigSecretName = "cloud-config"
 	//EtcdTLSCertificateSecretName is the name for the secret containing the etcd tls certificate used for transport security
 	EtcdTLSCertificateSecretName = "etcd-tls-certificate"
 	//ApiserverEtcdClientCertificateSecretName is the name for the secret containing the client certificate used by the apiserver for authenticating against etcd
@@ -180,8 +191,10 @@ const (
 	// the Kubernetes Dashboard
 	KubernetesDashboardCsrfTokenSecretName = "kubernetes-dashboard-csrf"
 
-	//CloudConfigConfigMapName is the name for the configmap containing the cloud-config
+	// CloudConfigConfigMapName is the name for the configmap containing the cloud-config
 	CloudConfigConfigMapName = "cloud-config"
+	// CloudConfigConfigMapKey is the key under which the cloud-config in the cloud-config configmap can be found
+	CloudConfigConfigMapKey = "config"
 	//SchedulerConfigMapName is the name for the configmap containing the scheduler's general configuration and policy configuration
 	SchedulerConfigMapName = "scheduler-config"
 	//SchedulerConfigFileName is the name for the scheduler config file in the above configmap
@@ -210,6 +223,9 @@ const (
 	//PrometheusRoleBindingName is the name for the Prometheus rolebinding
 	PrometheusRoleBindingName = "prometheus"
 
+	//CloudControllerManagerRoleBindingName is the name for the cloud controller manager rolebinding.
+	CloudControllerManagerRoleBindingName = "cloud-controller-manager"
+
 	//MachineControllerCertUsername is the name of the user coming from kubeconfig cert
 	MachineControllerCertUsername = "machine-controller"
 	//KubeStateMetricsCertUsername is the name of the user coming from kubeconfig cert
@@ -218,6 +234,8 @@ const (
 	MetricsServerCertUsername = "metrics-server"
 	//ControllerManagerCertUsername is the name of the user coming from kubeconfig cert
 	ControllerManagerCertUsername = "system:kube-controller-manager"
+	//CloudControllerManagerCertUsername is the name of the user coming from kubeconfig cert
+	CloudControllerManagerCertUsername = "system:cloud-controller-manager"
 	//SchedulerCertUsername is the name of the user coming from kubeconfig cert
 	SchedulerCertUsername = "system:kube-scheduler"
 	//KubeletDnatControllerCertUsername is the name of the user coming from kubeconfig cert
@@ -330,11 +348,20 @@ const (
 	// InternalUserClusterAdminKubeconfigCertUsername is the name of the user coming from kubeconfig cert
 	InternalUserClusterAdminKubeconfigCertUsername = "kubermatic-controllers"
 
-	// DefaultKubermaticImage defines the default image which contains the Kubermatic applications
+	// DefaultKubermaticImage defines the default Docker repository containing the Kubermatic API image.
 	DefaultKubermaticImage = "quay.io/kubermatic/api"
 
-	// DefaultDNATControllerImage defines the default image containing the dnat controller
+	// DefaultDNATControllerImage defines the default Docker repository containing the DNAT controller image.
 	DefaultDNATControllerImage = "quay.io/kubermatic/kubeletdnat-controller"
+
+	// DefaultDashboardAddonImage defines the default Docker repository containing the dashboard image.
+	DefaultDashboardImage = "quay.io/kubermatic/ui-v2"
+
+	// DefaultKubernetesAddonImage defines the default Docker repository containing the Kubernetes addons.
+	DefaultKubernetesAddonImage = "quay.io/kubermatic/addons"
+
+	// DefaultOpenshiftAddonImage defines the default Docker repository containing the Openshift addons.
+	DefaultOpenshiftAddonImage = "quay.io/kubermatic/openshift-addons"
 
 	// IPVSProxyMode defines the ipvs kube-proxy mode.
 	IPVSProxyMode = "ipvs"
@@ -411,6 +438,9 @@ const (
 	ServingCertSecretKey = "serving.crt"
 	// ServingCertKeySecretKey is the secret key for the key of a generic serving cert
 	ServingCertKeySecretKey = "serving.key"
+
+	// CloudConfigSecretKey is the secret key for cloud-config
+	CloudConfigSecretKey = "config"
 )
 
 const (
@@ -462,6 +492,12 @@ type CRDCreateor = func(version semver.Semver, existing *apiextensionsv1beta1.Cu
 
 // APIServiceCreator defines an interface to create/update APIService's
 type APIServiceCreator = func(existing *apiregistrationv1beta1.APIService) (*apiregistrationv1beta1.APIService, error)
+
+// Requirements are how much resources are needed by containers in the pod
+type Requirements struct {
+	Name     string                       `json:"name,omitempty"`
+	Requires *corev1.ResourceRequirements `json:"requires,omitempty"`
+}
 
 // GetClusterExternalIP returns a net.IP for the given Cluster
 func GetClusterExternalIP(cluster *kubermaticv1.Cluster) (*net.IP, error) {
@@ -669,8 +705,8 @@ func IsClientCertificateValidForAllOf(cert *x509.Certificate, commonName string,
 	return true
 }
 
-func getECDSAClusterCAFromLister(ctx context.Context, name string, cluster *kubermaticv1.Cluster, client ctrlruntimeclient.Client) (*ECDSAKeyPair, error) {
-	cert, key, err := getClusterCAFromLister(ctx, name, cluster, client)
+func getECDSAClusterCAFromLister(ctx context.Context, namespace, name string, client ctrlruntimeclient.Client) (*ECDSAKeyPair, error) {
+	cert, key, err := getClusterCAFromLister(ctx, namespace, name, client)
 	if err != nil {
 		return nil, err
 	}
@@ -681,8 +717,8 @@ func getECDSAClusterCAFromLister(ctx context.Context, name string, cluster *kube
 	return &ECDSAKeyPair{Cert: cert, Key: ecdsaKey}, nil
 }
 
-func getRSAClusterCAFromLister(ctx context.Context, name string, cluster *kubermaticv1.Cluster, client ctrlruntimeclient.Client) (*triple.KeyPair, error) {
-	cert, key, err := getClusterCAFromLister(ctx, name, cluster, client)
+func getRSAClusterCAFromLister(ctx context.Context, namespace, name string, client ctrlruntimeclient.Client) (*triple.KeyPair, error) {
+	cert, key, err := getClusterCAFromLister(ctx, namespace, name, client)
 	if err != nil {
 		return nil, err
 	}
@@ -694,9 +730,9 @@ func getRSAClusterCAFromLister(ctx context.Context, name string, cluster *kuberm
 }
 
 // getClusterCAFromLister returns the CA of the cluster from the lister
-func getClusterCAFromLister(ctx context.Context, name string, cluster *kubermaticv1.Cluster, client ctrlruntimeclient.Client) (*x509.Certificate, interface{}, error) {
+func getClusterCAFromLister(ctx context.Context, namespace, name string, client ctrlruntimeclient.Client) (*x509.Certificate, interface{}, error) {
 	caSecret := &corev1.Secret{}
-	caSecretKey := types.NamespacedName{Namespace: cluster.Status.NamespaceName, Name: name}
+	caSecretKey := types.NamespacedName{Namespace: namespace, Name: name}
 	if err := client.Get(ctx, caSecretKey, caSecret); err != nil {
 		return nil, nil, fmt.Errorf("unable to check if a CA cert already exists: %v", err)
 	}
@@ -710,7 +746,7 @@ func getClusterCAFromLister(ctx context.Context, name string, cluster *kubermati
 		return nil, nil, fmt.Errorf("did not find exactly one but %v certificates in the CA secret", len(certs))
 	}
 
-	key, err := certutil.ParsePrivateKeyPEM(caSecret.Data[CAKeySecretKey])
+	key, err := triple.ParsePrivateKeyPEM(caSecret.Data[CAKeySecretKey])
 	if err != nil {
 		return nil, nil, fmt.Errorf("got an invalid private key from the CA secret %s: %v", caSecretKey, err)
 	}
@@ -720,24 +756,12 @@ func getClusterCAFromLister(ctx context.Context, name string, cluster *kubermati
 
 // GetDexCAFromFile returns the Dex CA from the lister
 func GetDexCAFromFile(caBundleFilePath string) ([]*x509.Certificate, error) {
-
-	f, err := os.Open(caBundleFilePath)
+	rawData, err := ioutil.ReadFile(caBundleFilePath)
 	if err != nil {
-		return nil, fmt.Errorf("got an invalid CA bundle file %v", err)
-	}
-	defer func() {
-		err := f.Close()
-		if err != nil {
-			klog.Fatal(err)
-		}
-	}()
-
-	bytes, err := ioutil.ReadAll(bufio.NewReader(f))
-	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to read CA bundle file %q: %v", caBundleFilePath, err)
 	}
 
-	dexCACerts, err := certutil.ParseCertsPEM(bytes)
+	dexCACerts, err := certutil.ParseCertsPEM(rawData)
 	if err != nil {
 		return nil, fmt.Errorf("got an invalid cert: %v", err)
 	}
@@ -746,18 +770,18 @@ func GetDexCAFromFile(caBundleFilePath string) ([]*x509.Certificate, error) {
 }
 
 // GetClusterRootCA returns the root CA of the cluster from the lister
-func GetClusterRootCA(ctx context.Context, cluster *kubermaticv1.Cluster, client ctrlruntimeclient.Client) (*triple.KeyPair, error) {
-	return getRSAClusterCAFromLister(ctx, CASecretName, cluster, client)
+func GetClusterRootCA(ctx context.Context, namespace string, client ctrlruntimeclient.Client) (*triple.KeyPair, error) {
+	return getRSAClusterCAFromLister(ctx, namespace, CASecretName, client)
 }
 
 // GetClusterFrontProxyCA returns the frontproxy CA of the cluster from the lister
-func GetClusterFrontProxyCA(ctx context.Context, cluster *kubermaticv1.Cluster, client ctrlruntimeclient.Client) (*triple.KeyPair, error) {
-	return getRSAClusterCAFromLister(ctx, FrontProxyCASecretName, cluster, client)
+func GetClusterFrontProxyCA(ctx context.Context, namespace string, client ctrlruntimeclient.Client) (*triple.KeyPair, error) {
+	return getRSAClusterCAFromLister(ctx, namespace, FrontProxyCASecretName, client)
 }
 
 // GetOpenVPNCA returns the OpenVPN CA of the cluster from the lister
-func GetOpenVPNCA(ctx context.Context, cluster *kubermaticv1.Cluster, client ctrlruntimeclient.Client) (*ECDSAKeyPair, error) {
-	return getECDSAClusterCAFromLister(ctx, OpenVPNCASecretName, cluster, client)
+func GetOpenVPNCA(ctx context.Context, namespace string, client ctrlruntimeclient.Client) (*ECDSAKeyPair, error) {
+	return getECDSAClusterCAFromLister(ctx, namespace, OpenVPNCASecretName, client)
 }
 
 // ClusterIPForService returns the cluster ip for the given service
@@ -859,27 +883,6 @@ func GetPodTemplateLabels(
 	return podLabels, nil
 }
 
-type GetGlobalSecretKeySelectorValue = func(configVar *providerconfig.GlobalSecretKeySelector) (string, error)
-
-func GlobalSecretKeySelectorValueGetterFactory(ctx context.Context, client ctrlruntimeclient.Client) GetGlobalSecretKeySelectorValue {
-	return func(configVar *providerconfig.GlobalSecretKeySelector) (string, error) {
-		// We need all three of these to fetch and use a secret
-		if configVar.Name != "" && configVar.Namespace != "" && configVar.Key != "" {
-			secret := &corev1.Secret{}
-			key := types.NamespacedName{Namespace: configVar.Namespace, Name: configVar.Name}
-			if err := client.Get(ctx, key, secret); err != nil {
-				return "", fmt.Errorf("error retrieving secret %q from namespace %q: %v", configVar.Name, configVar.Namespace, err)
-			}
-
-			if val, ok := secret.Data[configVar.Key]; ok {
-				return string(val), nil
-			}
-			return "", fmt.Errorf("secret %q in namespace %q has no key %q", configVar.Name, configVar.Namespace, configVar.Key)
-		}
-		return "", nil
-	}
-}
-
 func GetHTTPProxyEnvVarsFromSeed(seed *kubermaticv1.Seed, inClusterAPIServerURL string) []corev1.EnvVar {
 	if seed.Spec.ProxySettings.Empty() {
 		return nil
@@ -918,4 +921,53 @@ func GetHTTPProxyEnvVarsFromSeed(seed *kubermaticv1.Seed, inClusterAPIServerURL 
 	)
 
 	return envVars
+}
+
+// SetResourceRequirements sets resource requirements on provided slice of containers.
+// The highest priority has requirements provided using overrides, then requirements provided by the vpa-updater
+// (if VPA is enabled), and at the end provided default requirements for a given resource.
+func SetResourceRequirements(containers []corev1.Container, requirements, overrides map[string]*corev1.ResourceRequirements, annotations map[string]string) error {
+	val, ok := annotations[kubermaticv1.UpdatedByVPALabelKey]
+	if ok && val != "" {
+		var req []Requirements
+		err := json.Unmarshal([]byte(val), &req)
+		if err != nil {
+			return fmt.Errorf("failed to unmarshal resource requirements provided by vpa from annotation %s: %v", kubermaticv1.UpdatedByVPALabelKey, err)
+		}
+		for _, r := range req {
+			requirements[r.Name] = r.Requires
+		}
+	}
+	for k, v := range overrides {
+		requirements[k] = v
+	}
+
+	for i := range containers {
+		if requirements[containers[i].Name] != nil {
+			containers[i].Resources = *requirements[containers[i].Name]
+		}
+	}
+
+	return nil
+}
+
+func GetOverrides(componentSettings kubermaticv1.ComponentSettings) map[string]*corev1.ResourceRequirements {
+	r := map[string]*corev1.ResourceRequirements{}
+	if componentSettings.Apiserver.Resources != nil {
+		r[ApiserverDeploymentName] = componentSettings.Apiserver.Resources.DeepCopy()
+	}
+	if componentSettings.ControllerManager.Resources != nil {
+		r[ControllerManagerDeploymentName] = componentSettings.ControllerManager.Resources.DeepCopy()
+	}
+	if componentSettings.Scheduler.Resources != nil {
+		r[SchedulerDeploymentName] = componentSettings.Scheduler.Resources.DeepCopy()
+	}
+	if componentSettings.Etcd.Resources != nil {
+		r[EtcdStatefulSetName] = componentSettings.Etcd.Resources.DeepCopy()
+	}
+	if componentSettings.Prometheus.Resources != nil {
+		r[PrometheusStatefulSetName] = componentSettings.Prometheus.Resources.DeepCopy()
+	}
+
+	return r
 }

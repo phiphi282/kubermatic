@@ -64,11 +64,14 @@ type UnsealRequest struct {
 	Key string `json:"key"`
 }
 
-func UnsealVaultAddonEndpoint(seedsGetter provider.SeedsGetter) endpoint.Endpoint {
+func UnsealVaultAddonEndpoint(seedsGetter provider.SeedsGetter, userInfoGetter provider.UserInfoGetter) endpoint.Endpoint {
 	return func(ctx context.Context, request interface{}) (interface{}, error) {
-		userInfo := ctx.Value(middleware.UserInfoContextKey).(*provider.UserInfo)
 		clusterProvider := ctx.Value(middleware.ClusterProviderContextKey).(provider.ClusterProvider)
 		req := request.(unsealVaultReq)
+		userInfo, err := userInfoGetter(ctx, req.ProjectID)
+		if err != nil {
+			return nil, common.KubernetesErrorToHTTPError(err)
+		}
 		c, err := clusterProvider.Get(userInfo, req.ClusterID, &provider.ClusterGetOptions{})
 		if err != nil {
 			return nil, common.KubernetesErrorToHTTPError(err)

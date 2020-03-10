@@ -4,12 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"k8s.io/apimachinery/pkg/runtime"
 
 	kubermaticv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
 	providerconfig "github.com/kubermatic/machine-controller/pkg/providerconfig/types"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
@@ -67,6 +67,8 @@ type ClusterGetOptions struct {
 	CheckInitStatus bool
 }
 
+// SecretKeySelectorValueFunc is used to fetch the value of a config var. Do not build your own
+// implementation, use SecretKeySelectorValueFuncFactory.
 type SecretKeySelectorValueFunc func(configVar *providerconfig.GlobalSecretKeySelector, key string) (string, error)
 
 func SecretKeySelectorValueFuncFactory(ctx context.Context, client ctrlruntimeclient.Client) SecretKeySelectorValueFunc {
@@ -146,6 +148,9 @@ type ClusterProvider interface {
 	// RevokeViewerKubeconfig revokes viewer token and kubeconfig
 	RevokeViewerKubeconfig(c *kubermaticv1.Cluster) error
 
+	// RevokeAdminKubeconfig revokes the viewer token and kubeconfig
+	RevokeAdminKubeconfig(c *kubermaticv1.Cluster) error
+
 	// GetAdminClientForCustomerCluster returns a client to interact with all resources in the given cluster
 	//
 	// Note that the client you will get has admin privileges
@@ -155,6 +160,10 @@ type ClusterProvider interface {
 	//
 	// Note that the client doesn't use admin account instead it authn/authz as userInfo(email, group)
 	GetClientForCustomerCluster(*UserInfo, *kubermaticv1.Cluster) (ctrlruntimeclient.Client, error)
+
+	// GetTokenForCustomerCluster returns a token for the given cluster with permissions granted to group that
+	// user belongs to.
+	GetTokenForCustomerCluster(userInfo *UserInfo, cluster *kubermaticv1.Cluster) (string, error)
 }
 
 // PrivilegedClusterProvider declares the set of methods for interacting with the seed clusters
@@ -211,6 +220,7 @@ type SSHKeyProvider interface {
 type UserProvider interface {
 	UserByEmail(email string) (*kubermaticv1.User, error)
 	CreateUser(id, name, email string) (*kubermaticv1.User, error)
+	UpdateUser(user kubermaticv1.User) (*kubermaticv1.User, error)
 	UserByID(id string) (*kubermaticv1.User, error)
 }
 
@@ -248,8 +258,9 @@ type ProjectProvider interface {
 
 // UserInfo represent authenticated user
 type UserInfo struct {
-	Email string
-	Group string
+	Email   string
+	Group   string
+	IsAdmin bool
 }
 
 // ProjectMemberListOptions allows to set filters that will be applied to filter the result.
@@ -475,4 +486,28 @@ type AddonProvider interface {
 
 	// Delete deletes the given addon
 	Delete(userInfo *UserInfo, cluster *kubermaticv1.Cluster, addonName string) error
+}
+
+type AddonConfigProvider interface {
+	Get(addonName string) (*kubermaticv1.AddonConfig, error)
+	List() (*kubermaticv1.AddonConfigList, error)
+}
+
+// SettingsProvider declares the set of methods for interacting global settings
+type SettingsProvider interface {
+	GetGlobalSettings() (*kubermaticv1.KubermaticSetting, error)
+	UpdateGlobalSettings(userInfo *UserInfo, settings *kubermaticv1.KubermaticSetting) (*kubermaticv1.KubermaticSetting, error)
+}
+
+// AdminProvider declares the set of methods for interacting with admin
+type AdminProvider interface {
+	SetAdmin(userInfo *UserInfo, email string, isAdmin bool) (*kubermaticv1.User, error)
+	GetAdmins(userInfo *UserInfo) ([]kubermaticv1.User, error)
+}
+
+// PresetProvider declares the set of methods for interacting with presets
+type PresetProvider interface {
+	GetPresets(userInfo *UserInfo) ([]kubermaticv1.Preset, error)
+	GetPreset(userInfo *UserInfo, name string) (*kubermaticv1.Preset, error)
+	SetCloudCredentials(userInfo *UserInfo, presetName string, cloud kubermaticv1.CloudSpec, dc *kubermaticv1.Datacenter) (*kubermaticv1.CloudSpec, error)
 }

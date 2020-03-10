@@ -17,12 +17,9 @@ import (
 	"github.com/kubermatic/kubermatic/api/pkg/handler/test/hack"
 	k8csemver "github.com/kubermatic/kubermatic/api/pkg/semver"
 	"github.com/kubermatic/kubermatic/api/pkg/version"
-
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
-	ctrlruntimeclient "sigs.k8s.io/controller-runtime/pkg/client"
-
 	clusterv1alpha1 "github.com/kubermatic/machine-controller/pkg/apis/cluster/v1alpha1"
+
+	"k8s.io/apimachinery/pkg/runtime"
 )
 
 func TestGetClusterUpgrades(t *testing.T) {
@@ -97,7 +94,7 @@ func TestGetClusterUpgrades(t *testing.T) {
 			existingKubermaticObjs: test.GenDefaultKubermaticObjects(),
 			existingMachineDeployments: func() []*clusterv1alpha1.MachineDeployment {
 				mds := make([]*clusterv1alpha1.MachineDeployment, 0, 1)
-				mdWithOldKubelet := test.GenTestMachineDeployment("venus", `{"cloudProvider":"digitalocean","cloudProviderSpec":{"token":"dummy-token","region":"fra1","size":"2GB"}, "operatingSystem":"ubuntu", "operatingSystemSpec":{"distUpgradeOnBoot":true}}`, nil)
+				mdWithOldKubelet := test.GenTestMachineDeployment("venus", `{"cloudProvider":"digitalocean","cloudProviderSpec":{"token":"dummy-token","region":"fra1","size":"2GB"}, "operatingSystem":"ubuntu", "operatingSystemSpec":{"distUpgradeOnBoot":true}}`, nil, false)
 				mdWithOldKubelet.Spec.Template.Spec.Versions.Kubelet = "v1.4.0"
 				mds = append(mds, mdWithOldKubelet)
 				return mds
@@ -298,7 +295,7 @@ func TestGetClusterUpgrades(t *testing.T) {
 			res := httptest.NewRecorder()
 			kubermaticObj := []runtime.Object{testStruct.cluster}
 			kubermaticObj = append(kubermaticObj, testStruct.existingKubermaticObjs...)
-			machineObj := []runtime.Object{}
+			var machineObj []runtime.Object
 			for _, existingMachineDeployment := range testStruct.existingMachineDeployments {
 				machineObj = append(machineObj, existingMachineDeployment)
 			}
@@ -354,8 +351,8 @@ func TestUpgradeClusterNodeDeployments(t *testing.T) {
 			}()),
 			ExistingAPIUser: test.GenDefaultAPIUser(),
 			ExistingMachineDeployments: []runtime.Object{
-				test.GenTestMachineDeployment("venus", `{"cloudProvider":"digitalocean","cloudProviderSpec":{"token":"dummy-token","region":"fra1","size":"2GB"}, "operatingSystem":"ubuntu", "operatingSystemSpec":{"distUpgradeOnBoot":true}}`, nil),
-				test.GenTestMachineDeployment("mars", `{"cloudProvider":"aws","cloudProviderSpec":{"token":"dummy-token","region":"eu-central-1","availabilityZone":"eu-central-1a","vpcId":"vpc-819f62e9","subnetId":"subnet-2bff4f43","instanceType":"t2.micro","diskSize":50}, "operatingSystem":"ubuntu", "operatingSystemSpec":{"distUpgradeOnBoot":false}}`, nil),
+				test.GenTestMachineDeployment("venus", `{"cloudProvider":"digitalocean","cloudProviderSpec":{"token":"dummy-token","region":"fra1","size":"2GB"}, "operatingSystem":"ubuntu", "operatingSystemSpec":{"distUpgradeOnBoot":true}}`, nil, false),
+				test.GenTestMachineDeployment("mars", `{"cloudProvider":"aws","cloudProviderSpec":{"token":"dummy-token","region":"eu-central-1","availabilityZone":"eu-central-1a","vpcId":"vpc-819f62e9","subnetId":"subnet-2bff4f43","instanceType":"t2.micro","diskSize":50}, "operatingSystem":"ubuntu", "operatingSystemSpec":{"distUpgradeOnBoot":false}}`, nil, false),
 			},
 		},
 		{
@@ -371,8 +368,8 @@ func TestUpgradeClusterNodeDeployments(t *testing.T) {
 				return cluster
 			}()), ExistingAPIUser: test.GenDefaultAPIUser(),
 			ExistingMachineDeployments: []runtime.Object{
-				test.GenTestMachineDeployment("venus", `{"cloudProvider":"digitalocean","cloudProviderSpec":{"token":"dummy-token","region":"fra1","size":"2GB"}, "operatingSystem":"ubuntu", "operatingSystemSpec":{"distUpgradeOnBoot":true}}`, nil),
-				test.GenTestMachineDeployment("mars", `{"cloudProvider":"aws","cloudProviderSpec":{"token":"dummy-token","region":"eu-central-1","availabilityZone":"eu-central-1a","vpcId":"vpc-819f62e9","subnetId":"subnet-2bff4f43","instanceType":"t2.micro","diskSize":50}, "operatingSystem":"ubuntu", "operatingSystemSpec":{"distUpgradeOnBoot":false}}`, nil),
+				test.GenTestMachineDeployment("venus", `{"cloudProvider":"digitalocean","cloudProviderSpec":{"token":"dummy-token","region":"fra1","size":"2GB"}, "operatingSystem":"ubuntu", "operatingSystemSpec":{"distUpgradeOnBoot":true}}`, nil, false),
+				test.GenTestMachineDeployment("mars", `{"cloudProvider":"aws","cloudProviderSpec":{"token":"dummy-token","region":"eu-central-1","availabilityZone":"eu-central-1a","vpcId":"vpc-819f62e9","subnetId":"subnet-2bff4f43","instanceType":"t2.micro","diskSize":50}, "operatingSystem":"ubuntu", "operatingSystemSpec":{"distUpgradeOnBoot":false}}`, nil, false),
 			},
 		},
 	}
@@ -383,9 +380,9 @@ func TestUpgradeClusterNodeDeployments(t *testing.T) {
 			req := httptest.NewRequest("PUT", fmt.Sprintf("/api/v1/projects/%s/dc/us-central1/clusters/%s/nodes/upgrades",
 				tc.ProjectIDToSync, tc.ClusterIDToSync), strings.NewReader(tc.Body))
 			res := httptest.NewRecorder()
-			kubermaticObj := []runtime.Object{}
-			machineObj := []runtime.Object{}
-			kubernetesObj := []runtime.Object{}
+			var kubermaticObj []runtime.Object
+			var machineObj []runtime.Object
+			var kubernetesObj []runtime.Object
 			kubermaticObj = append(kubermaticObj, tc.ExistingKubermaticObjs...)
 			machineObj = append(machineObj, tc.ExistingMachineDeployments...)
 			ep, cs, err := test.CreateTestEndpointAndGetClients(*tc.ExistingAPIUser, nil, kubernetesObj, machineObj, kubermaticObj, nil, nil, hack.NewTestRouting)
@@ -400,7 +397,7 @@ func TestUpgradeClusterNodeDeployments(t *testing.T) {
 			}
 
 			mds := &clusterv1alpha1.MachineDeploymentList{}
-			if err := cs.FakeClient.List(context.TODO(), &ctrlruntimeclient.ListOptions{Raw: &metav1.ListOptions{}}, mds); err != nil {
+			if err := cs.FakeClient.List(context.TODO(), mds); err != nil {
 				t.Fatalf("failed to list machine deployments: %v", err)
 			}
 

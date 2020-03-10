@@ -4,11 +4,12 @@ import (
 	"fmt"
 	"strings"
 
+	providerconfig "github.com/kubermatic/machine-controller/pkg/providerconfig/types"
+
 	kubermaticv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
 	"github.com/kubermatic/kubermatic/api/pkg/resources"
 	"github.com/kubermatic/kubermatic/api/pkg/resources/apiserver"
 	"github.com/kubermatic/kubermatic/api/pkg/resources/reconciling"
-	providerconfig "github.com/kubermatic/machine-controller/pkg/providerconfig/types"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -19,14 +20,16 @@ import (
 )
 
 var (
-	controllerResourceRequirements = corev1.ResourceRequirements{
-		Requests: corev1.ResourceList{
-			corev1.ResourceMemory: resource.MustParse("32Mi"),
-			corev1.ResourceCPU:    resource.MustParse("25m"),
-		},
-		Limits: corev1.ResourceList{
-			corev1.ResourceMemory: resource.MustParse("512Mi"),
-			corev1.ResourceCPU:    resource.MustParse("2"),
+	controllerResourceRequirements = map[string]*corev1.ResourceRequirements{
+		Name: {
+			Requests: corev1.ResourceList{
+				corev1.ResourceMemory: resource.MustParse("32Mi"),
+				corev1.ResourceCPU:    resource.MustParse("25m"),
+			},
+			Limits: corev1.ResourceList{
+				corev1.ResourceMemory: resource.MustParse("512Mi"),
+				corev1.ResourceCPU:    resource.MustParse("2"),
+			},
 		},
 	}
 )
@@ -34,9 +37,9 @@ var (
 const (
 	Name = "machine-controller"
 
-	tag = "v1.9.0-sys11-3"
+	tag = "v1.10.0-sys11-1"
 
-	nodeLocalDNSCacheAddress = "169.254.20.10"
+	NodeLocalDNSCacheAddress = "169.254.20.10"
 )
 
 type machinecontrollerData interface {
@@ -101,7 +104,7 @@ func DeploymentCreatorWithoutInitWrapper(data machinecontrollerData) reconciling
 
 			dep.Spec.Template.Spec.Volumes = volumes
 
-			clusterDNSIP := nodeLocalDNSCacheAddress
+			clusterDNSIP := NodeLocalDNSCacheAddress
 			if !data.NodeLocalDNSCacheEnabled() {
 				clusterDNSIP, err = resources.UserClusterDNSResolverIP(data.Cluster())
 				if err != nil {
@@ -114,17 +117,18 @@ func DeploymentCreatorWithoutInitWrapper(data machinecontrollerData) reconciling
 				return nil, err
 			}
 
+			externalCloudProvider := data.Cluster().Spec.Features[kubermaticv1.ClusterFeatureExternalCloudProvider]
+
 			dep.Spec.Template.Spec.Containers = []corev1.Container{
 				{
 					Name:    Name,
 					Image:   data.ImageRegistry(resources.RegistryDocker) + "/syseleven/machine-controller:" + tag,
 					Command: []string{"/usr/local/bin/machine-controller"},
-					Args:    getFlags(clusterDNSIP, data.DC().Node),
+					Args:    getFlags(clusterDNSIP, data.DC().Node, externalCloudProvider),
 					Env: append(envVars, corev1.EnvVar{
 						Name:  "KUBECONFIG",
 						Value: "/etc/kubernetes/kubeconfig/kubeconfig",
 					}),
-					Resources: controllerResourceRequirements,
 					LivenessProbe: &corev1.Probe{
 						Handler: corev1.Handler{
 							HTTPGet: &corev1.HTTPGetAction{
@@ -147,6 +151,10 @@ func DeploymentCreatorWithoutInitWrapper(data machinecontrollerData) reconciling
 						},
 					},
 				},
+			}
+			err = resources.SetResourceRequirements(dep.Spec.Template.Spec.Containers, controllerResourceRequirements, nil, dep.Annotations)
+			if err != nil {
+				return nil, fmt.Errorf("failed to set resource requirements: %v", err)
 			}
 
 			return dep, nil
@@ -215,7 +223,7 @@ func getEnvVars(data machinecontrollerData) ([]corev1.EnvVar, error) {
 	return vars, nil
 }
 
-func getFlags(clusterDNSIP string, nodeSettings kubermaticv1.NodeSettings) []string {
+func getFlags(clusterDNSIP string, nodeSettings kubermaticv1.NodeSettings, externalCloudProvider bool) []string {
 	flags := []string{
 		"-kubeconfig", "/etc/kubernetes/kubeconfig/kubeconfig",
 		"-logtostderr",
@@ -238,6 +246,10 @@ func getFlags(clusterDNSIP string, nodeSettings kubermaticv1.NodeSettings) []str
 	}
 	if nodeSettings.HyperkubeImage != "" {
 		flags = append(flags, "-node-hyperkube-image", nodeSettings.HyperkubeImage)
+	}
+
+	if externalCloudProvider {
+		flags = append(flags, "-external-cloud-provider=true")
 	}
 
 	return flags

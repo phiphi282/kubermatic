@@ -10,7 +10,6 @@ import (
 	"github.com/gorilla/mux"
 
 	apiv1 "github.com/kubermatic/kubermatic/api/pkg/api/v1"
-	"github.com/kubermatic/kubermatic/api/pkg/handler/middleware"
 	"github.com/kubermatic/kubermatic/api/pkg/handler/v1/common"
 	"github.com/kubermatic/kubermatic/api/pkg/provider"
 	"github.com/kubermatic/kubermatic/api/pkg/util/errors"
@@ -35,10 +34,12 @@ type providerReq struct {
 	// in: path
 	// required: true
 	ProviderName string `json:"provider_name"`
+	// in: query
+	Datacenter string `json:"datacenter,omitempty"`
 }
 
 // CredentialEndpoint returns custom credential list name for the provider
-func CredentialEndpoint(credentialManager common.PresetsManager) endpoint.Endpoint {
+func CredentialEndpoint(presetsProvider provider.PresetProvider, userInfoGetter provider.UserInfoGetter) endpoint.Endpoint {
 	return func(ctx context.Context, request interface{}) (interface{}, error) {
 		req, ok := request.(providerReq)
 		if !ok {
@@ -49,16 +50,16 @@ func CredentialEndpoint(credentialManager common.PresetsManager) endpoint.Endpoi
 			return nil, errors.NewBadRequest(err.Error())
 		}
 
-		userInfo, ok := ctx.Value(middleware.UserInfoContextKey).(*provider.UserInfo)
-		if !ok {
-			return nil, errors.New(http.StatusInternalServerError, "can not get user info")
+		userInfo, err := userInfoGetter(ctx, "")
+		if err != nil {
+			return nil, common.KubernetesErrorToHTTPError(err)
 		}
 
 		credentials := apiv1.CredentialList{}
 		names := make([]string, 0)
 
 		providerN := parseProvider(req.ProviderName)
-		presets, err := credentialManager.GetPresets(userInfo)
+		presets, err := presetsProvider.GetPresets(userInfo)
 		if err != nil {
 			return nil, errors.New(http.StatusInternalServerError, err.Error())
 		}
@@ -83,7 +84,16 @@ func CredentialEndpoint(credentialManager common.PresetsManager) endpoint.Endpoi
 
 				// append preset name if specific provider is not empty:
 				if !providerItem.IsNil() {
-					names = append(names, preset.Name)
+					var datacenterValue string
+					item := reflect.Indirect(providerItem)
+					datacenter := item.FieldByName("Datacenter")
+
+					if datacenter.Kind() == reflect.String {
+						datacenterValue = datacenter.String()
+					}
+					if datacenterValue == req.Datacenter || datacenterValue == "" {
+						names = append(names, preset.Name)
+					}
 				}
 			}
 		}
@@ -105,6 +115,7 @@ func parseProvider(p string) int {
 func DecodeProviderReq(c context.Context, r *http.Request) (interface{}, error) {
 	return providerReq{
 		ProviderName: mux.Vars(r)["provider_name"],
+		Datacenter:   r.URL.Query().Get("datacenter"),
 	}, nil
 }
 

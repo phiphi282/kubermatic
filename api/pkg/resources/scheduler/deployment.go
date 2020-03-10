@@ -83,11 +83,6 @@ func DeploymentCreator(data *resources.TemplateData) reconciling.NamedDeployment
 
 			dep.Spec.Template.Spec.Volumes = volumes
 
-			resourceRequirements := defaultResourceRequirements
-			if data.Cluster().Spec.ComponentsOverride.Scheduler.Resources != nil {
-				resourceRequirements = *data.Cluster().Spec.ComponentsOverride.Scheduler.Resources
-			}
-
 			volumeMounts := []corev1.VolumeMount{
 				{
 					Name:      resources.SchedulerKubeconfigSecretName,
@@ -111,12 +106,11 @@ func DeploymentCreator(data *resources.TemplateData) reconciling.NamedDeployment
 			dep.Spec.Template.Spec.Containers = []corev1.Container{
 				*openvpnSidecar,
 				{
-					Name:         name,
+					Name:         resources.SchedulerDeploymentName,
 					Image:        data.ImageRegistry(resources.RegistryGCR) + "/google_containers/hyperkube-amd64:v" + data.Cluster().Spec.Version.String(),
 					Command:      []string{"/hyperkube", "kube-scheduler"},
 					Args:         flags,
 					VolumeMounts: volumeMounts,
-					Resources:    resourceRequirements,
 					ReadinessProbe: &corev1.Probe{
 						Handler: corev1.Handler{
 							HTTPGet: getHealthGetAction(data),
@@ -137,6 +131,14 @@ func DeploymentCreator(data *resources.TemplateData) reconciling.NamedDeployment
 						TimeoutSeconds:      15,
 					},
 				},
+			}
+			defResourceRequirements := map[string]*corev1.ResourceRequirements{
+				name:                defaultResourceRequirements.DeepCopy(),
+				openvpnSidecar.Name: openvpnSidecar.Resources.DeepCopy(),
+			}
+			err = resources.SetResourceRequirements(dep.Spec.Template.Spec.Containers, defResourceRequirements, resources.GetOverrides(data.Cluster().Spec.ComponentsOverride), dep.Annotations)
+			if err != nil {
+				return nil, fmt.Errorf("failed to set resource requirements: %v", err)
 			}
 
 			dep.Spec.Template.Spec.Affinity = resources.HostnameAntiAffinity(name, data.Cluster().Name)
@@ -224,7 +226,7 @@ func getFlags(cluster *kubermaticv1.Cluster) ([]string, error) {
 		if cluster.Spec.Version.Semver().Patch() > 0 {
 			// Force the authentication lookup to succeed, otherwise if it fails all requests will be treated as anonymous and thus fail
 			// Both the flag and the issue only exist in 1.13.1 and above
-			flags = append(flags, "--authentication-tolerate-lookup-failure=false")
+			flags = append(flags, "--authentication-tolerate-lookup-failure", "false")
 		}
 	}
 

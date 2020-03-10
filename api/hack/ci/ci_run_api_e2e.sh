@@ -1,69 +1,96 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SDIR=$(dirname $0)
-CONTROLLER_IMAGE="quay.io/kubermatic/cluster-exposer:v1.0.0"
+cd $(go env GOPATH)/src/github.com/kubermatic/kubermatic
+source ./api/hack/lib.sh
 
-function cleanup {
-    cat ${SDIR}/../../pkg/test/e2e/api/utils/oidc-proxy-client/_build/oidc-proxy-client-errors
+source ./api/hack/ci/ci-setup-kubermatic-in-kind.sh
 
-	kubectl delete service -l "prow.k8s.io/id=$PROW_JOB_ID"
+echodate "Creating UI Azure preset..."
+cat <<EOF > preset-azure.yaml
+apiVersion: kubermatic.k8s.io/v1
+kind: Preset
+metadata:
+  name: e2e-azure
+  namespace: kubermatic
+spec:
+  azure:
+    tenantId: ${AZURE_E2E_TESTS_TENANT_ID}
+    subscriptionId: ${AZURE_E2E_TESTS_SUBSCRIPTION_ID}
+    clientId: ${AZURE_E2E_TESTS_CLIENT_ID}
+    clientSecret: ${AZURE_E2E_TESTS_CLIENT_SECRET}
+EOF
+retry 2 kubectl apply -f preset-azure.yaml
 
-	# Kill all descendant processes
-	pkill -P $$
-}
-trap cleanup EXIT
+echodate "Creating UI DigitalOcean preset..."
+cat <<EOF > preset-digitalocean.yaml
+apiVersion: kubermatic.k8s.io/v1
+kind: Preset
+metadata:
+  name: e2e-digitalocean
+  namespace: kubermatic
+spec:
+  digitalocean:
+    token: ${DO_E2E_TESTS_TOKEN}
+EOF
+retry 2 kubectl apply -f preset-digitalocean.yaml
 
-# Step 0: Setup
-echo $IMAGE_PULL_SECRET_DATA | base64 -d > /config.json
-#TODO stop redirecting stdout and stderr to /dev/null because it makes troubleshooting harder
-dockerd > /dev/null 2> /dev/null &
+echodate "Creating UI GCP preset..."
+cat <<EOF > preset-gcp.yaml
+apiVersion: kubermatic.k8s.io/v1
+kind: Preset
+metadata:
+  name: e2e-gcp
+  namespace: kubermatic
+spec:
+  gcp:
+    serviceAccount: ${GOOGLE_SERVICE_ACCOUNT}
+EOF
+cat <<EOF > preset-gcp-datacenter.yaml
+apiVersion: kubermatic.k8s.io/v1
+kind: Preset
+metadata:
+  name: e2e-gcp-datacenter
+  namespace: kubermatic
+spec:
+  gcp:
+    serviceAccount: ${GOOGLE_SERVICE_ACCOUNT}
+    datacenter: gcp-westeurope
+EOF
+retry 2 kubectl apply -f preset-gcp.yaml
+retry 2 kubectl apply -f preset-gcp-datacenter.yaml
 
-# Step 1: Build kubermatic docker images that will be used by the inner Kube cluster
-(
-cd ${SDIR}/../../cmd/kubeletdnat-controller
-time make build
-time docker build --network host -t quay.io/kubermatic/kubeletdnat-controller:latestbuild .
-)
+echodate "Creating UI OpenStack preset..."
+cat <<EOF > preset-openstack.yaml
+apiVersion: kubermatic.k8s.io/v1
+kind: Preset
+metadata:
+  name: e2e-openstack
+  namespace: kubermatic
+spec:
+  openstack:
+    username: ${OS_USERNAME}
+    password: ${OS_PASSWORD}
+    tenant: ${OS_TENANT_NAME}
+    domain: ${OS_DOMAIN}
+EOF
+retry 2 kubectl apply -f preset-openstack.yaml
 
-(
-cd ${SDIR}/../..
-export KUBERMATICCOMMIT="latestbuild"
-time make build
-time docker build --network host -t quay.io/kubermatic/api:latestbuild .
-)
+echodate "Creating roxy2 user..."
+cat <<EOF > user.yaml
+apiVersion: kubermatic.k8s.io/v1
+kind: User
+metadata:
+  name: c41724e256445bf133d6af1168c2d96a7533cd437618fdbe6dc2ef1fee97acd3
+spec:
+  email: roxy2@loodse.com
+  id: 1413636a43ddc27da27e47614faedff24b4ab19c9d9f2b45dd1b89d9_KUBE
+  name: roxy2
+  admin: true
+EOF
+retry 2 kubectl apply -f user.yaml
 
-# Step 2: create a Kube cluster and deploy Kubermatic
-# Note that latestbuild tag comes from running "make docker-build"
-# scripts deploy.sh and expose.sh are provided by the docker image
-time deploy.sh latestbuild
-DOCKER_CONFIG=/ docker run --name controller -d -v /root/.kube/config:/inner -v /etc/kubeconfig/kubeconfig:/outer --network host --privileged ${CONTROLLER_IMAGE} --kubeconfig-inner "/inner" --kubeconfig-outer "/outer" --namespace "default" --build-id "$PROW_JOB_ID"
-docker logs -f controller &
-time expose.sh
-
-# Step 3: An elegant hack that routes dex.oauth domain to localhost and then down to a dex service inside the inner Kube cluster
-# See also expose.sh script
-sed 's/localhost/localhost dex.oauth/' < /etc/hosts > /hosts
-cat /hosts > /etc/hosts
-
-# Step 3: create and run OIDC proxy client
-# TODO: since OIDC_CLIENT_ID and OIDC_CLIENT_SECRET are defined in the docker image
-#       they could be exposed as envs by that image
-export KUBERMATIC_OIDC_CLIENT_ID="kubermatic"
-export KUBERMATIC_OIDC_CLIENT_SECRET="ZXhhbXBsZS1hcHAtc2VjcmV0"
-export KUBERMATIC_OIDC_ISSUER="http://dex.oauth:5556"
-export KUBERMATIC_OIDC_REDIRECT_URI="http://localhost:8000"
-(
-cd ${SDIR}/../../pkg/test/e2e/api/utils/oidc-proxy-client
-make build
-make run > /dev/null 2> ./_build/oidc-proxy-client-errors &
-)
-
-# TODO check if oidc-proxy-client is available on port 5556 before running e2e tests
-
-# Step 4: run e2e tests
-echo "running the API E2E tests"
-more /etc/hosts
-# disabled because port forwarder problem with two kubernetes API instances for user cluster
-#go test -tags=create -timeout 20m ${SDIR}/../../pkg/test/e2e/api -v
-go test -tags=e2e ${SDIR}/../../pkg/test/e2e/api -v
+echodate "Running API E2E tests..."
+export KUBERMATIC_DEX_VALUES_FILE=$(realpath api/hack/ci/testdata/oauth_values.yaml)
+go test -tags=create -timeout 20m ./api/pkg/test/e2e/api -v
+go test -tags=e2e ./api/pkg/test/e2e/api -v

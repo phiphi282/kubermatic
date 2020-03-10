@@ -31,11 +31,14 @@ const (
 
 var secureCookie *securecookie.SecureCookie
 
-func GetAdminKubeconfigEndpoint(projectProvider provider.ProjectProvider) endpoint.Endpoint {
+func GetAdminKubeconfigEndpoint(projectProvider provider.ProjectProvider, userInfoGetter provider.UserInfoGetter) endpoint.Endpoint {
 	return func(ctx context.Context, request interface{}) (interface{}, error) {
 		req := request.(GetClusterKubeconfigRequest)
 		clusterProvider := ctx.Value(middleware.ClusterProviderContextKey).(provider.ClusterProvider)
-		userInfo := ctx.Value(middleware.UserInfoContextKey).(*provider.UserInfo)
+		userInfo, err := userInfoGetter(ctx, req.ProjectID)
+		if err != nil {
+			return nil, common.KubernetesErrorToHTTPError(err)
+		}
 
 		project, err := projectProvider.Get(userInfo, req.ProjectID, &provider.ProjectGetOptions{})
 		if err != nil {
@@ -76,13 +79,15 @@ func GetAdminKubeconfigEndpoint(projectProvider provider.ProjectProvider) endpoi
 	}
 }
 
-// method left in sys11 fork to avoid future merge conflicts, but renamed so we get the one from cluster_sys11.go, which supports sys11auth
-func _GetOidcKubeconfigEndpoint(projectProvider provider.ProjectProvider) endpoint.Endpoint { //nolint:unused,deadcode
+func GetOidcKubeconfigEndpoint(projectProvider provider.ProjectProvider, userInfoGetter provider.UserInfoGetter) endpoint.Endpoint {
 	return func(ctx context.Context, request interface{}) (interface{}, error) {
 		req := request.(common.GetClusterReq)
 		clusterProvider := ctx.Value(middleware.ClusterProviderContextKey).(provider.ClusterProvider)
-		userInfo := ctx.Value(middleware.UserInfoContextKey).(*provider.UserInfo)
-		_, err := projectProvider.Get(userInfo, req.ProjectID, &provider.ProjectGetOptions{})
+		userInfo, err := userInfoGetter(ctx, req.ProjectID)
+		if err != nil {
+			return nil, common.KubernetesErrorToHTTPError(err)
+		}
+		_, err = projectProvider.Get(userInfo, req.ProjectID, &provider.ProjectGetOptions{})
 		if err != nil {
 			return nil, common.KubernetesErrorToHTTPError(err)
 		}

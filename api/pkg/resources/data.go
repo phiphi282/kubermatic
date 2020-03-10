@@ -239,17 +239,17 @@ func (d *TemplateData) ImageRegistry(defaultRegistry string) string {
 
 // GetRootCA returns the root CA of the cluster
 func (d *TemplateData) GetRootCA() (*triple.KeyPair, error) {
-	return GetClusterRootCA(d.ctx, d.cluster, d.client)
+	return GetClusterRootCA(d.ctx, d.cluster.Status.NamespaceName, d.client)
 }
 
 // GetFrontProxyCA returns the root CA for the front proxy
 func (d *TemplateData) GetFrontProxyCA() (*triple.KeyPair, error) {
-	return GetClusterFrontProxyCA(d.ctx, d.cluster, d.client)
+	return GetClusterFrontProxyCA(d.ctx, d.cluster.Status.NamespaceName, d.client)
 }
 
 // GetOpenVPNCA returns the root ca for the OpenVPN
 func (d *TemplateData) GetOpenVPNCA() (*ECDSAKeyPair, error) {
-	return GetOpenVPNCA(d.ctx, d.cluster, d.client)
+	return GetOpenVPNCA(d.ctx, d.cluster.Status.NamespaceName, d.client)
 }
 
 // GetPodTemplateLabels returns a set of labels for a Pod including the revisions of depending secrets and configmaps.
@@ -318,20 +318,7 @@ func (d *TemplateData) SupportsFailureDomainZoneAntiAffinity() bool {
 }
 
 func (d *TemplateData) GetGlobalSecretKeySelectorValue(configVar *providerconfig.GlobalSecretKeySelector, key string) (string, error) {
-	// We need all three of these to fetch and use a secret
-	if configVar.Name != "" && configVar.Namespace != "" && key != "" {
-		secret := &corev1.Secret{}
-		namespacedName := types.NamespacedName{Namespace: configVar.Namespace, Name: configVar.Name}
-		if err := d.client.Get(d.ctx, namespacedName, secret); err != nil {
-			return "", fmt.Errorf("error retrieving secret %q from namespace %q: %v", configVar.Name, configVar.Namespace, err)
-		}
-
-		if val, ok := secret.Data[key]; ok {
-			return string(val), nil
-		}
-		return "", fmt.Errorf("secret %q in namespace %q has no key %q", configVar.Name, configVar.Namespace, key)
-	}
-	return "", nil
+	return provider.SecretKeySelectorValueFuncFactory(d.ctx, d.client)(configVar, key)
 }
 
 func (d *TemplateData) GetKubernetesCloudProviderName() string {
@@ -348,6 +335,9 @@ func GetKubernetesCloudProviderName(cluster *kubermaticv1.Cluster) string {
 		return "aws"
 	}
 	if cluster.Spec.Cloud.Openstack != nil {
+		if flag := cluster.Spec.Features[kubermaticv1.ClusterFeatureExternalCloudProvider]; flag {
+			return "external"
+		}
 		return "openstack"
 	}
 	if cluster.Spec.Cloud.VSphere != nil {
@@ -356,7 +346,9 @@ func GetKubernetesCloudProviderName(cluster *kubermaticv1.Cluster) string {
 	if cluster.Spec.Cloud.Azure != nil {
 		return "azure"
 	}
-
+	if cluster.Spec.Cloud.GCP != nil {
+		return "gce"
+	}
 	return ""
 }
 

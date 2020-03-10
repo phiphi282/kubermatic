@@ -23,6 +23,7 @@ import (
 	kubermaticapiv1 "github.com/kubermatic/kubermatic/api/pkg/api/v1"
 	clusterclient "github.com/kubermatic/kubermatic/api/pkg/cluster/client"
 	kubermaticv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
+	kubermaticv1helper "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1/helper"
 	"github.com/kubermatic/kubermatic/api/pkg/provider"
 	"github.com/kubermatic/kubermatic/api/pkg/resources"
 	apiclient "github.com/kubermatic/kubermatic/api/pkg/test/e2e/api/utils/apiclient/client"
@@ -32,11 +33,13 @@ import (
 	clusterv1alpha1 "github.com/kubermatic/machine-controller/pkg/apis/cluster/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
+	utilerror "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apimachinery/pkg/util/rand"
-	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/util/retry"
 	ctrlruntimeclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -74,6 +77,7 @@ func newRunner(scenarios []testScenario, opts *Opts, log *zap.SugaredLogger) *te
 		workerName:                   opts.workerName,
 		homeDir:                      opts.homeDir,
 		seedClusterClient:            opts.seedClusterClient,
+		seedGeneratedClient:          opts.seedGeneratedClient,
 		log:                          log,
 		existingClusterLabel:         opts.existingClusterLabel,
 		openshift:                    opts.openshift,
@@ -110,7 +114,8 @@ type testRunner struct {
 	clusterParallelCount         int
 
 	seedClusterClient     ctrlruntimeclient.Client
-	clusterClientProvider clusterclient.UserClusterConnectionProvider
+	seedGeneratedClient   kubernetes.Interface
+	clusterClientProvider *clusterclient.Provider
 	seed                  *kubermaticv1.Seed
 
 	// The label to use to select an existing cluster to test against instead of
@@ -250,7 +255,8 @@ func (r *testRunner) executeScenario(log *zap.SugaredLogger, scenario testScenar
 		}
 	}()
 
-	if r.existingClusterLabel == "" {
+	ctx := context.Background()
+	if r.existingClusterLabel == "" && os.Getenv("KUBERMATIC_USE_EXISTING_CLUSTER") == "" {
 		if err := junitReporterWrapper(
 			"[Kubermatic] Create cluster",
 			report,
@@ -261,13 +267,14 @@ func (r *testRunner) executeScenario(log *zap.SugaredLogger, scenario testScenar
 			return report, fmt.Errorf("failed to create cluster: %v", err)
 		}
 	} else {
+		log.Infow("Using existing cluster")
 		selector, err := labels.Parse(r.existingClusterLabel)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse labelselector %q: %v", r.existingClusterLabel, err)
 		}
 		clusterList := &kubermaticv1.ClusterList{}
 		listOptions := &ctrlruntimeclient.ListOptions{LabelSelector: selector}
-		if err := r.seedClusterClient.List(context.Background(), listOptions, clusterList); err != nil {
+		if err := r.seedClusterClient.List(ctx, clusterList, listOptions); err != nil {
 			return nil, fmt.Errorf("failed to list clusters: %v", err)
 		}
 		if foundClusterNum := len(clusterList.Items); foundClusterNum != 1 {
@@ -275,9 +282,57 @@ func (r *testRunner) executeScenario(log *zap.SugaredLogger, scenario testScenar
 		}
 		cluster = &clusterList.Items[0]
 	}
+	clusterName := cluster.Name
+	log = log.With("cluster", cluster.Name)
+
+	if err := junitReporterWrapper(
+		"[Kubermatic] Wait for successful reconciliation",
+		report,
+		func() error {
+			return wait.Poll(5*time.Second, 5*time.Minute, func() (bool, error) {
+				if err := r.seedClusterClient.Get(ctx, types.NamespacedName{Name: clusterName}, cluster); err != nil {
+					log.Errorw("Failed to get cluster when waiting for successful reconciliation", zap.Error(err))
+					return false, nil
+				}
+
+				missingConditions, success := kubermaticv1helper.ClusterReconciliationSuccessful(cluster)
+				if len(missingConditions) > 0 {
+					log.Infof("Waiting for the following conditions: %v", missingConditions)
+				}
+				return success, nil
+			})
+		},
+	); err != nil {
+		return report, fmt.Errorf("failed to wait for successful reconciliation: %v", err)
+	}
+
+	if err := r.executeTests(log, cluster, report, scenario); err != nil {
+		return report, err
+	}
+
+	if !r.deleteClusterAfterTests {
+		return report, nil
+	}
+
+	return report, r.deleteCluster(report, cluster, log)
+}
+
+func (r *testRunner) executeTests(
+	log *zap.SugaredLogger,
+	cluster *kubermaticv1.Cluster,
+	report *reporters.JUnitTestSuite,
+	scenario testScenario,
+) error {
 
 	// We must store the name here because the cluster object may be nil on error
 	clusterName := cluster.Name
+
+	// Print all controlplane logs to both make debugging easier and show issues
+	// that didn't result in test failures.
+	defer r.printAllControlPlaneLogs(log, clusterName)
+
+	var err error
+
 	if err := junitReporterWrapper(
 		"[Kubermatic] Wait for controlplane",
 		report,
@@ -285,8 +340,8 @@ func (r *testRunner) executeScenario(log *zap.SugaredLogger, scenario testScenar
 			cluster, err = r.waitForControlPlane(log, clusterName)
 			return err
 		},
-		func() string { return r.controlplaneWaitFailureStdout(clusterName) }); err != nil {
-		return report, fmt.Errorf("failed waiting for control plane to become ready: %v", err)
+	); err != nil {
+		return fmt.Errorf("failed waiting for control plane to become ready: %v", err)
 	}
 
 	if err := junitReporterWrapper(
@@ -297,40 +352,46 @@ func (r *testRunner) executeScenario(log *zap.SugaredLogger, scenario testScenar
 				if err := r.seedClusterClient.Get(context.Background(), types.NamespacedName{Name: clusterName}, cluster); err != nil {
 					return err
 				}
-				cluster.Finalizers = append(cluster.Finalizers, kubermaticapiv1.InClusterPVCleanupFinalizer, kubermaticapiv1.InClusterLBCleanupFinalizer)
+				cluster.Finalizers = append(cluster.Finalizers,
+					kubermaticapiv1.InClusterPVCleanupFinalizer,
+					kubermaticapiv1.InClusterLBCleanupFinalizer,
+				)
 				return r.seedClusterClient.Update(context.Background(), cluster)
 			})
 		},
 	); err != nil {
-		return nil, fmt.Errorf("failed to add PV and LB cleanup finalizers: %v", err)
+		return fmt.Errorf("failed to add PV and LB cleanup finalizers: %v", err)
 	}
 
 	providerName, err := provider.ClusterCloudProviderName(cluster.Spec.Cloud)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get cloud provider name from cluster: %v", err)
+		return fmt.Errorf("failed to get cloud provider name from cluster: %v", err)
 	}
 
-	log = log.With("cluster", cluster.Name, "cloud-provider", providerName, "version", cluster.Spec.Version)
+	log = log.With(
+		"cloud-provider", providerName,
+		"version", cluster.Spec.Version,
+	)
 
 	_, exists := r.seed.Spec.Datacenters[cluster.Spec.Cloud.DatacenterName]
 	if !exists {
-		return nil, fmt.Errorf("datacenter %q doesn't exist", cluster.Spec.Cloud.DatacenterName)
+		return fmt.Errorf("datacenter %q doesn't exist", cluster.Spec.Cloud.DatacenterName)
 	}
 
 	kubeconfigFilename, err := r.getKubeconfig(log, cluster)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get kubeconfig: %v", err)
+		return fmt.Errorf("failed to get kubeconfig: %v", err)
 	}
 	log = log.With("kubeconfig", kubeconfigFilename)
 
 	cloudConfigFilename, err := r.getCloudConfig(log, cluster)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get cloud config: %v", err)
+		return fmt.Errorf("failed to get cloud config: %v", err)
 	}
 
 	userClusterClient, err := r.clusterClientProvider.GetClient(cluster)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get the client for the cluster: %v", err)
+		return fmt.Errorf("failed to get the client for the cluster: %v", err)
 	}
 
 	if err := junitReporterWrapper(
@@ -340,14 +401,30 @@ func (r *testRunner) executeScenario(log *zap.SugaredLogger, scenario testScenar
 			return r.createNodeDeployments(log, scenario, clusterName)
 		},
 	); err != nil {
-		return report, fmt.Errorf("failed to setup nodes: %v", err)
+		return fmt.Errorf("failed to setup nodes: %v", err)
 	}
+
+	defer logEventsForAllMachines(context.Background(), log, userClusterClient)
+	defer logUserClusterPodEventsAndLogs(
+		log,
+		r.clusterClientProvider,
+		cluster.DeepCopy(),
+	)
 
 	var overallTimeout = 10 * time.Minute
 	var timeoutLeft time.Duration
-	if cluster.Annotations["kubermatic.io/openshift"] == "true" {
+	if cluster.IsOpenshift() {
 		// Openshift installs a lot more during node provisioning, hence this may take longer
-		overallTimeout = 15 * time.Minute
+		overallTimeout += 5 * time.Minute
+	}
+	// The initialization of the external CCM is super slow
+	if cluster.Spec.Features[kubermaticv1.ClusterFeatureExternalCloudProvider] {
+		overallTimeout += 5 * time.Minute
+	}
+	// Packet is slower at provisioning the instances, presumably because those are actual
+	// physical hosts.
+	if cluster.Spec.Cloud.Packet != nil {
+		overallTimeout += 5 * time.Minute
 	}
 
 	if err := junitReporterWrapper(
@@ -359,7 +436,7 @@ func (r *testRunner) executeScenario(log *zap.SugaredLogger, scenario testScenar
 			return err
 		},
 	); err != nil {
-		return report, fmt.Errorf("failed to wait for machines to get a node: %v", err)
+		return fmt.Errorf("failed to wait for machines to get a node: %v", err)
 	}
 
 	if err := junitReporterWrapper(
@@ -373,7 +450,7 @@ func (r *testRunner) executeScenario(log *zap.SugaredLogger, scenario testScenar
 			return err
 		},
 	); err != nil {
-		return report, fmt.Errorf("failed to wait for all nodes to be ready: %v", err)
+		return fmt.Errorf("failed to wait for all nodes to be ready: %v", err)
 	}
 
 	if err := junitReporterWrapper(
@@ -383,24 +460,26 @@ func (r *testRunner) executeScenario(log *zap.SugaredLogger, scenario testScenar
 			return r.waitUntilAllPodsAreReady(log, userClusterClient, timeoutLeft)
 		},
 	); err != nil {
-		return nil, fmt.Errorf("failed to wait for all pods to get ready: %v", err)
+		return fmt.Errorf("failed to wait for all pods to get ready: %v", err)
 	}
 
 	if r.onlyTestCreation {
-		return report, nil
+		return nil
 	}
 
-	if !r.onlyTestCreation {
-		if err := r.testCluster(log, scenario, cluster, userClusterClient, kubeconfigFilename, cloudConfigFilename, report); err != nil {
-			return report, fmt.Errorf("failed to test cluster: %v", err)
-		}
+	if err := r.testCluster(
+		log,
+		scenario,
+		cluster,
+		userClusterClient,
+		kubeconfigFilename,
+		cloudConfigFilename,
+		report,
+	); err != nil {
+		return fmt.Errorf("failed to test cluster: %v", err)
 	}
 
-	if !r.deleteClusterAfterTests {
-		return report, nil
-	}
-
-	return report, r.deleteCluster(report, cluster, log)
+	return nil
 }
 
 func (r *testRunner) deleteCluster(report *reporters.JUnitTestSuite, cluster *kubermaticv1.Cluster, log *zap.SugaredLogger) error {
@@ -419,14 +498,18 @@ func (r *testRunner) deleteCluster(report *reporters.JUnitTestSuite, cluster *ku
 		"[Kubermatic] Delete cluster",
 		report,
 		func() error {
-			selector, err := labels.Parse(fmt.Sprintf("worker-name=%s", r.workerName))
-			if err != nil {
-				return fmt.Errorf("failed to parse selector: %v", err)
+			var selector labels.Selector
+			var err error
+			if r.workerName != "" {
+				selector, err = labels.Parse(fmt.Sprintf("worker-name=%s", r.workerName))
+				if err != nil {
+					return fmt.Errorf("failed to parse selector: %v", err)
+				}
 			}
 			return wait.PollImmediate(5*time.Second, deleteTimeout, func() (bool, error) {
 				clusterList := &kubermaticv1.ClusterList{}
 				listOpts := &ctrlruntimeclient.ListOptions{LabelSelector: selector}
-				if err := r.seedClusterClient.List(r.ctx, listOpts, clusterList); err != nil {
+				if err := r.seedClusterClient.List(r.ctx, clusterList, listOpts); err != nil {
 					log.Errorw("Listing clusters failed", zap.Error(err))
 					return false, nil
 				}
@@ -592,11 +675,43 @@ func (r *testRunner) executeGinkgoRunWithRetries(log *zap.SugaredLogger, run *gi
 }
 
 func (r *testRunner) createNodeDeployments(log *zap.SugaredLogger, scenario testScenario, clusterName string) error {
+
+	var existingReplicas int
+	log.Info("Getting existing NodeDeployments")
+	nodeDeploymentGetParams := &projectclient.ListNodeDeploymentsParams{
+		ProjectID: r.kubermatcProjectID,
+		ClusterID: clusterName,
+		Dc:        r.seed.Name,
+	}
+	nodeDeploymentGetParams.SetTimeout(15 * time.Second)
+	if err := wait.PollImmediate(10*time.Second, time.Minute, func() (bool, error) {
+		resp, err := r.kubermaticClient.Project.ListNodeDeployments(nodeDeploymentGetParams, r.kubermaticAuthenticator)
+		if err != nil {
+			log.Errorw("Failed to get existing NodeDeployments", zap.Error(errors.New(fmtSwaggerError(err))))
+			return false, nil
+		}
+		for _, nodeDeployment := range resp.Payload {
+			existingReplicas += int(*nodeDeployment.Spec.Replicas)
+		}
+		return true, nil
+	}); err != nil {
+		return fmt.Errorf("failed to get existing NodeDeployments: %v", err)
+	}
+	log.Infof("Found %d pre-existing node replicas", existingReplicas)
+
+	nodeCount := r.nodeCount - existingReplicas
+	if nodeCount < 0 {
+		return fmt.Errorf("found %d existing replicas and want %d, scaledown not supported", existingReplicas, r.nodeCount)
+	}
+	if nodeCount == 0 {
+		return nil
+	}
+
 	log.Info("Creating NodeDeployments via kubermatic API")
 	var nodeDeployments []apimodels.NodeDeployment
 	var err error
 	if err := wait.PollImmediate(10*time.Second, time.Minute, func() (bool, error) {
-		nodeDeployments, err = scenario.NodeDeployments(r.nodeCount, r.secrets)
+		nodeDeployments, err = scenario.NodeDeployments(nodeCount, r.secrets)
 		if err != nil {
 			log.Info("Getting NodeDeployments from scenario failed", zap.Error(err))
 			return false, nil
@@ -626,7 +741,7 @@ func (r *testRunner) createNodeDeployments(log *zap.SugaredLogger, scenario test
 		}
 	}
 
-	log.Info("Successfully created NodeDeployments via Kubermatic API")
+	log.Infof("Successfully created %d NodeDeployments via Kubermatic API", nodeCount)
 	return nil
 }
 
@@ -713,9 +828,13 @@ func (r *testRunner) createCluster(log *zap.SugaredLogger, scenario testScenario
 	params.SetTimeout(15 * time.Second)
 
 	crCluster := &kubermaticv1.Cluster{}
-	selector, err := labels.Parse(fmt.Sprintf("worker-name=%s", r.workerName))
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse selector: %v", err)
+	var selector labels.Selector
+	var err error
+	if r.workerName != "" {
+		selector, err = labels.Parse(fmt.Sprintf("worker-name=%s", r.workerName))
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse selector: %v", err)
+		}
 	}
 
 	var errs []error
@@ -723,7 +842,7 @@ func (r *testRunner) createCluster(log *zap.SugaredLogger, scenario testScenario
 		// For some reason the cluster doesn't have the name we set via ID on creation
 		clusterList := &kubermaticv1.ClusterList{}
 		opts := &ctrlruntimeclient.ListOptions{LabelSelector: selector}
-		if err := r.seedClusterClient.List(r.ctx, opts, clusterList); err != nil {
+		if err := r.seedClusterClient.List(r.ctx, clusterList, opts); err != nil {
 			return false, err
 		}
 		numFoundClusters := len(clusterList.Items)
@@ -732,8 +851,11 @@ func (r *testRunner) createCluster(log *zap.SugaredLogger, scenario testScenario
 		case numFoundClusters < 1:
 			if _, err := r.kubermaticClient.Project.CreateCluster(params, r.kubermaticAuthenticator); err != nil {
 				// Log the error but don't return it, we want to retry
+				err = errors.New(fmtSwaggerError(err))
 				errs = append(errs, err)
-				log.Errorf("failed to create cluster via kubermatic api: %q, %v", fmtSwaggerError(err), err)
+				log.Errorf("failed to create cluster via kubermatic api: %q", err)
+			} else {
+				log.Info("Successfully created cluster via kubermatic api")
 			}
 			// Always return here, our clusterList is not up to date anymore
 			return false, nil
@@ -745,7 +867,7 @@ func (r *testRunner) createCluster(log *zap.SugaredLogger, scenario testScenario
 		}
 	}); err != nil {
 		errs = append(errs, err)
-		return nil, fmt.Errorf("cluster creation failed: %v", errs)
+		return nil, fmt.Errorf("cluster creation failed: %v", utilerror.NewAggregate(errs))
 	}
 
 	log.Info("Successfully created cluster via Kubermatic API")
@@ -772,7 +894,11 @@ func (r *testRunner) waitForControlPlane(log *zap.SugaredLogger, clusterName str
 		}
 
 		controlPlanePods := &corev1.PodList{}
-		if err := r.seedClusterClient.List(context.Background(), &ctrlruntimeclient.ListOptions{Namespace: newCluster.Status.NamespaceName}, controlPlanePods); err != nil {
+		if err := r.seedClusterClient.List(
+			context.Background(),
+			controlPlanePods,
+			&ctrlruntimeclient.ListOptions{Namespace: newCluster.Status.NamespaceName},
+		); err != nil {
 			return false, fmt.Errorf("failed to list controlplane pods: %v", err)
 		}
 		for _, pod := range controlPlanePods.Items {
@@ -804,7 +930,7 @@ func (r *testRunner) waitUntilAllPodsAreReady(log *zap.SugaredLogger, userCluste
 
 	err := wait.Poll(defaultUserClusterPollInterval, timeout, func() (done bool, err error) {
 		podList := &corev1.PodList{}
-		if err := userClusterClient.List(context.Background(), &ctrlruntimeclient.ListOptions{}, podList); err != nil {
+		if err := userClusterClient.List(context.Background(), podList); err != nil {
 			log.Warnf("failed to load pod list while waiting until all pods are running: %v", err)
 			return false, nil
 		}
@@ -839,6 +965,7 @@ type ginkgoRun struct {
 	name       string
 	cmd        *exec.Cmd
 	reportsDir string
+	timeout    time.Duration
 }
 
 func (r *testRunner) getGinkgoRuns(
@@ -855,7 +982,7 @@ func (r *testRunner) getGinkgoRuns(
 	nodeNumberTotal := int32(r.nodeCount)
 
 	ginkgoSkipParallel := `\[Serial\]`
-	if cluster.Spec.Version.Minor() == 16 {
+	if minor := cluster.Spec.Version.Minor(); minor == 16 || minor == 17 {
 		// These require the nodes NodePort to be available from the tester, which is not the case for us.
 		// TODO: Maybe add an option to allow the NodePorts in the SecurityGroup?
 		ginkgoSkipParallel += "|Services should be able to change the type from ExternalName to NodePort|Services should be able to create a functioning NodePort service"
@@ -866,18 +993,21 @@ func (r *testRunner) getGinkgoRuns(
 		ginkgoFocus   string
 		ginkgoSkip    string
 		parallelTests int
+		timeout       time.Duration
 	}{
 		{
 			name:          "parallel",
 			ginkgoFocus:   `\[Conformance\]`,
 			ginkgoSkip:    ginkgoSkipParallel,
 			parallelTests: int(nodeNumberTotal) * 10,
+			timeout:       15 * time.Minute,
 		},
 		{
 			name:          "serial",
 			ginkgoFocus:   `\[Serial\].*\[Conformance\]`,
 			ginkgoSkip:    `should not cause race condition when used for configmap`,
 			parallelTests: 1,
+			timeout:       10 * time.Minute,
 		},
 	}
 	versionRoot := path.Join(repoRoot, MajorMinor)
@@ -934,6 +1064,7 @@ func (r *testRunner) getGinkgoRuns(
 			name:       run.name,
 			cmd:        cmd,
 			reportsDir: reportsDir,
+			timeout:    run.timeout,
 		})
 	}
 
@@ -967,14 +1098,16 @@ func executeGinkgoRun(parentLog *zap.SugaredLogger, run *ginkgoRun, client ctrlr
 	writer := bufio.NewWriter(file)
 	defer writer.Flush()
 
+	ctx, cancel := context.WithTimeout(context.Background(), run.timeout)
+	defer cancel()
+
 	// Copy the command as we cannot execute a command twice
-	cmd := &exec.Cmd{
-		Path:       run.cmd.Path,
-		Args:       run.cmd.Args,
-		Env:        run.cmd.Env,
-		Dir:        run.cmd.Dir,
-		ExtraFiles: run.cmd.ExtraFiles,
-	}
+	cmd := exec.CommandContext(ctx, "")
+	cmd.Path = run.cmd.Path
+	cmd.Args = run.cmd.Args
+	cmd.Env = run.cmd.Env
+	cmd.Dir = run.cmd.Dir
+	cmd.ExtraFiles = run.cmd.ExtraFiles
 	if _, err := writer.Write([]byte(strings.Join(cmd.Args, argSeparator))); err != nil {
 		return nil, fmt.Errorf("failed to write command to log: %v", err)
 	}
@@ -1041,40 +1174,36 @@ func supportsLBs(cluster *kubermaticv1.Cluster) bool {
 		cluster.Spec.Cloud.GCP != nil
 }
 
-func (r *testRunner) controlplaneWaitFailureStdout(clusterName string) string {
-	// Closure to be able to properly distinguish errors from the rest
-	res, err := func() (string, error) {
-		cluster := &kubermaticv1.Cluster{}
-		ctx := context.Background()
-		if err := r.seedClusterClient.Get(ctx, types.NamespacedName{Name: clusterName}, cluster); err != nil {
-			return "", fmt.Errorf("failed to get cluster %q: %v", clusterName, err)
-		}
-
-		var ret string
-		clusterHealthStatus, err := json.Marshal(cluster.Status.ExtendedHealth)
-		if err == nil {
-			ret = fmt.Sprintf("ClusterHealthStatus: '%s'", clusterHealthStatus)
-		}
-
-		controlPlanePods := &corev1.PodList{}
-		listOpts := &ctrlruntimeclient.ListOptions{Namespace: cluster.Status.NamespaceName}
-		if err := r.seedClusterClient.List(ctx, listOpts, controlPlanePods); err != nil {
-			return ret, fmt.Errorf("failed to list pods: %v", err)
-		}
-
-		notReadyControlPlanePods := sets.NewString()
-		for _, pod := range controlPlanePods.Items {
-			if !podIsReady(&pod) {
-				notReadyControlPlanePods.Insert(pod.Name)
-			}
-		}
-		// TODO: Getting events and logs for not ready pods would be pretty nifty
-		return fmt.Sprintf("%s\nNot ready pods: %v", ret, notReadyControlPlanePods.List()), nil
-	}()
-	if err != nil {
-		return fmt.Sprintf("Encountered error getting controlplane timeout output: %v\n%s", err, res)
+func (r *testRunner) printAllControlPlaneLogs(log *zap.SugaredLogger, clusterName string) {
+	log.Info("Printing controlplane logs")
+	cluster := &kubermaticv1.Cluster{}
+	ctx := context.Background()
+	if err := r.seedClusterClient.Get(ctx, types.NamespacedName{Name: clusterName}, cluster); err != nil {
+		log.Errorw("Failed to get cluster", zap.Error(err))
+		return
 	}
-	return res
+
+	clusterHealthStatus, err := json.Marshal(cluster.Status.ExtendedHealth)
+	if err != nil {
+		log.Errorw("Failed to marshal cluster health status", zap.Error(err))
+	} else {
+		fmt.Printf("ClusterHealthStatus: '%s'\n", clusterHealthStatus)
+	}
+
+	log.Infow("Logging events for cluster")
+	if err := logEventsObject(ctx, log, r.seedClusterClient, "default", cluster.UID); err != nil {
+		log.Errorw("Failed to log cluster events", zap.Error(err))
+	}
+
+	if err := printEventsAndLogsForAllPods(
+		ctx,
+		log,
+		r.seedClusterClient,
+		r.seedGeneratedClient,
+		cluster.Status.NamespaceName,
+	); err != nil {
+		log.Errorw("Failed to print events and logs of pods", zap.Error(err))
+	}
 }
 
 // waitForMachinesToJoinCluster waits for machines to join the cluster. It does so by checking
@@ -1084,7 +1213,7 @@ func waitForMachinesToJoinCluster(log *zap.SugaredLogger, client ctrlruntimeclie
 	startTime := time.Now()
 	err := wait.Poll(10*time.Second, timeout, func() (bool, error) {
 		machineList := &clusterv1alpha1.MachineList{}
-		if err := client.List(context.Background(), &ctrlruntimeclient.ListOptions{}, machineList); err != nil {
+		if err := client.List(context.Background(), machineList); err != nil {
 			log.Warnw("Failed to list machines", zap.Error(err))
 			return false, nil
 		}
@@ -1110,7 +1239,7 @@ func waitForNodesToBeReady(log *zap.SugaredLogger, client ctrlruntimeclient.Clie
 	startTime := time.Now()
 	err := wait.Poll(10*time.Second, timeout, func() (bool, error) {
 		nodeList := &corev1.NodeList{}
-		if err := client.List(context.Background(), &ctrlruntimeclient.ListOptions{}, nodeList); err != nil {
+		if err := client.List(context.Background(), nodeList); err != nil {
 			log.Warnw("Failed to list nodes", zap.Error(err))
 			return false, nil
 		}
@@ -1141,7 +1270,14 @@ func printFileUnbuffered(filename string) error {
 		return err
 	}
 	defer fd.Close()
-	_, err = io.Copy(os.Stdout, fd)
+	return printUnbuffered(fd)
+}
+
+// printUnbuffered uses io.Copy to print data to stdout.
+// It should be used for all bigger logs, to avoid buffering
+// them in memory and getting oom killed because of that.
+func printUnbuffered(src io.Reader) error {
+	_, err := io.Copy(os.Stdout, src)
 	return err
 }
 
@@ -1188,4 +1324,174 @@ func junitReporterWrapper(
 	report.Tests++
 
 	return err
+}
+
+// printEvents and logs for all pods. Include ready pods, because they may still contain useful information.
+func printEventsAndLogsForAllPods(
+	ctx context.Context,
+	log *zap.SugaredLogger,
+	client ctrlruntimeclient.Client,
+	k8sclient kubernetes.Interface,
+	namespace string,
+) error {
+	log.Infow("Printing logs for all pods", "namespace", namespace)
+
+	pods := &corev1.PodList{}
+	if err := client.List(ctx, pods, ctrlruntimeclient.InNamespace(namespace)); err != nil {
+		return fmt.Errorf("failed to list pods: %v", err)
+	}
+
+	var errs []error
+	for _, pod := range pods.Items {
+		log := log.With("pod", pod.Name)
+		if !podIsReady(&pod) {
+			log.Error("Pod is not ready")
+		}
+		log.Info("Logging events for pod")
+		if err := logEventsObject(ctx, log, client, pod.Namespace, pod.UID); err != nil {
+			log.Errorw("Failed to log events for pod", zap.Error(err))
+			errs = append(errs, err)
+		}
+		log.Info("Printing logs for pod")
+		if err := printLogsForPod(log, k8sclient, &pod); err != nil {
+			log.Errorw("Failed to print logs for pod", zap.Error(utilerror.NewAggregate(err)))
+			errs = append(errs, err...)
+		}
+	}
+
+	return utilerror.NewAggregate(errs)
+}
+
+func printLogsForPod(
+	log *zap.SugaredLogger,
+	k8sclient kubernetes.Interface,
+	pod *corev1.Pod,
+) []error {
+	var errs []error
+	for _, container := range pod.Spec.Containers {
+		log.Infow("Printing logs for container", "container", container.Name)
+		if err := printLogsForContainer(k8sclient, pod, container.Name); err != nil {
+			log.Errorw(
+				"Failed to print logs for container",
+				"name", container.Name,
+				zap.Error(err),
+			)
+			errs = append(errs, err)
+		}
+	}
+	for _, initContainer := range pod.Spec.InitContainers {
+		log.Infow("Printing logs for initContainer", "initContainer", initContainer.Name)
+		if err := printLogsForContainer(k8sclient, pod, initContainer.Name); err != nil {
+			log.Errorw(
+				"Failed to print logs for container",
+				"name", initContainer.Name,
+				zap.Error(err),
+			)
+			errs = append(errs, err)
+		}
+	}
+	return errs
+}
+
+func printLogsForContainer(client kubernetes.Interface, pod *corev1.Pod, containerName string) error {
+	readCloser, err := client.
+		CoreV1().
+		Pods(pod.Namespace).
+		GetLogs(pod.Name, &corev1.PodLogOptions{Container: containerName}).
+		Stream()
+	if err != nil {
+		return err
+	}
+	defer readCloser.Close()
+	return printUnbuffered(readCloser)
+}
+
+func logEventsForAllMachines(
+	ctx context.Context,
+	log *zap.SugaredLogger,
+	client ctrlruntimeclient.Client,
+) {
+	machines := &clusterv1alpha1.MachineList{}
+	if err := client.List(ctx, machines); err != nil {
+		log.Errorw("Failed to list machines", zap.Error(err))
+		return
+	}
+
+	for _, machine := range machines.Items {
+		log.Infow("Logging events for machine", "name", machine.Name)
+		if err := logEventsObject(ctx, log, client, machine.Namespace, machine.UID); err != nil {
+			log.Errorw(
+				"Failed to log events for machine",
+				"name", machine.Name,
+				"namespace", machine.Namespace,
+				zap.Error(err),
+			)
+		}
+	}
+}
+
+func logEventsObject(
+	ctx context.Context,
+	log *zap.SugaredLogger,
+	client ctrlruntimeclient.Client,
+	namespace string,
+	uid types.UID,
+) error {
+	events := &corev1.EventList{}
+	listOpts := &ctrlruntimeclient.ListOptions{
+		Namespace:     namespace,
+		FieldSelector: fields.OneTermEqualSelector("involvedObject.uid", string(uid)),
+	}
+	if err := client.List(ctx, events, listOpts); err != nil {
+		return fmt.Errorf("failed to get events: %v", err)
+	}
+
+	for _, event := range events.Items {
+		var msg string
+		if event.Type == corev1.EventTypeWarning {
+			// Make sure this gets highlighted
+			msg = "ERROR"
+		}
+		log.Infow(
+			msg,
+			"EventType", event.Type,
+			"Number", event.Count,
+			"Reason", event.Reason,
+			"Message", event.Message,
+			"Source", event.Source.Component,
+		)
+	}
+	return nil
+}
+
+func logUserClusterPodEventsAndLogs(
+	log *zap.SugaredLogger,
+	connProvider *clusterclient.Provider,
+	cluster *kubermaticv1.Cluster,
+) {
+	log.Info("Attempting to log usercluster pod events and logs")
+	cfg, err := connProvider.GetClientConfig(cluster)
+	if err != nil {
+		log.Errorw("Failed to get usercluster admin kubeconfig")
+		return
+	}
+	k8sClient, err := kubernetes.NewForConfig(cfg)
+	if err != nil {
+		log.Errorw("Failed to construct k8sClient for usercluster", zap.Error(err))
+		return
+	}
+	client, err := connProvider.GetClient(cluster)
+	if err != nil {
+		log.Errorw("Failed to construct client for usercluster", zap.Error(err))
+		return
+	}
+	if err := printEventsAndLogsForAllPods(
+		context.Background(),
+		log,
+		client,
+		k8sClient,
+		"",
+	); err != nil {
+		log.Errorw("Failed to print events and logs for usercluster pods", zap.Error(err))
+	}
 }

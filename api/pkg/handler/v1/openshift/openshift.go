@@ -16,9 +16,8 @@ import (
 	transporthttp "github.com/go-kit/kit/transport/http"
 	"go.uber.org/zap"
 
-	openshiftresources "github.com/kubermatic/kubermatic/api/pkg/controller/openshift/resources"
+	openshiftresources "github.com/kubermatic/kubermatic/api/pkg/controller/seed-controller-manager/openshift/resources"
 	kubermaticv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
-	"github.com/kubermatic/kubermatic/api/pkg/handler/middleware"
 	"github.com/kubermatic/kubermatic/api/pkg/handler/v1/cluster"
 	"github.com/kubermatic/kubermatic/api/pkg/handler/v1/common"
 	"github.com/kubermatic/kubermatic/api/pkg/provider"
@@ -43,6 +42,7 @@ func ConsoleLoginEndpoint(
 	log *zap.SugaredLogger,
 	extractor transporthttp.RequestFunc,
 	projectProvider provider.ProjectProvider,
+	userInfoGetter provider.UserInfoGetter,
 	middlewares endpoint.Middleware) http.Handler {
 	return dynamicHTTPHandler(func(w http.ResponseWriter, r *http.Request) {
 
@@ -57,15 +57,19 @@ func ConsoleLoginEndpoint(
 		// The endpoint the middleware is called with is the innermost one, hence we must
 		// define it as closure and pass it to the middleware() call below.
 		endpoint := func(ctx context.Context, request interface{}) (interface{}, error) {
-			cluster, clusterProvider, err := cluster.GetClusterProviderFromRequest(ctx, request, projectProvider)
+			cluster, clusterProvider, err := cluster.GetClusterProviderFromRequest(ctx, request, projectProvider, userInfoGetter)
 			if err != nil {
 				common.WriteHTTPError(log, w, err)
 				return nil, nil
 			}
 			log = log.With("cluster", cluster.Name)
-
-			userInfo, ok := ctx.Value(middleware.UserInfoContextKey).(*provider.UserInfo)
+			req, ok := request.(common.GetClusterReq)
 			if !ok {
+				common.WriteHTTPError(log, w, kubermaticerrors.New(http.StatusBadRequest, "invalid request"))
+				return nil, nil
+			}
+			userInfo, err := userInfoGetter(ctx, req.ProjectID)
+			if err != nil {
 				common.WriteHTTPError(log, w, kubermaticerrors.New(http.StatusInternalServerError, "couldn't get userInfo"))
 				return nil, nil
 			}
@@ -91,6 +95,7 @@ func ConsoleProxyEndpoint(
 	log *zap.SugaredLogger,
 	extractor transporthttp.RequestFunc,
 	projectProvider provider.ProjectProvider,
+	userInfoGetter provider.UserInfoGetter,
 	middlewares endpoint.Middleware) http.Handler {
 	return dynamicHTTPHandler(func(w http.ResponseWriter, r *http.Request) {
 
@@ -105,7 +110,7 @@ func ConsoleProxyEndpoint(
 		// The endpoint the middleware is called with is the innermost one, hence we must
 		// define it as closure and pass it to the middleware() call below.
 		endpoint := func(ctx context.Context, request interface{}) (interface{}, error) {
-			cluster, clusterProvider, err := cluster.GetClusterProviderFromRequest(ctx, request, projectProvider)
+			cluster, clusterProvider, err := cluster.GetClusterProviderFromRequest(ctx, request, projectProvider, userInfoGetter)
 			if err != nil {
 				common.WriteHTTPError(log, w, err)
 				return nil, nil
@@ -113,7 +118,7 @@ func ConsoleProxyEndpoint(
 			log = log.With("cluster", cluster.Name)
 
 			// Ideally we would cache these to not open a port for every single request
-			portforwarder, outBuffer, closeChan, err := common.GetPortForwarder(
+			portforwarder, closeChan, err := common.GetPortForwarder(
 				clusterProvider.GetSeedClusterAdminClient().CoreV1(),
 				clusterProvider.SeedAdminConfig(),
 				cluster.Status.NamespaceName,
@@ -133,25 +138,26 @@ func ConsoleProxyEndpoint(
 				return nil, nil
 			}
 
-			// PortForwarder does have a `GetPorts` but its plain broken in case the portforwarder picks
-			// a random port and always returns 0.
-			// TODO @alvaroaleman: Fix upstream
-			port, err := common.GetLocalPortFromPortForwardOutput(outBuffer.String())
+			ports, err := portforwarder.GetPorts()
 			if err != nil {
 				common.WriteHTTPError(log, w, fmt.Errorf("failed to get backend port: %v", err))
 				return nil, nil
 			}
-			url, err := url.Parse(fmt.Sprintf("http://127.0.0.1:%d", port))
-			if err != nil {
-				common.WriteHTTPError(log, w, fmt.Errorf("failed to parse backend url: %v", err))
+			if len(ports) != 1 {
+				common.WriteHTTPError(log, w, fmt.Errorf("didn't get exactly one port but %d", len(ports)))
 				return nil, nil
+			}
+
+			proxyURL := &url.URL{
+				Scheme: "http",
+				Host:   fmt.Sprintf("127.0.0.1:%d", ports[0].Local),
 			}
 
 			// The Openshift console needs script-src: unsafe-inline and sryle-src: unsafe-inline.
 			// The header here overwrites the setting on the main router, which is more strict.
 			w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline'; object-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; media-src 'self'; frame-ancestors 'self'; frame-src 'self'; connect-src 'self'")
 			// Proxy the request
-			proxy := httputil.NewSingleHostReverseProxy(url)
+			proxy := httputil.NewSingleHostReverseProxy(proxyURL)
 			proxy.ServeHTTP(w, r)
 
 			return nil, nil
@@ -254,6 +260,7 @@ func consoleLogin(
 	oauthCode := redirectURL.Query().Get("code")
 	if oauthCode == "" {
 		common.WriteHTTPError(log, w, errors.New("did not get an OAuth code back from Openshift OAuth server"))
+		return
 	}
 	// We don't check this here again. If something is wrong with it, Openshift will complain
 	returnedOAuthState := redirectURL.Query().Get("state")

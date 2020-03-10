@@ -19,6 +19,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	ctrlruntimeclient "sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
 )
 
 type WebhookOpts struct {
@@ -39,6 +40,7 @@ func (opts *WebhookOpts) AddFlags(fs *flag.FlagSet) {
 func (opts *WebhookOpts) Server(
 	ctx context.Context,
 	log *zap.SugaredLogger,
+	namespace string,
 	workerName string,
 	seedsGetter provider.SeedsGetter,
 	seedClientGetter provider.SeedClientGetter,
@@ -63,6 +65,7 @@ func (opts *WebhookOpts) Server(
 		certFile:             opts.CertFile,
 		keyFile:              opts.KeyFile,
 		validator:            newValidator(ctx, seedsGetter, seedClientGetter, listOpts),
+		namespace:            namespace,
 		migrationModeEnabled: migrationModeEnabled,
 	}
 	mux := http.NewServeMux()
@@ -79,7 +82,16 @@ type Server struct {
 	certFile             string
 	keyFile              string
 	validator            *seedValidator
+	namespace            string
 	migrationModeEnabled bool
+}
+
+// Server implements LeaderElectionRunnable to indicate that it does not require to run
+// within an elected leader
+var _ manager.LeaderElectionRunnable = &Server{}
+
+func (s *Server) NeedLeaderElection() bool {
+	return false
 }
 
 // Start implements sigs.k8s.io/controller-runtime/pkg/manager.Runnable
@@ -142,6 +154,17 @@ func (s *Server) handle(req *http.Request) (*admissionv1beta1.AdmissionRequest, 
 		"name", admissionReview.Request.Name,
 		"namespace", admissionReview.Request.Namespace,
 		"operation", admissionReview.Request.Operation)
+
+	// Under normal circumstances, the Kubermatic Operator will setup a Webhook
+	// that has a namespace selector (and it will also label the kubermatic ns),
+	// so that a seed webhook never receives requests for other namespaces.
+	// However the old Helm chart could not do this and deployed a "global" webhook.
+	// Until all seeds are migrated to the Operator, this check ensures that the
+	// old-style webhook ignores foreign namespace requests entirely.
+	if admissionReview.Request.Namespace != s.namespace {
+		s.log.Warn("Request is for foreign namespace, ignoring")
+		return admissionReview.Request, nil
+	}
 
 	seed := &kubermaticv1.Seed{}
 	// On DELETE, the admissionReview.Request.Object is unset

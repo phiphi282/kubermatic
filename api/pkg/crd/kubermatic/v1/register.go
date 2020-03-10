@@ -49,6 +49,12 @@ func addKnownTypes(scheme *runtime.Scheme) error {
 		&UserProjectBindingList{},
 		&Seed{},
 		&SeedList{},
+		&KubermaticSetting{},
+		&KubermaticSettingList{},
+		&AddonConfig{},
+		&AddonConfigList{},
+		&Preset{},
+		&PresetList{},
 		&MachineDeploymentRequest{},
 		&MachineDeploymentRequestList{},
 	)

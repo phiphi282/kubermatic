@@ -34,7 +34,7 @@ func Deployment(c *kubermaticv1.Cluster, nd *apiv1.NodeDeployment, dc *kubermati
 	} else {
 		// GenerateName can be set only if Name is empty to avoid confusing error:
 		// https://github.com/kubernetes/kubernetes/issues/32220
-		md.GenerateName = "metakube-worker-"
+		md.GenerateName = fmt.Sprintf("%s-worker-", c.Spec.HumanReadableName)
 	}
 
 	md.Namespace = metav1.NamespaceSystem
@@ -84,6 +84,21 @@ func Deployment(c *kubermaticv1.Cluster, nd *apiv1.NodeDeployment, dc *kubermati
 	}
 
 	md.Spec.Template.Spec.Versions.Kubelet = nd.Spec.Template.Versions.Kubelet
+
+	if nd.Spec.DynamicConfig != nil && *nd.Spec.DynamicConfig {
+		kubeletVersion, err := semver.NewVersion(nd.Spec.Template.Versions.Kubelet)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse kubelet version: %v", err)
+		}
+
+		md.Spec.Template.Spec.ConfigSource = &corev1.NodeConfigSource{
+			ConfigMap: &corev1.ConfigMapNodeConfigSource{
+				Namespace:        "kube-system",
+				Name:             fmt.Sprintf("kubelet-config-%d.%d", kubeletVersion.Major(), kubeletVersion.Minor()),
+				KubeletConfigKey: "kubelet",
+			},
+		}
+	}
 
 	if len(c.Spec.MachineNetworks) > 0 {
 		// TODO(mrIncompetent): Rename this finalizer to not contain the word "kubermatic" (For whitelabeling purpose)

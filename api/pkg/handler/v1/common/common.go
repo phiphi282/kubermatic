@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -17,16 +16,14 @@ import (
 	"k8s.io/client-go/tools/portforward"
 	"k8s.io/client-go/transport/spdy"
 
-	providerconfig "github.com/kubermatic/machine-controller/pkg/providerconfig/types"
-
 	kubermaticv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
 	"github.com/kubermatic/kubermatic/api/pkg/provider"
 	kubermaticerrors "github.com/kubermatic/kubermatic/api/pkg/util/errors"
 	"github.com/kubermatic/kubermatic/api/pkg/version"
+	providerconfig "github.com/kubermatic/machine-controller/pkg/providerconfig/types"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
 	corev1interface "k8s.io/client-go/kubernetes/typed/core/v1"
 	ctrlruntimeclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -64,13 +61,6 @@ type UpdateManager interface {
 	GetPossibleUpdates(from, clusterType string) ([]*version.Version, error)
 }
 
-// PresetsManager specifies a set of methods to handle presets for specific provider
-type PresetsManager interface {
-	GetPresets(userInfo *provider.UserInfo) ([]kubermaticv1.Preset, error)
-	GetPreset(userInfo *provider.UserInfo, name string) (*kubermaticv1.Preset, error)
-	SetCloudCredentials(userInfo *provider.UserInfo, presetName string, cloud kubermaticv1.CloudSpec, dc *kubermaticv1.Datacenter) (*kubermaticv1.CloudSpec, error)
-}
-
 // ServerMetrics defines metrics used by the API.
 type ServerMetrics struct {
 	HTTPRequestsTotal          *prometheus.CounterVec
@@ -98,19 +88,7 @@ func (d CredentialsData) Cluster() *kubermaticv1.Cluster {
 }
 
 func (d CredentialsData) GetGlobalSecretKeySelectorValue(configVar *providerconfig.GlobalSecretKeySelector, key string) (string, error) {
-	if configVar.Name != "" && configVar.Namespace != "" && key != "" {
-		secret := &corev1.Secret{}
-		name := types.NamespacedName{Namespace: configVar.Namespace, Name: configVar.Name}
-		if err := d.Client.Get(d.Ctx, name, secret); err != nil {
-			return "", fmt.Errorf("error retrieving secret %q from namespace %q: %v", configVar.Name, configVar.Namespace, err)
-		}
-
-		if val, ok := secret.Data[key]; ok {
-			return string(val), nil
-		}
-		return "", fmt.Errorf("secret %q in namespace %q has no key %q", configVar.Name, configVar.Namespace, key)
-	}
-	return "", nil
+	return provider.SecretKeySelectorValueFuncFactory(d.Ctx, d.Client)(configVar, key)
 }
 
 // GetReadyPod returns a pod matching provided label selector if it is posting ready status, error otherwise.
@@ -143,28 +121,27 @@ func GetPortForwarder(
 	cfg *rest.Config,
 	namespace string,
 	labelSelector string,
-	containerPort int) (*portforward.PortForwarder, *bytes.Buffer, chan struct{}, error) {
+	containerPort int) (*portforward.PortForwarder, chan struct{}, error) {
 	pod, err := GetReadyPod(coreClient.Pods(namespace), labelSelector)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
 
 	dialer, err := getDialerForPod(pod, coreClient.RESTClient(), cfg)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
 
 	readyChan := make(chan struct{})
 	stopChan := make(chan struct{})
 	errorBuffer := bytes.NewBuffer(make([]byte, 1024))
-	outBuffer := bytes.NewBuffer(make([]byte, 1024))
-	portforwarder, err := portforward.NewOnAddresses(dialer, []string{"127.0.0.1"}, []string{"0:" + strconv.Itoa(containerPort)}, stopChan, readyChan, outBuffer, errorBuffer)
+	portforwarder, err := portforward.NewOnAddresses(dialer, []string{"127.0.0.1"}, []string{"0:" + strconv.Itoa(containerPort)}, stopChan, readyChan, bytes.NewBuffer(make([]byte, 1024)), errorBuffer)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("failed to create portforwarder: %v", err)
+		return nil, nil, fmt.Errorf("failed to create portforwarder: %v", err)
 	}
 
 	// Portforwarding is blocking, so we can't do it here
-	return portforwarder, outBuffer, stopChan, nil
+	return portforwarder, stopChan, nil
 }
 
 func getReadyPods(pods *corev1.PodList) *corev1.PodList {
@@ -218,24 +195,6 @@ func WaitForPortForwarder(p *portforward.PortForwarder, errChan <-chan error) er
 	case <-p.Ready:
 		return nil
 	}
-}
-
-// GetLocalPortFromPortForwardOutput parses outBuffer returned by GetPortForwarder method and returns
-// local port on which port forwarder exposed the pod.
-func GetLocalPortFromPortForwardOutput(out string) (int, error) {
-	colonSplit := strings.Split(out, ":")
-	if n := len(colonSplit); n < 2 {
-		return 0, fmt.Errorf("expected at least two results when splitting by colon, got %d", n)
-	}
-	spaceSplit := strings.Split(colonSplit[1], " ")
-	if n := len(spaceSplit); n < 1 {
-		return 0, fmt.Errorf("expected at least one result when splitting by space, got %d", n)
-	}
-	result, err := strconv.Atoi(spaceSplit[0])
-	if err != nil {
-		return 0, fmt.Errorf("failed to parse int: %v", err)
-	}
-	return result, nil
 }
 
 // WriteHTTPError writes an http error out. If debug is enabled, it also gets logged.

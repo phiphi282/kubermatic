@@ -10,8 +10,12 @@ import (
 type Interface interface {
 	// Addons returns a AddonInformer.
 	Addons() AddonInformer
+	// AddonConfigs returns a AddonConfigInformer.
+	AddonConfigs() AddonConfigInformer
 	// Clusters returns a ClusterInformer.
 	Clusters() ClusterInformer
+	// KubermaticSettings returns a KubermaticSettingInformer.
+	KubermaticSettings() KubermaticSettingInformer
 	// MachineDeploymentRequests returns a MachineDeploymentRequestInformer.
 	MachineDeploymentRequests() MachineDeploymentRequestInformer
 	// Projects returns a ProjectInformer.
@@ -40,9 +44,19 @@ func (v *version) Addons() AddonInformer {
 	return &addonInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
 }
 
+// AddonConfigs returns a AddonConfigInformer.
+func (v *version) AddonConfigs() AddonConfigInformer {
+	return &addonConfigInformer{factory: v.factory, tweakListOptions: v.tweakListOptions}
+}
+
 // Clusters returns a ClusterInformer.
 func (v *version) Clusters() ClusterInformer {
 	return &clusterInformer{factory: v.factory, tweakListOptions: v.tweakListOptions}
+}
+
+// KubermaticSettings returns a KubermaticSettingInformer.
+func (v *version) KubermaticSettings() KubermaticSettingInformer {
+	return &kubermaticSettingInformer{factory: v.factory, tweakListOptions: v.tweakListOptions}
 }
 
 // MachineDeploymentRequests returns a MachineDeploymentRequestInformer.

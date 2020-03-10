@@ -17,15 +17,15 @@ import (
 	"github.com/kubermatic/kubermatic/api/pkg/util/errors"
 )
 
-func OpenstackSizeEndpoint(seedsGetter provider.SeedsGetter, credentialManager common.PresetsManager) endpoint.Endpoint {
+func OpenstackSizeEndpoint(seedsGetter provider.SeedsGetter, presetsProvider provider.PresetProvider, userInfoGetter provider.UserInfoGetter) endpoint.Endpoint {
 	return func(ctx context.Context, request interface{}) (interface{}, error) {
 		req, ok := request.(OpenstackReq)
 		if !ok {
 			return nil, fmt.Errorf("incorrect type of request, expected = OpenstackReq, got = %T", request)
 		}
-		userInfo, ok := ctx.Value(middleware.UserInfoContextKey).(*provider.UserInfo)
-		if !ok {
-			return nil, errors.New(http.StatusInternalServerError, "can not get user info")
+		userInfo, err := userInfoGetter(ctx, "")
+		if err != nil {
+			return nil, common.KubernetesErrorToHTTPError(err)
 		}
 
 		datacenterName := req.DatacenterName
@@ -34,7 +34,7 @@ func OpenstackSizeEndpoint(seedsGetter provider.SeedsGetter, credentialManager c
 			return nil, fmt.Errorf("error getting dc: %v", err)
 		}
 
-		username, password, domain, tenant, tenantID, err := getOpenstackCredentials(userInfo, req.Credential, req.Username, req.Password, req.Domain, req.Tenant, req.TenantID, credentialManager)
+		username, password, domain, tenant, tenantID, err := getOpenstackCredentials(userInfo, req.Credential, req.Username, req.Password, req.Domain, req.Tenant, req.TenantID, presetsProvider)
 		if err != nil {
 			return nil, fmt.Errorf("error getting OpenStack credentials: %v", err)
 		}
@@ -42,19 +42,19 @@ func OpenstackSizeEndpoint(seedsGetter provider.SeedsGetter, credentialManager c
 	}
 }
 
-func OpenstackSizeWithClusterCredentialsEndpoint(projectProvider provider.ProjectProvider, seedsGetter provider.SeedsGetter) endpoint.Endpoint {
+func OpenstackSizeWithClusterCredentialsEndpoint(projectProvider provider.ProjectProvider, seedsGetter provider.SeedsGetter, userInfoGetter provider.UserInfoGetter) endpoint.Endpoint {
 	return func(ctx context.Context, request interface{}) (interface{}, error) {
 		req := request.(OpenstackNoCredentialsReq)
-		cluster, err := getClusterForOpenstack(ctx, projectProvider, req.ProjectID, req.ClusterID)
+		cluster, err := getClusterForOpenstack(ctx, projectProvider, userInfoGetter, req.ProjectID, req.ClusterID)
 		if err != nil {
 			return nil, err
 		}
 
 		datacenterName := cluster.Spec.Cloud.DatacenterName
 
-		userInfo, ok := ctx.Value(middleware.UserInfoContextKey).(*provider.UserInfo)
-		if !ok {
-			return nil, errors.New(http.StatusInternalServerError, "can not get user info")
+		userInfo, err := userInfoGetter(ctx, req.ProjectID)
+		if err != nil {
+			return nil, common.KubernetesErrorToHTTPError(err)
 		}
 
 		_, datacenter, err := provider.DatacenterFromSeedMap(userInfo, seedsGetter, datacenterName)
@@ -113,17 +113,17 @@ func MeetsOpenstackNodeSizeRequirement(apiSize apiv1.OpenstackSize, requirements
 	return true
 }
 
-func OpenstackTenantEndpoint(seedsGetter provider.SeedsGetter, credentialManager common.PresetsManager) endpoint.Endpoint {
+func OpenstackTenantEndpoint(seedsGetter provider.SeedsGetter, presetsProvider provider.PresetProvider, userInfoGetter provider.UserInfoGetter) endpoint.Endpoint {
 	return func(ctx context.Context, request interface{}) (interface{}, error) {
 		req, ok := request.(OpenstackTenantReq)
 		if !ok {
 			return nil, fmt.Errorf("incorrect type of request, expected = OpenstackTenantReq, got = %T", request)
 		}
-		userInfo, ok := ctx.Value(middleware.UserInfoContextKey).(*provider.UserInfo)
-		if !ok {
-			return nil, errors.New(http.StatusInternalServerError, "can not get user info")
+		userInfo, err := userInfoGetter(ctx, "")
+		if err != nil {
+			return nil, common.KubernetesErrorToHTTPError(err)
 		}
-		username, password, domain, _, _, err := getOpenstackCredentials(userInfo, req.Credential, req.Username, req.Password, req.Domain, "", "", credentialManager)
+		username, password, domain, _, _, err := getOpenstackCredentials(userInfo, req.Credential, req.Username, req.Password, req.Domain, "", "", presetsProvider)
 		if err != nil {
 			return nil, fmt.Errorf("error getting OpenStack credentials: %v", err)
 		}
@@ -131,10 +131,10 @@ func OpenstackTenantEndpoint(seedsGetter provider.SeedsGetter, credentialManager
 	}
 }
 
-func OpenstackTenantWithClusterCredentialsEndpoint(projectProvider provider.ProjectProvider, seedsGetter provider.SeedsGetter) endpoint.Endpoint {
+func OpenstackTenantWithClusterCredentialsEndpoint(projectProvider provider.ProjectProvider, seedsGetter provider.SeedsGetter, userInfoGetter provider.UserInfoGetter) endpoint.Endpoint {
 	return func(ctx context.Context, request interface{}) (interface{}, error) {
 		req := request.(OpenstackNoCredentialsReq)
-		cluster, err := getClusterForOpenstack(ctx, projectProvider, req.ProjectID, req.ClusterID)
+		cluster, err := getClusterForOpenstack(ctx, projectProvider, userInfoGetter, req.ProjectID, req.ClusterID)
 		if err != nil {
 			return nil, err
 		}
@@ -147,9 +147,9 @@ func OpenstackTenantWithClusterCredentialsEndpoint(projectProvider provider.Proj
 			return nil, errors.New(http.StatusInternalServerError, "failed to assert clusterProvider")
 		}
 
-		userInfo, ok := ctx.Value(middleware.UserInfoContextKey).(*provider.UserInfo)
-		if !ok {
-			return nil, errors.New(http.StatusInternalServerError, "can not get user info")
+		userInfo, err := userInfoGetter(ctx, req.ProjectID)
+		if err != nil {
+			return nil, common.KubernetesErrorToHTTPError(err)
 		}
 
 		secretKeySelector := provider.SecretKeySelectorValueFuncFactory(ctx, assertedClusterProvider.GetSeedClusterAdminRuntimeClient())
@@ -185,17 +185,17 @@ func getOpenstackTenants(userInfo *provider.UserInfo, seedsGetter provider.Seeds
 	return apiTenants, nil
 }
 
-func OpenstackNetworkEndpoint(seedsGetter provider.SeedsGetter, credentialManager common.PresetsManager) endpoint.Endpoint {
+func OpenstackNetworkEndpoint(seedsGetter provider.SeedsGetter, presetsProvider provider.PresetProvider, userInfoGetter provider.UserInfoGetter) endpoint.Endpoint {
 	return func(ctx context.Context, request interface{}) (interface{}, error) {
 		req, ok := request.(OpenstackReq)
 		if !ok {
 			return nil, fmt.Errorf("incorrect type of request, expected = OpenstackReq, got = %T", request)
 		}
-		userInfo, ok := ctx.Value(middleware.UserInfoContextKey).(*provider.UserInfo)
-		if !ok {
-			return nil, errors.New(http.StatusInternalServerError, "can not get user info")
+		userInfo, err := userInfoGetter(ctx, "")
+		if err != nil {
+			return nil, common.KubernetesErrorToHTTPError(err)
 		}
-		username, password, domain, tenant, tenantID, err := getOpenstackCredentials(userInfo, req.Credential, req.Username, req.Password, req.Domain, req.Tenant, req.TenantID, credentialManager)
+		username, password, domain, tenant, tenantID, err := getOpenstackCredentials(userInfo, req.Credential, req.Username, req.Password, req.Domain, req.Tenant, req.TenantID, presetsProvider)
 		if err != nil {
 			return nil, fmt.Errorf("error getting OpenStack credentials: %v", err)
 		}
@@ -203,10 +203,10 @@ func OpenstackNetworkEndpoint(seedsGetter provider.SeedsGetter, credentialManage
 	}
 }
 
-func OpenstackNetworkWithClusterCredentialsEndpoint(projectProvider provider.ProjectProvider, seedsGetter provider.SeedsGetter) endpoint.Endpoint {
+func OpenstackNetworkWithClusterCredentialsEndpoint(projectProvider provider.ProjectProvider, seedsGetter provider.SeedsGetter, userInfoGetter provider.UserInfoGetter) endpoint.Endpoint {
 	return func(ctx context.Context, request interface{}) (interface{}, error) {
 		req := request.(OpenstackNoCredentialsReq)
-		cluster, err := getClusterForOpenstack(ctx, projectProvider, req.ProjectID, req.ClusterID)
+		cluster, err := getClusterForOpenstack(ctx, projectProvider, userInfoGetter, req.ProjectID, req.ClusterID)
 		if err != nil {
 			return nil, err
 		}
@@ -219,9 +219,9 @@ func OpenstackNetworkWithClusterCredentialsEndpoint(projectProvider provider.Pro
 			return nil, errors.New(http.StatusInternalServerError, "failed to assert clusterProvider")
 		}
 
-		userInfo, ok := ctx.Value(middleware.UserInfoContextKey).(*provider.UserInfo)
-		if !ok {
-			return nil, errors.New(http.StatusInternalServerError, "can not get user info")
+		userInfo, err := userInfoGetter(ctx, req.ProjectID)
+		if err != nil {
+			return nil, common.KubernetesErrorToHTTPError(err)
 		}
 
 		secretKeySelector := provider.SecretKeySelectorValueFuncFactory(ctx, assertedClusterProvider.GetSeedClusterAdminRuntimeClient())
@@ -258,17 +258,17 @@ func getOpenstackNetworks(userInfo *provider.UserInfo, seedsGetter provider.Seed
 	return apiNetworks, nil
 }
 
-func OpenstackSecurityGroupEndpoint(seedsGetter provider.SeedsGetter, credentialManager common.PresetsManager) endpoint.Endpoint {
+func OpenstackSecurityGroupEndpoint(seedsGetter provider.SeedsGetter, presetsProvider provider.PresetProvider, userInfoGetter provider.UserInfoGetter) endpoint.Endpoint {
 	return func(ctx context.Context, request interface{}) (interface{}, error) {
 		req, ok := request.(OpenstackReq)
 		if !ok {
 			return nil, fmt.Errorf("incorrect type of request, expected = OpenstackReq, got = %T", request)
 		}
-		userInfo, ok := ctx.Value(middleware.UserInfoContextKey).(*provider.UserInfo)
-		if !ok {
-			return nil, errors.New(http.StatusInternalServerError, "can not get user info")
+		userInfo, err := userInfoGetter(ctx, "")
+		if err != nil {
+			return nil, common.KubernetesErrorToHTTPError(err)
 		}
-		username, password, domain, tenant, tenantID, err := getOpenstackCredentials(userInfo, req.Credential, req.Username, req.Password, req.Domain, req.Tenant, req.TenantID, credentialManager)
+		username, password, domain, tenant, tenantID, err := getOpenstackCredentials(userInfo, req.Credential, req.Username, req.Password, req.Domain, req.Tenant, req.TenantID, presetsProvider)
 		if err != nil {
 			return nil, fmt.Errorf("error getting OpenStack credentials: %v", err)
 		}
@@ -276,10 +276,10 @@ func OpenstackSecurityGroupEndpoint(seedsGetter provider.SeedsGetter, credential
 	}
 }
 
-func OpenstackSecurityGroupWithClusterCredentialsEndpoint(projectProvider provider.ProjectProvider, seedsGetter provider.SeedsGetter) endpoint.Endpoint {
+func OpenstackSecurityGroupWithClusterCredentialsEndpoint(projectProvider provider.ProjectProvider, seedsGetter provider.SeedsGetter, userInfoGetter provider.UserInfoGetter) endpoint.Endpoint {
 	return func(ctx context.Context, request interface{}) (interface{}, error) {
 		req := request.(OpenstackNoCredentialsReq)
-		cluster, err := getClusterForOpenstack(ctx, projectProvider, req.ProjectID, req.ClusterID)
+		cluster, err := getClusterForOpenstack(ctx, projectProvider, userInfoGetter, req.ProjectID, req.ClusterID)
 		if err != nil {
 			return nil, err
 		}
@@ -292,9 +292,9 @@ func OpenstackSecurityGroupWithClusterCredentialsEndpoint(projectProvider provid
 			return nil, errors.New(http.StatusInternalServerError, "failed to assert clusterProvider")
 		}
 
-		userInfo, ok := ctx.Value(middleware.UserInfoContextKey).(*provider.UserInfo)
-		if !ok {
-			return nil, errors.New(http.StatusInternalServerError, "can not get user info")
+		userInfo, err := userInfoGetter(ctx, req.ProjectID)
+		if err != nil {
+			return nil, common.KubernetesErrorToHTTPError(err)
 		}
 
 		secretKeySelector := provider.SecretKeySelectorValueFuncFactory(ctx, assertedClusterProvider.GetSeedClusterAdminRuntimeClient())
@@ -330,17 +330,17 @@ func getOpenstackSecurityGroups(userInfo *provider.UserInfo, seedsGetter provide
 	return apiSecurityGroups, nil
 }
 
-func OpenstackSubnetsEndpoint(seedsGetter provider.SeedsGetter, credentialManager common.PresetsManager) endpoint.Endpoint {
+func OpenstackSubnetsEndpoint(seedsGetter provider.SeedsGetter, presetsProvider provider.PresetProvider, userInfoGetter provider.UserInfoGetter) endpoint.Endpoint {
 	return func(ctx context.Context, request interface{}) (interface{}, error) {
 		req, ok := request.(OpenstackSubnetReq)
 		if !ok {
 			return nil, fmt.Errorf("incorrect type of request, expected = OpenstackSubnetReq, got = %T", request)
 		}
-		userInfo, ok := ctx.Value(middleware.UserInfoContextKey).(*provider.UserInfo)
-		if !ok {
-			return nil, errors.New(http.StatusInternalServerError, "can not get user info")
+		userInfo, err := userInfoGetter(ctx, "")
+		if err != nil {
+			return nil, common.KubernetesErrorToHTTPError(err)
 		}
-		username, password, domain, tenant, tenantID, err := getOpenstackCredentials(userInfo, req.Credential, req.Username, req.Password, req.Domain, req.Tenant, req.TenantID, credentialManager)
+		username, password, domain, tenant, tenantID, err := getOpenstackCredentials(userInfo, req.Credential, req.Username, req.Password, req.Domain, req.Tenant, req.TenantID, presetsProvider)
 		if err != nil {
 			return nil, fmt.Errorf("error getting OpenStack credentials: %v", err)
 		}
@@ -348,10 +348,10 @@ func OpenstackSubnetsEndpoint(seedsGetter provider.SeedsGetter, credentialManage
 	}
 }
 
-func OpenstackSubnetsWithClusterCredentialsEndpoint(projectProvider provider.ProjectProvider, seedsGetter provider.SeedsGetter) endpoint.Endpoint {
+func OpenstackSubnetsWithClusterCredentialsEndpoint(projectProvider provider.ProjectProvider, seedsGetter provider.SeedsGetter, userInfoGetter provider.UserInfoGetter) endpoint.Endpoint {
 	return func(ctx context.Context, request interface{}) (interface{}, error) {
 		req := request.(OpenstackSubnetNoCredentialsReq)
-		cluster, err := getClusterForOpenstack(ctx, projectProvider, req.ProjectID, req.ClusterID)
+		cluster, err := getClusterForOpenstack(ctx, projectProvider, userInfoGetter, req.ProjectID, req.ClusterID)
 		if err != nil {
 			return nil, err
 		}
@@ -364,9 +364,9 @@ func OpenstackSubnetsWithClusterCredentialsEndpoint(projectProvider provider.Pro
 			return nil, errors.New(http.StatusInternalServerError, "failed to assert clusterProvider")
 		}
 
-		userInfo, ok := ctx.Value(middleware.UserInfoContextKey).(*provider.UserInfo)
-		if !ok {
-			return nil, errors.New(http.StatusInternalServerError, "can not get user info")
+		userInfo, err := userInfoGetter(ctx, req.ProjectID)
+		if err != nil {
+			return nil, common.KubernetesErrorToHTTPError(err)
 		}
 
 		secretKeySelector := provider.SecretKeySelectorValueFuncFactory(ctx, assertedClusterProvider.GetSeedClusterAdminRuntimeClient())
@@ -400,10 +400,13 @@ func getOpenstackSubnets(userInfo *provider.UserInfo, seedsGetter provider.Seeds
 	return apiSubnetIDs, nil
 }
 
-func getClusterForOpenstack(ctx context.Context, projectProvider provider.ProjectProvider, projectID string, clusterID string) (*kubermaticv1.Cluster, error) {
+func getClusterForOpenstack(ctx context.Context, projectProvider provider.ProjectProvider, userInfoGetter provider.UserInfoGetter, projectID string, clusterID string) (*kubermaticv1.Cluster, error) {
 	clusterProvider := ctx.Value(middleware.ClusterProviderContextKey).(provider.ClusterProvider)
-	userInfo := ctx.Value(middleware.UserInfoContextKey).(*provider.UserInfo)
-	_, err := projectProvider.Get(userInfo, projectID, &provider.ProjectGetOptions{})
+	userInfo, err := userInfoGetter(ctx, projectID)
+	if err != nil {
+		return nil, common.KubernetesErrorToHTTPError(err)
+	}
+	_, err = projectProvider.Get(userInfo, projectID, &provider.ProjectGetOptions{})
 	if err != nil {
 		return nil, common.KubernetesErrorToHTTPError(err)
 	}
@@ -527,9 +530,9 @@ func DecodeOpenstackTenantReq(c context.Context, r *http.Request) (interface{}, 
 	return req, nil
 }
 
-func getOpenstackCredentials(userInfo *provider.UserInfo, credentialName, username, password, domain, tenant, tenantID string, credentialManager common.PresetsManager) (string, string, string, string, string, error) {
+func getOpenstackCredentials(userInfo *provider.UserInfo, credentialName, username, password, domain, tenant, tenantID string, presetProvider provider.PresetProvider) (string, string, string, string, string, error) {
 	if len(credentialName) > 0 {
-		preset, err := credentialManager.GetPreset(userInfo, credentialName)
+		preset, err := presetProvider.GetPreset(userInfo, credentialName)
 		if err != nil {
 			return "", "", "", "", "", fmt.Errorf("can not get preset %s for the user %s", credentialName, userInfo.Email)
 		}

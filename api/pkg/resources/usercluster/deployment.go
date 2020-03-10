@@ -19,23 +19,21 @@ import (
 )
 
 var (
-	defaultResourceRequirements = corev1.ResourceRequirements{
-		Requests: corev1.ResourceList{
-			corev1.ResourceMemory: resource.MustParse("32Mi"),
-			corev1.ResourceCPU:    resource.MustParse("25m"),
-		},
-		Limits: corev1.ResourceList{
-			corev1.ResourceMemory: resource.MustParse("512Mi"),
-			corev1.ResourceCPU:    resource.MustParse("500m"),
+	defaultResourceRequirements = map[string]*corev1.ResourceRequirements{
+		name: {
+			Requests: corev1.ResourceList{
+				corev1.ResourceMemory: resource.MustParse("32Mi"),
+				corev1.ResourceCPU:    resource.MustParse("25m"),
+			},
+			Limits: corev1.ResourceList{
+				corev1.ResourceMemory: resource.MustParse("512Mi"),
+				corev1.ResourceCPU:    resource.MustParse("500m"),
+			},
 		},
 	}
 )
 
-const (
-	name                = "usercluster-controller"
-	openvpnCAMountDir   = "/etc/kubernetes/pki/openvpn"
-	userSSHKeysMountDir = "/etc/kubernetes/usersshkeys"
-)
+const name = "usercluster-controller"
 
 // userclusterControllerData is the subet of the deploymentData interface
 // that is actually required by the usercluster deployment
@@ -104,19 +102,18 @@ func DeploymentCreator(data userclusterControllerData, openshift bool) reconcili
 				"-metrics-listen-address", "0.0.0.0:8085",
 				"-health-listen-address", "0.0.0.0:8086",
 				"-namespace", "$(NAMESPACE)",
-				"-ca-cert", "/etc/kubernetes/pki/ca/ca.crt",
-				"-ca-key", "/etc/kubernetes/pki/ca/ca.key",
 				"-cluster-url", data.Cluster().Address.URL,
 				"-openvpn-server-port", fmt.Sprint(openvpnServerPort),
 				"-overwrite-registry", data.ImageRegistry(""),
 				fmt.Sprintf("-openshift=%t", openshift),
 				"-version", data.Cluster().Spec.Version.String(),
 				"-cloud-provider-name", data.GetKubernetesCloudProviderName(),
-				fmt.Sprintf("-openvpn-ca-cert-file=%s/%s", openvpnCAMountDir, resources.OpenVPNCACertKey),
-				fmt.Sprintf("-openvpn-ca-key-file=%s/%s", openvpnCAMountDir, resources.OpenVPNCAKeyKey),
-				fmt.Sprintf("-user-ssh-keys-dir-path=%s", userSSHKeysMountDir),
+				"-owner-email", data.Cluster().Status.UserEmail,
 			}, getNetworkArgs(data)...)
 
+			if openshiftConsoleCallbackURI := data.Cluster().Address.OpenshiftConsoleCallBack; openshiftConsoleCallbackURI != "" {
+				args = append(args, "-openshift-console-callback-uri", openshiftConsoleCallbackURI)
+			}
 			if data.Cluster().Spec.UpdateWindow != nil && data.Cluster().Spec.UpdateWindow.Length != "" && data.Cluster().Spec.UpdateWindow.Start != "" {
 				args = append(args, "-update-window-start", data.Cluster().Spec.UpdateWindow.Start, "-update-window-length", data.Cluster().Spec.UpdateWindow.Length)
 			}
@@ -154,7 +151,6 @@ func DeploymentCreator(data userclusterControllerData, openshift bool) reconcili
 							},
 						},
 					},
-					Resources: defaultResourceRequirements,
 					ReadinessProbe: &corev1.Probe{
 						Handler: corev1.Handler{
 							HTTPGet: &corev1.HTTPGetAction{
@@ -174,24 +170,14 @@ func DeploymentCreator(data userclusterControllerData, openshift bool) reconcili
 							MountPath: "/etc/kubernetes/kubeconfig",
 							ReadOnly:  true,
 						},
-						{
-							Name:      resources.CASecretName,
-							MountPath: "/etc/kubernetes/pki/ca",
-							ReadOnly:  true,
-						},
-						{
-							Name:      resources.OpenVPNCASecretName,
-							MountPath: openvpnCAMountDir,
-							ReadOnly:  true,
-						},
-						{
-							Name:      resources.UserSSHKeys,
-							MountPath: userSSHKeysMountDir,
-							ReadOnly:  true,
-						},
 					},
 				},
 			}
+			err = resources.SetResourceRequirements(dep.Spec.Template.Spec.Containers, defaultResourceRequirements, nil, dep.Annotations)
+			if err != nil {
+				return nil, fmt.Errorf("failed to set resource requirements: %v", err)
+			}
+			dep.Spec.Template.Spec.ServiceAccountName = serviceAccountName
 
 			wrappedPodSpec, err := apiserver.IsRunningWrapper(data, dep.Spec.Template.Spec, sets.NewString(name))
 			if err != nil {
@@ -211,30 +197,6 @@ func getVolumes() []corev1.Volume {
 			VolumeSource: corev1.VolumeSource{
 				Secret: &corev1.SecretVolumeSource{
 					SecretName: resources.InternalUserClusterAdminKubeconfigSecretName,
-				},
-			},
-		},
-		{
-			Name: resources.CASecretName,
-			VolumeSource: corev1.VolumeSource{
-				Secret: &corev1.SecretVolumeSource{
-					SecretName: resources.CASecretName,
-				},
-			},
-		},
-		{
-			Name: resources.OpenVPNCASecretName,
-			VolumeSource: corev1.VolumeSource{
-				Secret: &corev1.SecretVolumeSource{
-					SecretName: resources.OpenVPNCASecretName,
-				},
-			},
-		},
-		{
-			Name: resources.UserSSHKeys,
-			VolumeSource: corev1.VolumeSource{
-				Secret: &corev1.SecretVolumeSource{
-					SecretName: resources.UserSSHKeys,
 				},
 			},
 		},

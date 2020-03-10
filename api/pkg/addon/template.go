@@ -33,14 +33,16 @@ func txtFuncMap(overwriteRegistry string) template.FuncMap {
 }
 
 type TemplateData struct {
-	Addon        *kubermaticv1.Addon
-	Kubeconfig   string
-	Cluster      *kubermaticv1.Cluster
-	Credentials  resources.Credentials
-	Variables    map[string]interface{}
-	DNSClusterIP string
-	ClusterCIDR  string
-	ExternalURL  string
+	Addon             *kubermaticv1.Addon
+	Kubeconfig        string
+	MajorMinorVersion string
+	Cluster           *kubermaticv1.Cluster
+	Credentials       resources.Credentials
+	Variables         map[string]interface{}
+	DNSClusterIP      string
+	DNSResolverIP     string
+	ClusterCIDR       string
+	ExternalURL       string
 }
 
 func ParseFromFolder(log *zap.SugaredLogger, overwriteRegistry string, manifestPath string, data *TemplateData) ([]runtime.RawExtension, error) {

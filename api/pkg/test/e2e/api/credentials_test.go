@@ -1,11 +1,12 @@
 // +build e2e
 
-package e2e
+package api
 
 import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"sort"
 	"testing"
 	"time"
 
@@ -16,41 +17,50 @@ func TestListCredentials(t *testing.T) {
 	tests := []struct {
 		name         string
 		provider     string
+		datacenter   string
 		expectedList []string
 	}{
 		{
 			name:         "test, get DigitalOcean credential names",
 			provider:     "digitalocean",
-			expectedList: []string{"loodse"},
+			expectedList: []string{"e2e-digitalocean"},
 		},
 		{
 			name:         "test, get Azure credential names",
 			provider:     "azure",
-			expectedList: []string{"loodse"},
+			expectedList: []string{"e2e-azure"},
 		},
 		{
 			name:         "test, get OpenStack credential names",
 			provider:     "openstack",
-			expectedList: []string{"loodse"},
+			expectedList: []string{"e2e-openstack"},
 		},
 		{
 			name:         "test, get GCP credential names",
 			provider:     "gcp",
-			expectedList: []string{"loodse"},
+			expectedList: []string{"e2e-gcp"},
+		},
+		{
+			name:         "test, get GCP credential names for the specific datacenter",
+			provider:     "gcp",
+			datacenter:   "gcp-westeurope",
+			expectedList: []string{"e2e-gcp", "e2e-gcp-datacenter"},
 		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			masterToken, err := GetMasterToken()
+			masterToken, err := retrieveMasterToken()
 			if err != nil {
 				t.Fatalf("can not get master token due error: %v", err)
 			}
 
-			apiRunner := CreateAPIRunner(masterToken, t)
-			credentialList, err := apiRunner.ListCredentials(tc.provider)
+			apiRunner := createRunner(masterToken, t)
+			credentialList, err := apiRunner.ListCredentials(tc.provider, tc.datacenter)
 			if err != nil {
 				t.Fatalf("can not get credential names for provider %s: %v", tc.provider, err)
 			}
+			sort.Strings(tc.expectedList)
+			sort.Strings(credentialList)
 			if !equality.Semantic.DeepEqual(tc.expectedList, credentialList) {
 				t.Fatalf("expected: %v, got %v", tc.expectedList, credentialList)
 			}
@@ -68,13 +78,13 @@ func TestProviderEndpointsWithCredentials(t *testing.T) {
 	}{
 		{
 			name:           "test, get DigitalOcean VM sizes",
-			credentialName: "loodse",
+			credentialName: "e2e-digitalocean",
 			path:           "api/v1/providers/digitalocean/sizes",
 			expectedCode:   http.StatusOK,
 		},
 		{
 			name:           "test, get Azure VM sizes",
-			credentialName: "loodse",
+			credentialName: "e2e-azure",
 			path:           "api/v1/providers/azure/sizes",
 			location:       "westeurope",
 			expectedCode:   http.StatusOK,
@@ -82,7 +92,7 @@ func TestProviderEndpointsWithCredentials(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			masterToken, err := GetMasterToken()
+			masterToken, err := retrieveMasterToken()
 			if err != nil {
 				t.Fatalf("can not get master token due error: %v", err)
 			}

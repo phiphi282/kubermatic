@@ -16,6 +16,21 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 )
 
+var (
+	defaultResourceRequirements = map[string]*corev1.ResourceRequirements{
+		resources.ClusterAutoscalerDeploymentName: {
+			Requests: corev1.ResourceList{
+				corev1.ResourceMemory: resource.MustParse("32Mi"),
+				corev1.ResourceCPU:    resource.MustParse("25m"),
+			},
+			Limits: corev1.ResourceList{
+				corev1.ResourceMemory: resource.MustParse("64Mi"),
+				corev1.ResourceCPU:    resource.MustParse("50m"),
+			},
+		},
+	}
+)
+
 type clusterautoscalerData interface {
 	GetPodTemplateLabels(string, []corev1.Volume, map[string]string) (map[string]string, error)
 	ImageRegistry(string) string
@@ -82,18 +97,6 @@ func DeploymentCreator(data clusterautoscalerData) reconciling.NamedDeploymentCr
 						// delay:
 						// -v=4 --scale-down-delay-after-failure=1s --scale-down-delay-after-add=1s
 					},
-					// This likely won't be enough for bigger clusters, see https://github.com/kubermatic/kubermatic/issues/3568
-					// for details on how we want to fix this: https://github.com/kubermatic/kubermatic/issues/3568
-					Resources: corev1.ResourceRequirements{
-						Requests: corev1.ResourceList{
-							corev1.ResourceMemory: resource.MustParse("32Mi"),
-							corev1.ResourceCPU:    resource.MustParse("25m"),
-						},
-						Limits: corev1.ResourceList{
-							corev1.ResourceMemory: resource.MustParse("64Mi"),
-							corev1.ResourceCPU:    resource.MustParse("50m"),
-						},
-					},
 					LivenessProbe: &corev1.Probe{
 						Handler: corev1.Handler{
 							HTTPGet: &corev1.HTTPGetAction{
@@ -118,6 +121,13 @@ func DeploymentCreator(data clusterautoscalerData) reconciling.NamedDeploymentCr
 				},
 			}
 
+			// This likely won't be enough for bigger clusters, see https://github.com/kubermatic/kubermatic/issues/3568
+			// for details on how we want to fix this: https://github.com/kubermatic/kubermatic/issues/3568
+			err = resources.SetResourceRequirements(dep.Spec.Template.Spec.Containers, defaultResourceRequirements, nil, dep.Annotations)
+			if err != nil {
+				return nil, fmt.Errorf("failed to set resource requirements: %v", err)
+			}
+
 			wrappedPodSpec, err := apiserver.IsRunningWrapper(data, dep.Spec.Template.Spec, sets.NewString(resources.ClusterAutoscalerDeploymentName))
 			if err != nil {
 				return nil, fmt.Errorf("failed to add apiserver.IsRunningWrapper: %v", err)
@@ -133,7 +143,8 @@ func DeploymentCreator(data clusterautoscalerData) reconciling.NamedDeploymentCr
 // version for each Kubernetes version, because the CA imports the scheduler code and the
 // behaviour of that imported code has to match with what the actual scheduler does
 func getTag(cluster *kubermaticv1.Cluster) string {
-	if cluster.Annotations["kubermatic.io/openshift"] != "" {
+	// TODO: Update once we support more than one minor version of openshift
+	if cluster.IsOpenshift() {
 		return "f1df2eb00ad9782b0c23184194008fc3068ad52c-1"
 	}
 

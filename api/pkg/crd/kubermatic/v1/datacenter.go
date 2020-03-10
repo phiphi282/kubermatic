@@ -65,6 +65,8 @@ type SeedSpec struct {
 	// Optional: ProxySettings can be used to configure HTTP proxy settings on the
 	// worker nodes in user clusters. However, proxy settings on nodes take precedence.
 	ProxySettings *ProxySettings `json:"proxy_settings,omitempty"`
+	// Optional: ExposeStrategy explicitly sets the expose strategy for this seed cluster, if not set, the default provided by the master is used.
+	ExposeStrategy corev1.ServiceType `json:"expose_strategy,omitempty"`
 }
 
 type Datacenter struct {
@@ -100,10 +102,12 @@ type DatacenterSpec struct {
 	Fake         *DatacenterSpecFake         `json:"fake,omitempty,omitgenyaml"` // omitgenyaml is used by the example-yaml-generator
 
 	// Optional: When defined, only users with an e-mail address on the
-	// given domain can make use of this datacenter. You can define exactly
-	// one domain, e.g. "example.com", which must match the email domain
+	// given domains can make use of this datacenter. You can define multiple
+	// domains, e.g. "example.com", one of which must match the email domain
 	// exactly (i.e. "example.com" will not match "user@test.example.com").
-	RequiredEmailDomain string `json:"requiredEmailDomain,omitempty"`
+	// RequiredEmailDomain is deprecated. Automatically migrated to the RequiredEmailDomains field.
+	RequiredEmailDomain  string   `json:"requiredEmailDomain,omitempty"`
+	RequiredEmailDomains []string `json:"requiredEmailDomains,omitempty"`
 }
 
 // ImageList defines a map of operating system and the image to use

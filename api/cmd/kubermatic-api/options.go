@@ -1,17 +1,19 @@
 package main
 
 import (
+	"crypto/x509"
 	"flag"
 	"fmt"
+	"io/ioutil"
 	"strings"
 
 	"github.com/kubermatic/kubermatic/api/pkg/features"
 	kubermaticlog "github.com/kubermatic/kubermatic/api/pkg/log"
 	"github.com/kubermatic/kubermatic/api/pkg/provider"
 	"github.com/kubermatic/kubermatic/api/pkg/serviceaccount"
-	"k8s.io/apimachinery/pkg/util/sets"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/util/sets"
 )
 
 type serverRunOptions struct {
@@ -29,6 +31,7 @@ type serverRunOptions struct {
 	domain             string
 	exposeStrategy     corev1.ServiceType
 	dynamicDatacenters bool
+	dynamicPresets     bool
 	namespace          string
 	log                kubermaticlog.Options
 	accessibleAddons   sets.String
@@ -41,6 +44,7 @@ type serverRunOptions struct {
 	oidcIssuerRedirectURI          string
 	oidcIssuerCookieHashKey        string
 	oidcIssuerCookieSecureMode     bool
+	oidcCABundle                   *x509.CertPool
 	oidcSkipTLSVerify              bool
 	oidcIssuerOfflineAccessAsScope bool
 
@@ -56,7 +60,11 @@ func newServerRunOptions() (serverRunOptions, error) {
 		rawFeatureGates     string
 		rawExposeStrategy   string
 		rawAccessibleAddons string
+		oidcCAFile          string
 	)
+
+	s.log = kubermaticlog.NewDefaultOptions()
+	s.log.AddFlags(flag.CommandLine)
 
 	flag.StringVar(&s.listenAddress, "address", ":8080", "The address to listen on")
 	flag.StringVar(&s.kubeconfig, "kubeconfig", "", "Path to the kubeconfig.")
@@ -72,6 +80,7 @@ func newServerRunOptions() (serverRunOptions, error) {
 	flag.StringVar(&rawAccessibleAddons, "accessible-addons", "dashboard,default-storage-class,node-exporter", "Comma-separated list of user cluster addons to expose via the API")
 	flag.StringVar(&s.oidcURL, "oidc-url", "", "URL of the OpenID token issuer. Example: http://auth.int.kubermatic.io")
 	flag.BoolVar(&s.oidcSkipTLSVerify, "oidc-skip-tls-verify", false, "Skip TLS verification for the token issuer")
+	flag.StringVar(&oidcCAFile, "oidc-ca-file", "", "The path to the certificate for the CA that signed your identity provider’s web certificate.")
 	flag.StringVar(&s.oidcAuthenticatorClientID, "oidc-authenticator-client-id", "", "Authenticator client ID")
 	flag.StringVar(&s.oidcIssuerClientID, "oidc-issuer-client-id", "", "Issuer client ID")
 	flag.StringVar(&s.oidcIssuerClientSecret, "oidc-issuer-client-secret", "", "OpenID client secret")
@@ -84,9 +93,8 @@ func newServerRunOptions() (serverRunOptions, error) {
 	flag.StringVar(&s.serviceAccountSigningKey, "service-account-signing-key", "", "Signing key authenticates the service account's token value using HMAC. It is recommended to use a key with 32 bytes or longer.")
 	flag.StringVar(&rawExposeStrategy, "expose-strategy", "NodePort", "The strategy to expose the controlplane with, either \"NodePort\" which creates NodePorts with a \"nodeport-proxy.k8s.io/expose: true\" annotation or \"LoadBalancer\", which creates a LoadBalancer")
 	flag.BoolVar(&s.dynamicDatacenters, "dynamic-datacenters", false, "Whether to enable dynamic datacenters")
+	flag.BoolVar(&s.dynamicPresets, "dynamic-presets", false, "Whether to enable dynamic presets")
 	flag.StringVar(&s.namespace, "namespace", "kubermatic", "The namespace kubermatic runs in, uses to determine where to look for datacenter custom resources")
-	flag.BoolVar(&s.log.Debug, "log-debug", false, "Enables debug logging")
-	flag.StringVar(&s.log.Format, "log-format", string(kubermaticlog.FormatJSON), "Log format. Available are: "+kubermaticlog.AvailableFormats.String())
 	flag.Parse()
 
 	featureGates, err := features.NewFeatures(rawFeatureGates)
@@ -107,6 +115,20 @@ func newServerRunOptions() (serverRunOptions, error) {
 	s.accessibleAddons = sets.NewString(strings.Split(rawAccessibleAddons, ",")...)
 	s.accessibleAddons.Delete("")
 
+	if len(oidcCAFile) > 0 {
+		bytes, err := ioutil.ReadFile(oidcCAFile)
+		if err != nil {
+			return s, fmt.Errorf("failed to read OpenID CA file '%s': %v", oidcCAFile, err)
+		}
+
+		pool := x509.NewCertPool()
+		if !pool.AppendCertsFromPEM(bytes) {
+			return s, fmt.Errorf("OpenID CA file '%s' does not contain any valid PEM-encoded certificates", oidcCAFile)
+		}
+
+		s.oidcCABundle = pool
+	}
+
 	return s, nil
 }
 
@@ -115,18 +137,18 @@ func (o serverRunOptions) validate() error {
 	// we only validate them when the OIDCKubeCfgEndpoint feature flag is set (Kubernetes specific).
 	// Otherwise we force users to set those flags without any result (for Kubernetes clusters)
 	// TODO: Enforce validation as soon as OpenShift support is testable
-	if o.featureGates.Enabled(OIDCKubeCfgEndpoint) {
+	if o.featureGates.Enabled(features.OIDCKubeCfgEndpoint) {
 		if len(o.oidcIssuerClientSecret) == 0 {
-			return fmt.Errorf("%s feature is enabled but \"oidc-client-secret\" flag was not specified", OIDCKubeCfgEndpoint)
+			return fmt.Errorf("%s feature is enabled but \"oidc-client-secret\" flag was not specified", features.OIDCKubeCfgEndpoint)
 		}
 		if len(o.oidcIssuerRedirectURI) == 0 {
-			return fmt.Errorf("%s feature is enabled but \"oidc-redirect-uri\" flag was not specified", OIDCKubeCfgEndpoint)
+			return fmt.Errorf("%s feature is enabled but \"oidc-redirect-uri\" flag was not specified", features.OIDCKubeCfgEndpoint)
 		}
 		if len(o.oidcIssuerCookieHashKey) == 0 {
-			return fmt.Errorf("%s feature is enabled but \"oidc-issuer-cookie-hash-key\" flag was not specified", OIDCKubeCfgEndpoint)
+			return fmt.Errorf("%s feature is enabled but \"oidc-issuer-cookie-hash-key\" flag was not specified", features.OIDCKubeCfgEndpoint)
 		}
 		if len(o.oidcIssuerClientID) == 0 {
-			return fmt.Errorf("%s feature is enabled but \"oidc-issuer-client-id\" flag was not specified", OIDCKubeCfgEndpoint)
+			return fmt.Errorf("%s feature is enabled but \"oidc-issuer-client-id\" flag was not specified", features.OIDCKubeCfgEndpoint)
 		}
 	}
 
@@ -152,5 +174,9 @@ type providers struct {
 	mdRequestProviderGetter               provider.MachineDeploymentRequestProviderGetter
 	seedsGetter                           provider.SeedsGetter
 	addons                                provider.AddonProviderGetter
+	addonConfigProvider                   provider.AddonConfigProvider
 	userInfoGetter                        provider.UserInfoGetter
+	settingsProvider                      provider.SettingsProvider
+	adminProvider                         provider.AdminProvider
+	presetProvider                        provider.PresetProvider
 }

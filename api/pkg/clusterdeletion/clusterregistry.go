@@ -33,7 +33,7 @@ func (d *Deletion) cleanupImageRegistryConfigs(ctx context.Context, log *zap.Sug
 	imageRegistryConfigs.SetAPIVersion("imageregistry.operator.openshift.io/v1")
 	imageRegistryConfigs.SetKind("Config")
 
-	if err := userClusterClient.List(ctx, &ctrlruntimeclient.ListOptions{}, imageRegistryConfigs); err != nil {
+	if err := userClusterClient.List(ctx, imageRegistryConfigs); err != nil {
 		if meta.IsNoMatchError(err) {
 			log.Debug("Got a NoMatchError when listing ImageRegistryConfigs, skipping their cleanup")
 			return false, nil
@@ -68,8 +68,9 @@ func (d *Deletion) cleanupImageRegistryConfigs(ctx context.Context, log *zap.Sug
 		}
 
 		log.Debugw("ImageregistryConfig has no storage configured but finalizer, removing it", "name", imageRegistry.GetName())
+		oldImageRegistry := imageRegistry.DeepCopy()
 		kuberneteshelper.RemoveFinalizer(&imageRegistry, openshiftImageRegistryFinalizer)
-		if err := userClusterClient.Update(ctx, &imageRegistry); err != nil {
+		if err := userClusterClient.Patch(ctx, &imageRegistry, ctrlruntimeclient.MergeFrom(oldImageRegistry)); err != nil {
 			return false, fmt.Errorf("failed to remove %q finalizer from imageRegistryConfig %q: %v", openshiftImageRegistryFinalizer, imageRegistry.GetName(), err)
 		}
 

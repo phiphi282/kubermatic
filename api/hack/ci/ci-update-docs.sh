@@ -2,6 +2,8 @@
 
 set -euo pipefail
 
+source $(dirname $0)/../lib.sh
+
 cd $(dirname $0)/../../..
 
 TARGET_DIR=docs_sync
@@ -19,6 +21,7 @@ cd $TARGET_DIR
 
 # copy interesting files over
 cp ../docs/zz_generated.seed.yaml data/seed.yaml
+cp ../docs/zz_generated.kubermaticConfiguration.yaml data/kubermaticConfiguration.yaml
 
 # re-create Prometheus runbook
 make runbook

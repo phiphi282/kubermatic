@@ -23,6 +23,9 @@ type NodeDeploymentSpec struct {
 	// min replicas
 	MinReplicas int32 `json:"minReplicas,omitempty"`
 
+	// dynamic config
+	DynamicConfig bool `json:"dynamicConfig,omitempty"`
+
 	// paused
 	Paused bool `json:"paused,omitempty"`
 

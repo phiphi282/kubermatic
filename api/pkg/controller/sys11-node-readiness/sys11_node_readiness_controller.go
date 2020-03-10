@@ -47,7 +47,7 @@ func Add(ctx context.Context, mgr manager.Manager, log *zap.SugaredLogger) error
 		ctx:      ctx,
 		log:      log,
 		client:   mgr.GetClient(),
-		recorder: mgr.GetRecorder(ControllerName),
+		recorder: mgr.GetEventRecorderFor(ControllerName),
 	}
 
 	ctrlOptions := controller.Options{

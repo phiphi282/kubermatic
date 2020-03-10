@@ -40,6 +40,9 @@ spec:
         {{- if .Values.kubermatic.dynamicDatacenters }}
         - -dynamic-datacenters=true
         {{- end }}
+        {{- if .Values.kubermatic.dynamicPresets }}
+        - -dynamic-presets=true
+        {{- end }}
         - -oidc-url={{ .Values.kubermatic.auth.tokenIssuer }}
         - -oidc-authenticator-client-id={{ .Values.kubermatic.auth.clientID }}
         - -oidc-skip-tls-verify={{ default false .Values.kubermatic.auth.skipTokenIssuerTLSVerify }}
@@ -54,6 +57,9 @@ spec:
         # the following flags enable oidc kubeconfig feature/endpoint
         - -feature-gates={{ .Values.kubermatic.api.featureGates }}
         {{- if regexMatch ".*OIDCKubeCfgEndpoint=true.*" (default "" .Values.kubermatic.api.featureGates) }}
+        {{- if .Values.kubermatic.auth.caBundle }}
+        - -oidc-ca-file=/opt/dex-ca/caBundle.pem
+        {{- end }}
         - -oidc-issuer-redirect-uri={{ .Values.kubermatic.auth.issuerRedirectURL }}
         - -oidc-issuer-client-id={{ .Values.kubermatic.auth.issuerClientID }}
         - -oidc-issuer-client-secret={{ .Values.kubermatic.auth.issuerClientSecret }}
@@ -70,6 +76,7 @@ spec:
         - -expose-strategy={{ .Values.kubermatic.exposeStrategy }}
         {{- end }}
         - -namespace=$(NAMESPACE)
+        - -pprof-listen-address={{ .Values.kubermatic.api.pprofEndpoint}}
         image: '{{ .Values.kubermatic.api.image.repository }}:{{ .Values.kubermatic.api.image.tag }}'
         imagePullPolicy: {{ .Values.kubermatic.api.image.pullPolicy }}
         env:
@@ -88,6 +95,11 @@ spec:
             path: /api/v1/healthz
             scheme: HTTP
         volumeMounts:
+        {{- if .Values.kubermatic.auth.caBundle }}
+        - name: dex-ca
+          mountPath: "/opt/dex-ca/"
+          readOnly: true
+        {{- end }}
         - name: kubeconfig
           mountPath: "/opt/.kube/"
           readOnly: true
@@ -116,6 +128,11 @@ spec:
       imagePullSecrets:
       - name: dockercfg
       volumes:
+      {{- if .Values.kubermatic.auth.caBundle }}
+      - name: dex-ca
+        secret:
+          secretName: dex-ca
+      {{- end }}
       - name: kubeconfig
         secret:
           secretName: kubeconfig

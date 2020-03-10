@@ -22,6 +22,7 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"github.com/kubermatic/kubermatic/api/pkg/keycloak"
 	"log"
@@ -35,23 +36,23 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/kubermatic/kubermatic/api/pkg/cluster/client"
-	"github.com/kubermatic/kubermatic/api/pkg/controller/rbac"
+	"github.com/kubermatic/kubermatic/api/pkg/controller/master-controller-manager/rbac"
 	kubermaticclientset "github.com/kubermatic/kubermatic/api/pkg/crd/client/clientset/versioned"
 	kubermaticinformers "github.com/kubermatic/kubermatic/api/pkg/crd/client/informers/externalversions"
 	kubermaticv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
+	"github.com/kubermatic/kubermatic/api/pkg/features"
 	"github.com/kubermatic/kubermatic/api/pkg/handler"
 	"github.com/kubermatic/kubermatic/api/pkg/handler/auth"
 	"github.com/kubermatic/kubermatic/api/pkg/handler/v1/common"
 	kubermaticlog "github.com/kubermatic/kubermatic/api/pkg/log"
 	metricspkg "github.com/kubermatic/kubermatic/api/pkg/metrics"
-	"github.com/kubermatic/kubermatic/api/pkg/presets"
+	"github.com/kubermatic/kubermatic/api/pkg/pprof"
 	"github.com/kubermatic/kubermatic/api/pkg/provider"
 	kubernetesprovider "github.com/kubermatic/kubermatic/api/pkg/provider/kubernetes"
 	"github.com/kubermatic/kubermatic/api/pkg/serviceaccount"
-	"github.com/kubermatic/kubermatic/api/pkg/util/informer"
 	"github.com/kubermatic/kubermatic/api/pkg/version"
-
 	clusterv1alpha1 "github.com/kubermatic/machine-controller/pkg/apis/cluster/v1alpha1"
+
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
@@ -64,6 +65,8 @@ import (
 
 func main() {
 	klog.InitFlags(nil)
+	pprofOpts := &pprof.Opts{}
+	pprofOpts.AddFlags(flag.CommandLine)
 	options, err := newServerRunOptions()
 	if err != nil {
 		fmt.Printf("failed to create server run options due to = %v\n", err)
@@ -73,7 +76,7 @@ func main() {
 		fmt.Println(err)
 		os.Exit(1)
 	}
-	rawLog := kubermaticlog.New(options.log.Debug, kubermaticlog.Format(options.log.Format))
+	rawLog := kubermaticlog.New(options.log.Debug, options.log.Format)
 	log := rawLog.Sugar()
 	defer func() {
 		if err := log.Sync(); err != nil {
@@ -105,19 +108,21 @@ func main() {
 	if err != nil {
 		log.Fatalw("failed to create update manager", "error", err)
 	}
-	presetsManager, err := presets.NewFromFile("")
-	if err != nil {
-		log.Fatalw("failed to create presets manager", "error", err)
-	}
 	kcInternal := keycloak.NewClient(requireEnv("KEYCLOAK_INTERNAL_URL"), requireEnv("KEYCLOAK_INTERNAL_ADMIN_USER"), requireEnv("KEYCLOAK_INTERNAL_ADMIN_PASSWORD"))
 	kcExternal := keycloak.NewClient(requireEnv("KEYCLOAK_EXTERNAL_URL"), requireEnv("KEYCLOAK_EXTERNAL_ADMIN_USER"), requireEnv("KEYCLOAK_EXTERNAL_ADMIN_PASSWORD"))
 	keycloakFacade := keycloak.NewGroup()
 	keycloakFacade.RegisterKeycloak(kcExternal)
 	keycloakFacade.RegisterKeycloak(kcInternal)
-	apiHandler, err := createAPIHandler(options, providers, oidcIssuerVerifier, tokenVerifiers, tokenExtractors, updateManager, presetsManager, keycloakFacade)
+	apiHandler, err := createAPIHandler(options, providers, oidcIssuerVerifier, tokenVerifiers, tokenExtractors, updateManager, keycloakFacade)
 	if err != nil {
 		log.Fatalw("failed to create API Handler", "error", err)
 	}
+
+	go func() {
+		if err := pprofOpts.Start(make(chan struct{})); err != nil {
+			log.Fatalw("Failed to start pprof handler", zap.Error(err))
+		}
+	}()
 
 	go metricspkg.ServeForever(options.internalAddr, "/metrics")
 	log.Infow("the API server listening", "listenAddress", options.listenAddress)
@@ -140,9 +145,9 @@ func createInitProviders(options serverRunOptions) (providers, error) {
 
 	// create other providers
 	kubeMasterClient := kubernetes.NewForConfigOrDie(masterCfg)
-	kubeMasterInformerFactory := informers.NewSharedInformerFactory(kubeMasterClient, informer.DefaultInformerResyncPeriod)
+	kubeMasterInformerFactory := informers.NewSharedInformerFactory(kubeMasterClient, 30*time.Minute)
 	kubermaticMasterClient := kubermaticclientset.NewForConfigOrDie(masterCfg)
-	kubermaticMasterInformerFactory := kubermaticinformers.NewSharedInformerFactory(kubermaticMasterClient, informer.DefaultInformerResyncPeriod)
+	kubermaticMasterInformerFactory := kubermaticinformers.NewSharedInformerFactory(kubermaticMasterClient, 30*time.Minute)
 	defaultKubermaticImpersonationClient := kubernetesprovider.NewKubermaticImpersonationClient(masterCfg)
 	defaultKubernetesImpersonationClient := kubernetesprovider.NewKubernetesImpersonationClient(masterCfg)
 
@@ -152,7 +157,7 @@ func createInitProviders(options serverRunOptions) (providers, error) {
 	if err != nil {
 		return providers{}, fmt.Errorf("failed to construct manager: %v", err)
 	}
-	seedsGetter, err := provider.SeedsGetterFactory(context.Background(), mgr.GetClient(), options.dcFile, options.namespace, options.workerName, options.dynamicDatacenters)
+	seedsGetter, err := provider.SeedsGetterFactory(context.Background(), mgr.GetClient(), options.dcFile, options.namespace, options.dynamicDatacenters)
 	if err != nil {
 		return providers{}, err
 	}
@@ -178,8 +183,12 @@ func createInitProviders(options serverRunOptions) (providers, error) {
 	}
 
 	seedClientGetter := provider.SeedClientGetterFactory(seedKubeconfigGetter)
-	clusterProviderGetter := clusterProviderFactory(seedKubeconfigGetter, seedClientGetter, options.workerName, options.featureGates.Enabled(OIDCKubeCfgEndpoint))
+	clusterProviderGetter := clusterProviderFactory(seedKubeconfigGetter, seedClientGetter, options.workerName, options.featureGates.Enabled(features.OIDCKubeCfgEndpoint))
 
+	presetsProvider, err := kubernetesprovider.NewPresetsProvider(context.Background(), mgr.GetClient(), options.presetsFile, options.dynamicPresets)
+	if err != nil {
+		return providers{}, err
+	}
 	// Warm up the restMapper cache. Log but ignore errors encountered here, maybe there are stale seeds
 	go func() {
 		seeds, err := seedsGetter()
@@ -190,7 +199,6 @@ func createInitProviders(options serverRunOptions) (providers, error) {
 		for _, seed := range seeds {
 			if _, err := clusterProviderGetter(seed); err != nil {
 				kubermaticlog.Logger.Infow("failed to get clusterProvider when trying to warm up restMapper cache", zap.Error(err), "seed", seed.Name)
-				continue
 			}
 		}
 	}()
@@ -198,6 +206,9 @@ func createInitProviders(options serverRunOptions) (providers, error) {
 	userMasterLister := kubermaticMasterInformerFactory.Kubermatic().V1().Users().Lister()
 	sshKeyProvider := kubernetesprovider.NewSSHKeyProvider(defaultKubermaticImpersonationClient.CreateImpersonatedKubermaticClientSet, kubermaticMasterInformerFactory.Kubermatic().V1().UserSSHKeys().Lister())
 	userProvider := kubernetesprovider.NewUserProvider(kubermaticMasterClient, userMasterLister, kubernetesprovider.IsServiceAccount)
+	settingsProvider := kubernetesprovider.NewSettingsProvider(kubermaticMasterClient, kubermaticMasterInformerFactory.Kubermatic().V1().KubermaticSettings().Lister())
+	addonConfigProvider := kubernetesprovider.NewAddonConfigProvider(kubermaticMasterClient, kubermaticMasterInformerFactory.Kubermatic().V1().AddonConfigs().Lister())
+	adminProvider := kubernetesprovider.NewAdminProvider(kubermaticMasterClient, userMasterLister)
 
 	serviceAccountTokenProvider, err := kubernetesprovider.NewServiceAccountTokenProvider(defaultKubernetesImpersonationClient.CreateImpersonatedKubernetesClientSet, kubeMasterInformerFactory.Core().V1().Secrets().Lister())
 	if err != nil {
@@ -247,7 +258,11 @@ func createInitProviders(options serverRunOptions) (providers, error) {
 		mdRequestProviderGetter:               machineDeploymentRequestProviderGetter,
 		seedsGetter:                           seedsGetter,
 		addons:                                addonProviderGetter,
-		userInfoGetter:                        userInfoGetter}, nil
+		addonConfigProvider:                   addonConfigProvider,
+		userInfoGetter:                        userInfoGetter,
+		settingsProvider:                      settingsProvider,
+		adminProvider:                         adminProvider,
+		presetProvider:                        presetsProvider}, nil
 }
 
 func createOIDCClients(options serverRunOptions) (auth.OIDCIssuerVerifier, error) {
@@ -261,6 +276,7 @@ func createOIDCClients(options serverRunOptions) (auth.OIDCIssuerVerifier, error
 			auth.NewQueryParamBearerTokenExtractor("token"),
 		),
 		options.oidcSkipTLSVerify,
+		options.oidcCABundle,
 	)
 }
 
@@ -276,6 +292,7 @@ func createAuthClients(options serverRunOptions, prov providers) (auth.TokenVeri
 			auth.NewQueryParamBearerTokenExtractor("token"),
 		),
 		options.oidcSkipTLSVerify,
+		options.oidcCABundle,
 	)
 
 	if err != nil {
@@ -293,9 +310,9 @@ func createAuthClients(options serverRunOptions, prov providers) (auth.TokenVeri
 	return tokenVerifiers, tokenExtractors, nil
 }
 
-func createAPIHandler(options serverRunOptions, prov providers, oidcIssuerVerifier auth.OIDCIssuerVerifier, tokenVerifiers auth.TokenVerifier, tokenExtractors auth.TokenExtractor, updateManager common.UpdateManager, presetsManager common.PresetsManager, keycloakFacade keycloak.Facade) (http.HandlerFunc, error) {
+func createAPIHandler(options serverRunOptions, prov providers, oidcIssuerVerifier auth.OIDCIssuerVerifier, tokenVerifiers auth.TokenVerifier, tokenExtractors auth.TokenExtractor, updateManager common.UpdateManager, keycloakFacade keycloak.Facade) (http.HandlerFunc, error) {
 	var prometheusClient prometheusapi.Client
-	if options.featureGates.Enabled(PrometheusEndpoint) {
+	if options.featureGates.Enabled(features.PrometheusEndpoint) {
 		var err error
 		if prometheusClient, err = prometheusapi.NewClient(prometheusapi.Config{
 			Address: options.prometheusURL,
@@ -311,10 +328,12 @@ func createAPIHandler(options serverRunOptions, prov providers, oidcIssuerVerifi
 	serviceAccountTokenAuth := serviceaccount.JWTTokenAuthenticator([]byte(options.serviceAccountSigningKey))
 
 	r := handler.NewRouting(
-		kubermaticlog.New(options.log.Debug, kubermaticlog.Format(options.log.Format)).Sugar(),
+		kubermaticlog.New(options.log.Debug, options.log.Format).Sugar(),
+		prov.presetProvider,
 		prov.seedsGetter,
 		prov.clusterProviderGetter,
 		prov.addons,
+		prov.addonConfigProvider,
 		prov.sshKey,
 		prov.user,
 		prov.serviceAccountProvider,
@@ -332,11 +351,12 @@ func createAPIHandler(options serverRunOptions, prov providers, oidcIssuerVerifi
 		serviceAccountTokenAuth,
 		serviceAccountTokenGenerator,
 		prov.eventRecorderProvider,
-		presetsManager,
 		keycloakFacade,
 		options.exposeStrategy,
 		options.accessibleAddons,
 		prov.userInfoGetter,
+		prov.settingsProvider,
+		prov.adminProvider,
 	)
 
 	registerMetrics()
@@ -347,7 +367,7 @@ func createAPIHandler(options serverRunOptions, prov providers, oidcIssuerVerifi
 	r.RegisterV1(v1Router, metrics)
 	r.RegisterV1Legacy(v1Router)
 	r.RegisterV1Optional(v1Router,
-		options.featureGates.Enabled(OIDCKubeCfgEndpoint),
+		options.featureGates.Enabled(features.OIDCKubeCfgEndpoint),
 		common.OIDCConfiguration{
 			URL:                  options.oidcURL,
 			ClientID:             options.oidcIssuerClientID,
@@ -357,6 +377,7 @@ func createAPIHandler(options serverRunOptions, prov providers, oidcIssuerVerifi
 			OfflineAccessAsScope: options.oidcIssuerOfflineAccessAsScope,
 		},
 		mainRouter)
+	r.RegisterV1Admin(v1Router)
 	r.RegisterV1SysEleven(v1Router)
 
 	mainRouter.Methods(http.MethodGet).

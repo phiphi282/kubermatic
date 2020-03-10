@@ -1,3 +1,8 @@
+# Required for signal propagation to work so
+# the cleanup trap gets executed when a script
+# receives a SIGINT
+set -o monitor
+
 retry() {
   # Works only with bash but doesn't fail on other shells
   start_time=$(date +%s)
@@ -32,7 +37,7 @@ actual_retry() {
 }
 
 echodate() {
-  echo "$(date -Is)" "$@"
+  echo "[$(date -Is)]" "$@"
 }
 
 write_junit() {
@@ -79,29 +84,8 @@ ensure_github_host_pubkey() {
   fi
 }
 
-get_latest_dashboard_tag() {
-  FOR_BRANCH="$1"
-
-  ensure_github_host_pubkey
-  git config --global core.sshCommand 'ssh -o CheckHostIP=no -i /ssh/id_rsa'
-  local DASHBOARD_URL="git@github.com:kubermatic/dashboard-v2.git"
-
-  MINOR_VERSION="${FOR_BRANCH##release/}"
-  # --sort=-version:refname will treat the tag names as semvers and sort by version number.
-  # -c versionsort.suffix=-alpha -c versionsort.suffix=-rc tell git that alphas and RCs come before versions wihtout any suffix.
-  FOUND_TAG="$(retry 5 git -c versionsort.suffix=-alpha -c versionsort.suffix=-rc ls-remote --sort=-version:refname "$DASHBOARD_URL" "refs/tags/$MINOR_VERSION*" | head -n1 | awk '{print $2}')"
-  if [ -z "$FOUND_TAG" ]; then
-    echo "Error, no Dashboard tags contain $MINOR_VERSION" >/dev/stderr
-    exit 1
-  fi
-
-  local TAG="${FOUND_TAG##refs/tags/}"
-  echodate "The latest dashboard tag for $FOR_BRANCH is $TAG" >/dev/stderr
-  echo "$TAG"
-}
-
 get_latest_dashboard_hash() {
-  FOR_BRANCH="$1"
+  local FOR_BRANCH="$1"
 
   ensure_github_host_pubkey
   git config --global core.sshCommand 'ssh -o CheckHostIP=no -i /ssh/id_rsa'
@@ -113,6 +97,40 @@ get_latest_dashboard_hash() {
   HASH="$(retry 5 git ls-remote "$DASHBOARD_URL" "refs/heads/$FOR_BRANCH" | awk '{print $1}')"
   echodate "The latest dashboard hash for $FOR_BRANCH is $HASH" >/dev/stderr
   echo "$HASH"
+}
+
+# This should only be used for release branches, as it only fetches the last 25 commits
+# for checking for tags.
+get_latest_dashboard_tag() {
+  local FOR_BRANCH="$1"
+  local DEPTH="${2:-25}"
+
+  ensure_github_host_pubkey
+  git config --global core.sshCommand 'ssh -o CheckHostIP=no -i /ssh/id_rsa'
+  local DASHBOARD_URL="git@github.com:kubermatic/dashboard-v2.git"
+
+  local TMPDIR
+  TMPDIR=$(mktemp -d dashboard.XXXXX)
+
+  # git ls-remote cannot list tags in a meaningful way, so we have to clone the repo
+  echodate "Cloning dashboard repository to find tags in $FOR_BRANCH branch..." >/dev/stderr
+  git clone -b "$FOR_BRANCH" --single-branch --depth $DEPTH "$DASHBOARD_URL" "$TMPDIR"
+
+  local TAG
+  TAG="$(git --git-dir $TMPDIR/.git describe --abbrev=0 --tags --first-parent)"
+
+  echodate "The latest dashboard tag in $FOR_BRANCH is $TAG" >/dev/stderr
+  echo "$TAG"
+}
+
+check_dashboard_tag() {
+  local TAG="$1"
+
+  ensure_github_host_pubkey
+  git config --global core.sshCommand 'ssh -o CheckHostIP=no -i /ssh/id_rsa'
+  local DASHBOARD_URL="git@github.com:kubermatic/dashboard-v2.git"
+
+  retry 5 git ls-remote "$DASHBOARD_URL" "refs/tags/$TAG"
 }
 
 format_dashboard() {
@@ -145,4 +163,28 @@ format_dashboard() {
     jq --sort-keys '.' > "$tmpfile"
 
   mv "$tmpfile" "$filename"
+}
+
+# appendTrap appends to existing traps, if any. It is needed because Bash replaces existing handlers
+# rather than appending: https://stackoverflow.com/questions/3338030/multiple-bash-traps-for-the-same-signal
+# Needing this func is a strong indicator that Bash is not the right language anymore. Also, this
+# basically needs unit tests.
+appendTrap() {
+  command="$1"
+  signal="$2"
+
+  # Have existing traps, must append
+  if [[ "$(trap -p|grep $signal)" ]]; then
+  existingHandlerName="$(trap -p|grep $signal|awk '{print $3}'|tr -d "'")"
+
+  newHandlerName="${command}_$(head /dev/urandom | tr -dc A-Za-z0-9 | head -c 13)"
+  # Need eval to get a random func name
+  eval "$newHandlerName() { $command; $existingHandlerName; }"
+  echodate "Appending $command as trap for $signal, existing command $existingHandlerName"
+  trap $newHandlerName $signal
+  # First trap
+  else
+    echodate "Using $command as trap for $signal"
+    trap $command $signal
+  fi
 }

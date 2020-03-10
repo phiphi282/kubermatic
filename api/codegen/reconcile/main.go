@@ -130,6 +130,11 @@ func main() {
 				ImportAlias:        "kubermaticv1",
 				ResourceImportPath: "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1",
 			},
+			{
+				ResourceName:       "Certificate",
+				ImportAlias:        "certmanagerv1alpha2",
+				ResourceImportPath: "github.com/jetstack/cert-manager/pkg/apis/certmanager/v1alpha2",
+			},
 		},
 	}
 
@@ -251,6 +256,9 @@ func Reconcile{{ .ResourceNamePlural }}(ctx context.Context, namedGetters []Name
 		create = {{ .DefaultingFunc }}(create)
 {{- end }}
 		createObject := {{ .ResourceName }}ObjectWrapper(create)
+		createObject = createWithNamespace(createObject, namespace)
+		createObject = createWithName(createObject, name)
+
 		for _, objectModifier := range objectModifiers {
 			createObject = objectModifier(createObject)
 		}

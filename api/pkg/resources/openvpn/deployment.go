@@ -3,6 +3,7 @@ package openvpn
 import (
 	"fmt"
 	"net"
+	"path"
 
 	kubermaticv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
 	"github.com/kubermatic/kubermatic/api/pkg/resources"
@@ -16,7 +17,7 @@ import (
 )
 
 var (
-	defaultResourceRequirements = corev1.ResourceRequirements{
+	openvpnResourceRequirements = corev1.ResourceRequirements{
 		Requests: corev1.ResourceList{
 			corev1.ResourceMemory: resource.MustParse("5Mi"),
 			corev1.ResourceCPU:    resource.MustParse("5m"),
@@ -27,20 +28,26 @@ var (
 		},
 	}
 
-	ipForwardRequirements = corev1.ResourceRequirements{
-		Requests: corev1.ResourceList{
-			corev1.ResourceMemory: resource.MustParse("16Mi"),
-			corev1.ResourceCPU:    resource.MustParse("5m"),
+	defaultResourceRequirements = map[string]*corev1.ResourceRequirements{
+		name: openvpnResourceRequirements.DeepCopy(),
+		"ip-fixup": {
+			Requests: corev1.ResourceList{
+				corev1.ResourceMemory: resource.MustParse("16Mi"),
+				corev1.ResourceCPU:    resource.MustParse("5m"),
+			},
+			Limits: corev1.ResourceList{
+				corev1.ResourceMemory: resource.MustParse("32Mi"),
+				corev1.ResourceCPU:    resource.MustParse("10m"),
+			},
 		},
-		Limits: corev1.ResourceList{
-			corev1.ResourceMemory: resource.MustParse("32Mi"),
-			corev1.ResourceCPU:    resource.MustParse("10m"),
-		},
+		"openvpn-exporter": openvpnResourceRequirements.DeepCopy(),
 	}
 )
 
 const (
-	name = "openvpn-server"
+	name         = "openvpn-server"
+	statusPath   = "/run/openvpn/openvpn-status"
+	exporterPort = 9176
 )
 
 type openVPNDeploymentCreatorData interface {
@@ -85,6 +92,11 @@ func DeploymentCreator(data openVPNDeploymentCreatorData) reconciling.NamedDeplo
 
 			dep.Spec.Template.ObjectMeta = metav1.ObjectMeta{
 				Labels: podLabels,
+				Annotations: map[string]string{
+					"prometheus.io/path":   "/metrics",
+					"prometheus.io/port":   fmt.Sprintf("%d", exporterPort),
+					"prometheus.io/scrape": "true",
+				},
 			}
 
 			_, podNet, err := net.ParseCIDR(data.Cluster().Spec.ClusterNetwork.Pods.CIDRBlocks[0])
@@ -145,7 +157,7 @@ iptables -A INPUT -i tun0 -j DROP
 						},
 						ProcMount: &procMountType,
 					},
-					Resources: defaultResourceRequirements,
+					Resources: openvpnResourceRequirements,
 				},
 			}
 
@@ -161,7 +173,8 @@ iptables -A INPUT -i tun0 -j DROP
 				"--dh", "none",
 				"--duplicate-cn",
 				"--client-config-dir", "/etc/openvpn/clients",
-				"--status", "/run/openvpn-status",
+				"--status", statusPath,
+				"--status-version", "3",
 				"--mssfix", "1300",
 				"--cipher", "AES-256-GCM",
 				"--auth", "SHA1",
@@ -189,14 +202,13 @@ iptables -A INPUT -i tun0 -j DROP
 						Privileged: resources.Bool(true),
 						ProcMount:  &procMountType,
 					},
-					Resources: defaultResourceRequirements,
 					ReadinessProbe: &corev1.Probe{
 						Handler: corev1.Handler{
 							Exec: &corev1.ExecAction{
 								Command: []string{
 									"test",
 									"-s",
-									"/run/openvpn-status",
+									statusPath,
 								},
 							},
 						},
@@ -222,6 +234,10 @@ iptables -A INPUT -i tun0 -j DROP
 							MountPath: "/etc/openvpn/clients",
 							ReadOnly:  true,
 						},
+						{
+							Name:      "openvpn-status",
+							MountPath: path.Dir(statusPath),
+						},
 					},
 				},
 				{
@@ -242,8 +258,32 @@ done`,
 						Privileged: resources.Bool(true),
 						ProcMount:  &procMountType,
 					},
-					Resources: ipForwardRequirements,
 				},
+				{
+					Name:    "openvpn-exporter",
+					Image:   data.ImageRegistry(resources.RegistryDocker) + "/kumina/openvpn-exporter:v0.2.2",
+					Command: []string{"/bin/openvpn_exporter"},
+					Args: []string{
+						"-openvpn.status_paths",
+						statusPath,
+					},
+					Ports: []corev1.ContainerPort{
+						{
+							ContainerPort: exporterPort,
+							Protocol:      corev1.ProtocolTCP,
+						},
+					},
+					VolumeMounts: []corev1.VolumeMount{
+						{
+							Name:      "openvpn-status",
+							MountPath: path.Dir(statusPath),
+						},
+					},
+				},
+			}
+			err = resources.SetResourceRequirements(dep.Spec.Template.Spec.Containers, defaultResourceRequirements, nil, dep.Annotations)
+			if err != nil {
+				return nil, fmt.Errorf("failed to set resource requirements: %v", err)
 			}
 
 			return dep, nil
@@ -283,6 +323,12 @@ func getVolumes() []corev1.Volume {
 						Name: resources.OpenVPNClientConfigsConfigMapName,
 					},
 				},
+			},
+		},
+		{
+			Name: "openvpn-status",
+			VolumeSource: corev1.VolumeSource{
+				EmptyDir: &corev1.EmptyDirVolumeSource{},
 			},
 		},
 	}

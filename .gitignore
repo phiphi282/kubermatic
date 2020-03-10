@@ -20,12 +20,13 @@ handler/swagger/api/index.json
 .env
 .idea
 *.iml*
-go.mod
-go.sum
+/api/go.mod
+/api/go.sum
 api/.cover
 api/_build
 api/_cache
 api/cmd/s3-exporter/s3-exporter
 api/cmd/conformance-tests/conformance-tests
+api/cmd/user-ssh-keys-agent/user-ssh-keys-agent
 api/download-gocache
 /reports

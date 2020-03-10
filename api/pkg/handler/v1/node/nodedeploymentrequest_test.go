@@ -22,6 +22,7 @@ func TestGetNodeDeploymentRequest(t *testing.T) {
 	t.Parallel()
 	var replicas int32 = 1
 	var paused = false
+	var dymanicConfig = false
 	testcases := []struct {
 		Name                   string
 		ProjectIDToSync        string
@@ -75,8 +76,9 @@ func TestGetNodeDeploymentRequest(t *testing.T) {
 									Kubelet: "v9.9.9",
 								},
 							},
-							Replicas: replicas,
-							Paused:   &paused,
+							Replicas:      replicas,
+							Paused:        &paused,
+							DynamicConfig: &dymanicConfig,
 						},
 						Status: clusterv1alpha1.MachineDeploymentStatus{},
 					},
@@ -138,7 +140,7 @@ func TestCreateNodeDeploymentRequest(t *testing.T) {
 		{
 			Name:                   "scenario 1: create a node deployment request that match the given spec",
 			Body:                   `{"spec":{"nd":{"name":"mynodes","spec":{"replicas":1,"template":{"cloud":{"digitalocean":{"size":"s-1vcpu-1gb","backups":false,"ipv6":false,"monitoring":false,"tags":[]}},"operatingSystem":{"ubuntu":{"distUpgradeOnBoot":false}}}}}}}`,
-			ExpectedResponse:       `{"id":"mynodes","name":"mynodes","creationTimestamp":"0001-01-01T00:00:00Z","spec":{"nd":{"id":"mynodes","name":"mynodes","creationTimestamp":"0001-01-01T00:00:00Z","spec":{"replicas":1,"template":{"cloud":{"digitalocean":{"size":"s-1vcpu-1gb","backups":false,"ipv6":false,"monitoring":false,"tags":["metakube","metakube-cluster-defClusterID","system-cluster-defClusterID","system-project-my-first-project-ID"]}},"operatingSystem":{"ubuntu":{"distUpgradeOnBoot":false}},"versions":{"kubelet":"9.9.9"},"labels":{"system/cluster":"defClusterID","system/project":"my-first-project-ID"}},"paused":false},"status":{}}}}`,
+			ExpectedResponse:       `{"id":"mynodes","name":"mynodes","creationTimestamp":"0001-01-01T00:00:00Z","spec":{"nd":{"id":"mynodes","name":"mynodes","creationTimestamp":"0001-01-01T00:00:00Z","spec":{"replicas":1,"template":{"cloud":{"digitalocean":{"size":"s-1vcpu-1gb","backups":false,"ipv6":false,"monitoring":false,"tags":["metakube","metakube-cluster-defClusterID","system-cluster-defClusterID","system-project-my-first-project-ID"]}},"operatingSystem":{"ubuntu":{"distUpgradeOnBoot":false}},"versions":{"kubelet":"9.9.9"},"labels":{"system/cluster":"defClusterID","system/project":"my-first-project-ID"}},"paused":false,"dynamicConfig":false},"status":{}}}}`,
 			HTTPStatus:             http.StatusCreated,
 			ProjectID:              test.GenDefaultProject().Name,
 			ClusterID:              genNdrTestCluster().Name,

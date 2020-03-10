@@ -6,7 +6,7 @@ import (
 )
 
 func GenTestMachineDeploymentRequest(cluster *kubermaticv1.Cluster, name, rawProviderSpec string, selector map[string]string) *kubermaticv1.MachineDeploymentRequest {
-	md := GenTestMachineDeployment(name, rawProviderSpec, selector)
+	md := GenTestMachineDeployment(name, rawProviderSpec, selector, false)
 	return &kubermaticv1.MachineDeploymentRequest{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,

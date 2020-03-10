@@ -19,14 +19,16 @@ import (
 )
 
 var (
-	webhookResourceRequirements = corev1.ResourceRequirements{
-		Requests: corev1.ResourceList{
-			corev1.ResourceMemory: resource.MustParse("32Mi"),
-			corev1.ResourceCPU:    resource.MustParse("10m"),
-		},
-		Limits: corev1.ResourceList{
-			corev1.ResourceMemory: resource.MustParse("512Mi"),
-			corev1.ResourceCPU:    resource.MustParse("100m"),
+	webhookResourceRequirements = map[string]*corev1.ResourceRequirements{
+		Name: {
+			Requests: corev1.ResourceList{
+				corev1.ResourceMemory: resource.MustParse("32Mi"),
+				corev1.ResourceCPU:    resource.MustParse("10m"),
+			},
+			Limits: corev1.ResourceList{
+				corev1.ResourceMemory: resource.MustParse("512Mi"),
+				corev1.ResourceCPU:    resource.MustParse("100m"),
+			},
 		},
 	}
 )
@@ -71,7 +73,6 @@ func WebhookDeploymentCreator(data machinecontrollerData) reconciling.NamedDeplo
 						Name:  "KUBECONFIG",
 						Value: "/etc/kubernetes/kubeconfig/kubeconfig",
 					}),
-					Resources: webhookResourceRequirements,
 					ReadinessProbe: &corev1.Probe{
 						Handler: corev1.Handler{
 							HTTPGet: &corev1.HTTPGetAction{
@@ -113,6 +114,11 @@ func WebhookDeploymentCreator(data machinecontrollerData) reconciling.NamedDeplo
 					},
 				},
 			}
+			err = resources.SetResourceRequirements(dep.Spec.Template.Spec.Containers, webhookResourceRequirements, nil, dep.Annotations)
+			if err != nil {
+				return nil, fmt.Errorf("failed to set resource requirements: %v", err)
+			}
+
 			wrappedPodSpec, err := apiserver.IsRunningWrapper(data, dep.Spec.Template.Spec, sets.NewString(Name), "Machine,cluster.k8s.io/v1alpha1")
 			if err != nil {
 				return nil, fmt.Errorf("failed to add apiserver.IsRunningWrapper: %v", err)
@@ -208,10 +214,10 @@ func TLSServingCertificateCreator(data tlsServingCertCreatorData) reconciling.Na
 			if err != nil {
 				return nil, fmt.Errorf("failed to generate serving cert: %v", err)
 			}
-			se.Data[resources.MachineControllerWebhookServingCertCertKeyName] = certutil.EncodeCertPEM(newKP.Cert)
-			se.Data[resources.MachineControllerWebhookServingCertKeyKeyName] = certutil.EncodePrivateKeyPEM(newKP.Key)
+			se.Data[resources.MachineControllerWebhookServingCertCertKeyName] = triple.EncodeCertPEM(newKP.Cert)
+			se.Data[resources.MachineControllerWebhookServingCertKeyKeyName] = triple.EncodePrivateKeyPEM(newKP.Key)
 			// Include the CA for simplicity
-			se.Data[resources.CACertSecretKey] = certutil.EncodeCertPEM(ca.Cert)
+			se.Data[resources.CACertSecretKey] = triple.EncodeCertPEM(ca.Cert)
 
 			return se, nil
 		}

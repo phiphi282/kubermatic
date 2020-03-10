@@ -1,6 +1,7 @@
 package log
 
 import (
+	"flag"
 	"fmt"
 	"os"
 	"strings"
@@ -8,7 +9,7 @@ import (
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 
-	ctrlruntimelog "sigs.k8s.io/controller-runtime/pkg/runtime/log"
+	ctrlruntimelzap "sigs.k8s.io/controller-runtime/pkg/log/zap"
 )
 
 func init() {
@@ -22,7 +23,19 @@ type Options struct {
 	// Enable debug logs
 	Debug bool
 	// Log format (JSON or plain text)
-	Format string
+	Format Format
+}
+
+func NewDefaultOptions() Options {
+	return Options{
+		Debug:  false,
+		Format: FormatJSON,
+	}
+}
+
+func (o *Options) AddFlags(fs *flag.FlagSet) {
+	fs.BoolVar(&o.Debug, "log-debug", o.Debug, "Enables debug logging")
+	fs.Var(&o.Format, "log-format", "Log format, one of "+AvailableFormats.String())
 }
 
 func (o *Options) Validate() error {
@@ -73,9 +86,9 @@ func (f Formats) String() string {
 	return strings.TrimPrefix(s, separator)
 }
 
-func (f Formats) Contains(s string) bool {
+func (f Formats) Contains(s Format) bool {
 	for _, format := range f {
-		if s == string(format) {
+		if s == format {
 			return true
 		}
 	}
@@ -113,7 +126,7 @@ func New(debug bool, format Format) *zap.Logger {
 		zap.ErrorOutput(sink),
 	}
 
-	coreLog := zapcore.NewCore(&ctrlruntimelog.KubeAwareEncoder{Encoder: enc}, sink, lvl)
+	coreLog := zapcore.NewCore(&ctrlruntimelzap.KubeAwareEncoder{Encoder: enc}, sink, lvl)
 	return zap.New(coreLog, opts...)
 }
 

@@ -5,8 +5,9 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/kubermatic/kubermatic/api/pkg/semver"
 	providerconfig "github.com/kubermatic/machine-controller/pkg/providerconfig/types"
+
+	"github.com/kubermatic/kubermatic/api/pkg/semver"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -30,8 +31,9 @@ const (
 )
 
 const (
-	WorkerNameLabelKey = "worker-name"
-	ProjectIDLabelKey  = "project-id"
+	WorkerNameLabelKey   = "worker-name"
+	ProjectIDLabelKey    = "project-id"
+	UpdatedByVPALabelKey = "updated-by-vpa"
 )
 
 // ProtectedClusterLabels is a set of labels that must not be set by users on clusters,
@@ -95,6 +97,11 @@ type ClusterSpec struct {
 
 	UpdateWindow *UpdateWindow `json:"updateWindow,omitempty"`
 
+	// Feature flags
+	// This unfortunately has to be a string map, because we use it in templating and that
+	// can not cope with string types
+	Features map[string]bool `json:"features,omitempty"`
+
 	// Openshift holds all openshift-specific settings
 	Openshift *Openshift `json:"openshift,omitempty"`
 
@@ -112,17 +119,57 @@ type UpdateWindow struct {
 	Length string `json:"length,omitempty"`
 }
 
+const (
+	// ClusterFeatureExternalCloudProvider describes the external cloud provider feature. It is
+	// only supported on a limited set of providers for a specific set of Kube versions. It must
+	// not be set if its not supported.
+	ClusterFeatureExternalCloudProvider = "externalCloudProvider"
+
+	// ClusterFeatureRancherIntegration enables the rancher server integration feature.
+	// It will deploy a Rancher Server Managegment plane on the seed cluster and import the user cluster into it.
+	ClusterFeatureRancherIntegration = "rancherIntegration"
+)
+
+// ClusterConditionType is used to indicate the type of a cluster condition. For all condition
+// types, the `true` value must indicate success. All condition types must be registered within
+// the `AllClusterConditionTypes` variable.
 type ClusterConditionType string
 
 const (
-	// ClusterConditionSeedResourcesUpToDate indicates that alle controllers have finished setting up the
+	// ClusterConditionSeedResourcesUpToDate indicates that all controllers have finished setting up the
 	// resources for a user clusters that run inside the seed cluster, i.e. this ignores
 	// the status of cloud provider resources for a given cluster.
 	ClusterConditionSeedResourcesUpToDate ClusterConditionType = "SeedResourcesUpToDate"
 
+	ClusterConditionClusterControllerReconcilingSuccess        ClusterConditionType = "ClusterControllerReconciledSuccessfully"
+	ClusterConditionAddonControllerReconcilingSuccess          ClusterConditionType = "AddonControllerReconciledSuccessfully"
+	ClusterConditionAddonInstallerControllerReconcilingSuccess ClusterConditionType = "AddonInstallerControllerReconciledSuccessfully"
+	ClusterConditionBackupControllerReconcilingSuccess         ClusterConditionType = "BackupControllerReconciledSuccessfully"
+	ClusterConditionCloudControllerReconcilingSuccess          ClusterConditionType = "CloudControllerReconcilledSuccessfully"
+	ClusterConditionComponentDefaulterReconcilingSuccess       ClusterConditionType = "ComponentDefaulterReconciledSuccessfully"
+	ClusterConditionUpdateControllerReconcilingSuccess         ClusterConditionType = "UpdateControllerReconciledSuccessfully"
+	ClusterConditionMonitoringControllerReconcilingSuccess     ClusterConditionType = "MonitoringControllerReconciledSuccessfully"
+	ClusterConditionOpenshiftControllerReconcilingSuccess      ClusterConditionType = "OpenshiftControllerReconciledSuccessfully"
+	ClusterConditionClusterInitialized                         ClusterConditionType = "ClusterInitialized"
+
+	ClusterConditionRancherInitialized     ClusterConditionType = "RancherInitializedSuccessfully"
+	ClusterConditionRancherClusterImported ClusterConditionType = "RancherClusterImportedSuccessfully"
+
 	ReasonClusterUpdateSuccessful = "ClusterUpdateSuccessful"
-	ReasonClusterUpadteInProgress = "ClusterUpdateInProgress"
+	ReasonClusterUpdateInProgress = "ClusterUpdateInProgress"
 )
+
+var AllClusterConditionTypes = []ClusterConditionType{
+	ClusterConditionSeedResourcesUpToDate,
+	ClusterConditionClusterControllerReconcilingSuccess,
+	ClusterConditionAddonControllerReconcilingSuccess,
+	ClusterConditionBackupControllerReconcilingSuccess,
+	ClusterConditionCloudControllerReconcilingSuccess,
+	ClusterConditionComponentDefaulterReconcilingSuccess,
+	ClusterConditionUpdateControllerReconcilingSuccess,
+	ClusterConditionMonitoringControllerReconcilingSuccess,
+	ClusterConditionOpenshiftControllerReconcilingSuccess,
+}
 
 type ClusterCondition struct {
 	// Type of cluster condition.
@@ -183,6 +230,9 @@ type ClusterStatus struct {
 	// CloudMigrationRevision describes the latest version of the migration that has been done
 	// It is used to avoid redundant and potentially costly migrations
 	CloudMigrationRevision int `json:"cloudMigrationRevision"`
+
+	// InheritedLabels are labels the cluster inherited from the project. They are read-only for users.
+	InheritedLabels map[string]string `json:"inheritedLabels,omitempty"`
 }
 
 // HasConditionValue returns true if the cluster status has the given condition with the given status.
@@ -290,6 +340,8 @@ type ClusterAddress struct {
 	AdminToken string `json:"adminToken"`
 	// IP is the external IP under which the apiserver is available
 	IP string `json:"ip"`
+	// OpenshiftConsoleCallBack is the callback address for the Openshift console
+	OpenshiftConsoleCallBack string `json:"openshiftConsoleCallback,omitempty"`
 }
 
 // CloudSpec mutually stores access data to a cloud provider.
@@ -562,4 +614,12 @@ func (cluster *Cluster) GetSecretName() string {
 		return fmt.Sprintf("%s-vsphere-%s", CredentialPrefix, cluster.Name)
 	}
 	return ""
+}
+
+func (cluster *Cluster) IsOpenshift() bool {
+	return cluster.Annotations["kubermatic.io/openshift"] != ""
+}
+
+func (cluster *Cluster) IsKubernetes() bool {
+	return !cluster.IsOpenshift()
 }

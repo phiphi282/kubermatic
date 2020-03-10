@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 set -o errexit
 set -o nounset
@@ -8,6 +8,7 @@ set -x
 make -C $(dirname $0)/.. kubermatic-api
 
 KUBERMATIC_WORKERNAME=${KUBERMATIC_WORKERNAME:-$(uname -n)}
+KUBERMATIC_DEBUG=${KUBERMATIC_DEBUG:-true}
 
 # Please make sure to set -feature-gates=PrometheusEndpoint=true if you want to use that endpoint.
 
@@ -17,8 +18,8 @@ KUBERMATIC_WORKERNAME=${KUBERMATIC_WORKERNAME:-$(uname -n)}
 cd $(go env GOPATH)/src/github.com/kubermatic/kubermatic/api
 ./_build/kubermatic-api \
   -kubeconfig=../../secrets/seed-clusters/dev.kubermatic.io/kubeconfig \
-  -datacenters=../../secrets/seed-clusters/dev.kubermatic.io/datacenters.yaml \
-  -presets=../../secrets/seed-clusters/dev.kubermatic.io/presets.yaml \
+  -dynamic-datacenters=true \
+  -dynamic-presets=true \
   -versions=../config/kubermatic/static/master/versions.yaml \
   -updates=../config/kubermatic/static/master/updates.yaml \
   -master-resources=../config/kubermatic/static/master \
@@ -33,7 +34,7 @@ cd $(go env GOPATH)/src/github.com/kubermatic/kubermatic/api
   -oidc-issuer-redirect-uri="$(vault kv get -field=oidc-issuer-redirect-uri dev/seed-clusters/dev.kubermatic.io)" \
   -oidc-issuer-cookie-hash-key="$(vault kv get -field=oidc-issuer-cookie-hash-key dev/seed-clusters/dev.kubermatic.io)" \
   -service-account-signing-key="$(vault kv get -field=service-account-signing-key dev/seed-clusters/dev.kubermatic.io)" \
-  -log-debug=true \
+  -log-debug=$KUBERMATIC_DEBUG \
   -log-format=Console \
   -logtostderr \
   -v=4 $@
