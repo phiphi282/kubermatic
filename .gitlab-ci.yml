@@ -50,16 +50,16 @@ lint-docker:
     - small
     - multi
 
-#verify-codegen:
-#  stage: check
-#  image: golang:${GO_VERSION}
-#  script:
-#  - cd api
-#  - GO111MODULE=on ./hack/verify-codegen.sh
-#  tags:
-#  - shared
-#  - small
-#  - multi
+verify-codegen:
+  stage: check
+  image: golang:${GO_VERSION}
+  script:
+  - cd api
+  - GO111MODULE=on ./hack/verify-codegen.sh
+  tags:
+  - shared
+  - small
+  - multi
 
 #verify-api-client:
 #  stage: check
@@ -85,7 +85,7 @@ license-validation:
 
 lint:
   stage: check
-  image: golangci/golangci-lint:v1.17.1
+  image: golangci/golangci-lint:v1.23.8
   script:
   - cd api
   - GOGC=5 make lint # TODO remove GOGC again once https://github.com/golangci/golangci-lint/issues/483 is resolved

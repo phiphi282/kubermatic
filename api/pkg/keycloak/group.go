@@ -24,13 +24,11 @@ func (kg *Group) GetClientData(realmName string, clientID string) (*ClientData, 
 
 	for _, kc := range kg.keycloaks {
 		data, err := kc.GetClientData(realmName, clientID)
-		if err != nil {
-			if _, ok := err.(*RealmNotFoundError); ok {
-				// kc doesn't contain the realm, try the next one
-				continue
-			} else {
-				return nil, err
-			}
+		if _, ok := err.(*RealmNotFoundError); ok {
+			// kc doesn't contain the realm, try the next one
+			continue
+		} else if err != nil {
+			return nil, err
 		}
 		kg.keycloakByRealmName[realmName] = kc
 		return data, nil

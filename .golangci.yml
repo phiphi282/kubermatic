@@ -48,3 +48,5 @@ issues:
   - struct field Spec repeats json tag "spec"
   # Generated code
   - func clusterDnsOperatorImage should be clusterDNSOperatorImage
+  - unknown JSON option "omitgenyaml"
+  - unnecessary guard around call to delete

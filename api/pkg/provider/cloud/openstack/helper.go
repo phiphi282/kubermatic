@@ -352,16 +352,14 @@ func detachSubnetFromRouter(netClient *gophercloud.ServiceClient, subnetID, rout
 
 func getFlavors(authClient *gophercloud.ProviderClient, region string) ([]osflavors.Flavor, error) {
 	computeClient, err := goopenstack.NewComputeV2(authClient, gophercloud.EndpointOpts{Availability: gophercloud.AvailabilityPublic, Region: region})
-	if err != nil {
-		// this is special case for  services that span only one region.
-		if _, ok := err.(*gophercloud.ErrEndpointNotFound); ok {
-			computeClient, err = goopenstack.NewComputeV2(authClient, gophercloud.EndpointOpts{})
-			if err != nil {
-				return nil, fmt.Errorf("couldn't get identity endpoint: %v", err)
-			}
-		} else {
+	// this is special case for  services that span only one region.
+	if _, ok := err.(*gophercloud.ErrEndpointNotFound); ok {
+		computeClient, err = goopenstack.NewComputeV2(authClient, gophercloud.EndpointOpts{})
+		if err != nil {
 			return nil, fmt.Errorf("couldn't get identity endpoint: %v", err)
 		}
+	} else if err != nil {
+		return nil, fmt.Errorf("couldn't get identity endpoint: %v", err)
 	}
 
 	var allFlavors []osflavors.Flavor
@@ -383,17 +381,15 @@ func getFlavors(authClient *gophercloud.ProviderClient, region string) ([]osflav
 
 func getTenants(authClient *gophercloud.ProviderClient, region string) ([]osprojects.Project, error) {
 	sc, err := goopenstack.NewIdentityV3(authClient, gophercloud.EndpointOpts{Region: region})
-	if err != nil {
-		// this is special case for  services that span only one region.
-		//lint:ignore S1020 false positive, we must do the errcheck regardless of if its an ErrEndpointNotFound
-		if _, ok := err.(*gophercloud.ErrEndpointNotFound); ok {
-			sc, err = goopenstack.NewIdentityV3(authClient, gophercloud.EndpointOpts{})
-			if err != nil {
-				return nil, fmt.Errorf("couldn't get identity endpoint: %v", err)
-			}
-		} else {
+	// this is special case for  services that span only one region.
+	//lint:ignore S1020 false positive, we must do the errcheck regardless of if its an ErrEndpointNotFound
+	if _, ok := err.(*gophercloud.ErrEndpointNotFound); ok {
+		sc, err = goopenstack.NewIdentityV3(authClient, gophercloud.EndpointOpts{})
+		if err != nil {
 			return nil, fmt.Errorf("couldn't get identity endpoint: %v", err)
 		}
+	} else if err != nil {
+		return nil, fmt.Errorf("couldn't get identity endpoint: %v", err)
 	}
 
 	// We need to fetch the token to get more details - here we're just fetching the user object from the token response

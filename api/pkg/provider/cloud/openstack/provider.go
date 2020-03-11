@@ -447,16 +447,14 @@ func getNetClient(username, password, domain, tenant, tenantID, authURL, region 
 	}
 
 	serviceClient, err := goopenstack.NewNetworkV2(authClient, gophercloud.EndpointOpts{Region: region})
-	if err != nil {
-		// this is special case for  services that span only one region.
-		if _, ok := err.(*gophercloud.ErrEndpointNotFound); ok {
-			serviceClient, err = goopenstack.NewNetworkV2(authClient, gophercloud.EndpointOpts{})
-			if err != nil {
-				return nil, err
-			}
-		} else {
+	// this is special case for  services that span only one region.
+	if _, ok := err.(*gophercloud.ErrEndpointNotFound); ok {
+		serviceClient, err = goopenstack.NewNetworkV2(authClient, gophercloud.EndpointOpts{})
+		if err != nil {
 			return nil, err
 		}
+	} else if err != nil {
+		return nil, err
 	}
 	return serviceClient, err
 }
