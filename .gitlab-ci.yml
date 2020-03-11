@@ -54,6 +54,7 @@ verify-codegen:
   stage: check
   image: golang:${GO_VERSION}
   script:
+  - apt-get update && apt-get install -y --no-install-recommends bzr
   - cd api
   - GO111MODULE=on ./hack/verify-codegen.sh
   tags:
