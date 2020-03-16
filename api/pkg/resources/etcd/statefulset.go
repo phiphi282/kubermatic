@@ -92,7 +92,7 @@ func StatefulSetCreator(data etcdStatefulSetCreatorData, enableDataCorruptionChe
 			set.Spec.Template.Spec.Containers = []corev1.Container{
 				{
 					Name:    resources.EtcdStatefulSetName,
-					Image:   data.ImageRegistry(resources.RegistryGCR) + "/etcd-development/etcd:" + ImageTag(data.Cluster()),
+					Image:   data.ImageRegistry(resources.RegistryQuay) + "/coreos/etcd:" + ImageTag(data.Cluster()),
 					Command: etcdStartCmd,
 					Env: []corev1.EnvVar{
 						{
