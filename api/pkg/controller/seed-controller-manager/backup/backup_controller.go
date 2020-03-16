@@ -44,7 +44,7 @@ const (
 	// will write the backup to
 	SharedVolumeName = "etcd-backup"
 	// DefaultBackupContainerImage holds the default Image used for creating the etcd backups
-	DefaultBackupContainerImage = "gcr.io/etcd-development/etcd"
+	DefaultBackupContainerImage = "quay.io/coreos/etcd"
 	// DefaultBackupInterval defines the default interval used to create backups
 	DefaultBackupInterval = "20m"
 	// cronJobPrefix defines the prefix used for all backup cronjob names

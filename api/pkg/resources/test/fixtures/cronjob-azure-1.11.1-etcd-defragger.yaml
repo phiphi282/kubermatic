@@ -44,7 +44,7 @@ spec:
                   echo "$node is not healthy, skipping defrag."
                 fi
               done
-            image: gcr.io/etcd-development/etcd:v3.4.4
+            image: quay.io/coreos/etcd:v3.4.4
             name: defragger
             resources: {}
             volumeMounts:

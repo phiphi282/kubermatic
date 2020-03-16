@@ -19,7 +19,7 @@ type etcdRunningData interface {
 func Container(etcdEndpoints []string, data etcdRunningData) corev1.Container {
 	return corev1.Container{
 		Name:  "etcd-running",
-		Image: data.ImageRegistry(resources.RegistryGCR) + "/etcd-development/etcd:" + etcd.ImageTag(data.Cluster()),
+		Image: data.ImageRegistry(resources.RegistryQuay) + "/coreos/etcd:" + etcd.ImageTag(data.Cluster()),
 		Command: []string{
 			"/bin/sh",
 			"-ec",
