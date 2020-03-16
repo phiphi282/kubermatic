@@ -839,7 +839,7 @@
   version = "v0.1.0"
 
 [[projects]]
-  digest = "1:0340a3bd3802e750715519fc9076396c8632a6a1555ea0e1de2e04fb197a858f"
+  digest = "1:a7e2c1af160e5ec2732b82e5abf45379f4a0b1d2f71da9e6e30098daca27b8b7"
   name = "github.com/kubermatic/machine-controller"
   packages = [
     "pkg/apis/cluster/common",
