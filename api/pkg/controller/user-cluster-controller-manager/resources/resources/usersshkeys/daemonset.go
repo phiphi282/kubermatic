@@ -2,6 +2,7 @@ package usersshkeys
 
 import (
 	"fmt"
+	"regexp"
 
 	"github.com/kubermatic/kubermatic/api/pkg/resources"
 	"github.com/kubermatic/kubermatic/api/pkg/resources/reconciling"
@@ -36,11 +37,14 @@ func DaemonSetCreator() reconciling.NamedDaemonSetCreatorGetter {
 
 			ds.Spec.Template.Spec.ServiceAccountName = serviceAccountName
 
+			re := regexp.MustCompile(`-sys11-[0-9]+`)
+			version := re.ReplaceAllString(resources.KUBERMATICCOMMIT, "")
+
 			ds.Spec.Template.Spec.Containers = []corev1.Container{
 				{
 					Name:            daemonSetName,
 					ImagePullPolicy: corev1.PullAlways,
-					Image:           fmt.Sprintf("quay.io/kubermatic/user-ssh-keys-agent:%s", resources.KUBERMATICCOMMIT),
+					Image:           fmt.Sprintf("quay.io/kubermatic/user-ssh-keys-agent:%s", version),
 					Command:         []string{fmt.Sprintf("/usr/local/bin/%v", daemonSetName)},
 					VolumeMounts: []corev1.VolumeMount{
 						{
