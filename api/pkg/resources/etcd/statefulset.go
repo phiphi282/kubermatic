@@ -21,7 +21,7 @@ const (
 	name    = "etcd"
 	dataDir = "/var/run/etcd/pod_${POD_NAME}/"
 	// ImageTag defines the image tag to use for the etcd image
-	imageTagV34 = "v3.4.4"
+	imageTagV34 = "v3.4.5"
 )
 
 var (
