@@ -39,14 +39,14 @@ fi
 
 while true; do
     if [[ "${DEBUG}" == "true" ]]; then
-        make GOTOOLFLAGS_EXTRA="-gcflags='all=-N -l'" LDFLAGS_EXTRA="" -C ${SRC_DIR} kubermatic-controller-manager
+        make GOTOOLFLAGS_EXTRA="-gcflags='all=-N -l'" LDFLAGS_EXTRA="" -C ${SRC_DIR} seed-controller-manager
     else
-        make -C ${SRC_DIR} kubermatic-controller-manager
+        make -C ${SRC_DIR} seed-controller-manager
     fi
 
     cd ${SRC_DIR}
     if [[ "${DEBUG}" == "true" ]]; then
-        dlv --listen=:2345 --headless=true --api-version=2 --accept-multiclient exec ./_build/kubermatic-controller-manager -- \
+        dlv --listen=:2345 --headless=true --api-version=2 --accept-multiclient exec ./_build/seed-controller-manager -- \
           -datacenters=${CONFIG_DIR}/datacenters.yaml \
           -datacenter-name=${KUBERMATIC_CLUSTER} \
           -kubeconfig=${CONFIG_DIR}/kubeconfig \
@@ -68,7 +68,7 @@ while true; do
 
         PID=$!
     else
-        ./_build/kubermatic-controller-manager \
+        ./_build/seed-controller-manager \
           -datacenters=${CONFIG_DIR}/datacenters.yaml \
           -datacenter-name=${KUBERMATIC_CLUSTER} \
           -kubeconfig=${CONFIG_DIR}/kubeconfig \
