@@ -47,9 +47,9 @@ fi
 
 while true; do
     if [[ "${DEBUG}" == "true" ]]; then
-        make GOTOOLFLAGS_EXTRA="-gcflags='all=-N -l'" LDFLAGS_EXTRA="" -C ${SRC_DIR} seed-controller-manager
+        make KUBERMATICCOMMIT=$KUBERMATICCOMMIT GOTOOLFLAGS_EXTRA="-gcflags='all=-N -l'" LDFLAGS_EXTRA="" -C ${SRC_DIR} seed-controller-manager
     else
-        make -C ${SRC_DIR} seed-controller-manager
+        make KUBERMATICCOMMIT=$KUBERMATICCOMMIT -C ${SRC_DIR} seed-controller-manager
     fi
 
     cd ${SRC_DIR}
