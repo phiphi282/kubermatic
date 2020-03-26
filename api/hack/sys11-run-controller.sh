@@ -29,6 +29,8 @@ dockercfgjson="$(mktemp)"
 trap "rm -f $dockercfgjson" EXIT
 cat "${INSTALLER_DIR}/kubermatic/values.yaml" | yq .kubermatic.imagePullSecretData -r | base64 --decode | jq . >"$dockercfgjson"
 
+defaultAddons=$(cat "${INSTALLER_DIR}/kubermatic/values.yaml" | yq '.kubermatic.controller.addons.kubernetes.defaultAddons | join(",")' -r)
+
 if [[ "${TAG_WORKER}" == "false" ]]; then
     WORKER_OPTION=
 else
@@ -60,6 +62,7 @@ while true; do
           -updates=${RESOURCES_DIR}/updates.yaml \
           -kubernetes-addons-path=${INSTALLER_DIR}/kubermatic/cluster-addons/addons \
           -openshift-addons-path=../openshift_addons \
+          -kubernetes-addons-list=$defaultAddons \
           ${WORKER_OPTION} \
           -external-url=${EXTERNAL_URL} \
           -docker-pull-config-json-file="$dockercfgjson" \
@@ -82,6 +85,7 @@ while true; do
           -updates=${RESOURCES_DIR}/updates.yaml \
           -kubernetes-addons-path=${INSTALLER_DIR}/kubermatic/cluster-addons/addons \
           -openshift-addons-path=../openshift_addons \
+          -kubernetes-addons-list=$defaultAddons \
           ${WORKER_OPTION} \
           -external-url=${EXTERNAL_URL} \
           -docker-pull-config-json-file="$dockercfgjson" \
