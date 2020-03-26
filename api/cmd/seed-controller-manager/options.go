@@ -66,6 +66,7 @@ type controllerRunOptions struct {
 	dnatControllerImage                              string
 	dynamicDatacenters                               bool
 	namespace                                        string
+	disableLeaderElection                            bool
 	apiServerDefaultReplicas                         int
 	apiServerEndpointReconcilingDisabled             bool
 	controllerManagerDefaultReplicas                 int
@@ -136,6 +137,7 @@ func newControllerRunOptions() (controllerRunOptions, error) {
 	flag.StringVar(&c.dnatControllerImage, "dnatcontroller-image", resources.DefaultDNATControllerImage, "The location of the dnatcontroller-image")
 	flag.BoolVar(&c.dynamicDatacenters, "dynamic-datacenters", false, "Whether to enable dynamic datacenters")
 	flag.StringVar(&c.namespace, "namespace", "kubermatic", "The namespace kubermatic runs in, uses to determine where to look for datacenter custom resources")
+	flag.BoolVar(&c.disableLeaderElection, "disable-leader-election", false, "A flag indicating whether the controller should skip the leader election. Only enable this for debugging purposes.")
 	flag.IntVar(&c.apiServerDefaultReplicas, "apiserver-default-replicas", 2, "The default number of replicas for usercluster api servers")
 	flag.BoolVar(&c.apiServerEndpointReconcilingDisabled, "apiserver-reconciling-disabled-by-default", false, "Whether to disable reconciling for the apiserver endpoints by default")
 	flag.IntVar(&c.controllerManagerDefaultReplicas, "controller-manager-default-replicas", 1, "The default number of replicas for usercluster controller managers")

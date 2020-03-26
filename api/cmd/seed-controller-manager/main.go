@@ -236,32 +236,45 @@ Please install the VerticalPodAutoscaler according to the documentation: https:/
 
 	// This group is running the actual controller logic
 	{
-		leaderCtx, stopLeaderElection := context.WithCancel(rootCtx)
-		defer stopLeaderElection()
+		runner := func(ctx context.Context) error {
+			log.Info("Executing migrations...")
+			if err := seedmigrations.RunAll(ctrlCtx.mgr.GetConfig(), options.workerName); err != nil {
+				return fmt.Errorf("failed to run migrations: %v", err)
+			}
+			log.Info("Migrations executed successfully")
 
-		g.Add(func() error {
-			electionName := controllerName
-			if options.workerName != "" {
-				electionName += "-" + options.workerName
+			log.Info("Starting the controller-manager...")
+			if err := mgr.Start(ctx.Done()); err != nil {
+				return fmt.Errorf("the controller-manager stopped with an error: %v", err)
 			}
 
-			return leaderelection.RunAsLeader(leaderCtx, log, config, mgr.GetEventRecorderFor(controllerName), electionName, func(ctx context.Context) error {
-				log.Info("Executing migrations...")
-				if err := seedmigrations.RunAll(ctrlCtx.mgr.GetConfig(), options.workerName); err != nil {
-					return fmt.Errorf("failed to run migrations: %v", err)
-				}
-				log.Info("Migrations executed successfully")
+			return nil
+		}
 
-				log.Info("Starting the controller-manager...")
-				if err := mgr.Start(ctx.Done()); err != nil {
-					return fmt.Errorf("the controller-manager stopped with an error: %v", err)
-				}
-
-				return nil
+		if options.disableLeaderElection {
+			cancelableCtx, cancelFunc := context.WithCancel(context.Background())
+			defer cancelFunc()
+			g.Add(func() error {
+				return runner(cancelableCtx)
+			}, func(err error) {
+				cancelFunc()
 			})
-		}, func(err error) {
-			stopLeaderElection()
-		})
+
+		} else {
+			leaderCtx, stopLeaderElection := context.WithCancel(rootCtx)
+			defer stopLeaderElection()
+
+			g.Add(func() error {
+				electionName := controllerName
+				if options.workerName != "" {
+					electionName += "-" + options.workerName
+				}
+
+				return leaderelection.RunAsLeader(leaderCtx, log, config, mgr.GetEventRecorderFor(controllerName), electionName, runner)
+			}, func(err error) {
+				stopLeaderElection()
+			})
+		}
 	}
 
 	if err := g.Run(); err != nil {
