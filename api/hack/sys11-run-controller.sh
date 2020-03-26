@@ -29,6 +29,10 @@ dockercfgjson="$(mktemp)"
 trap "rm -f $dockercfgjson" EXIT
 cat "${INSTALLER_DIR}/kubermatic/values.yaml" | yq .kubermatic.imagePullSecretData -r | base64 --decode | jq . >"$dockercfgjson"
 
+inClusterPrometheusRulesFile="$(mktemp)"
+trap "rm -f $inClusterPrometheusRulesFile" EXIT
+cat "${INSTALLER_DIR}/kubermatic/values.yaml" | yq .kubermatic.clusterNamespacePrometheus.rules >"$inClusterPrometheusRulesFile"
+
 defaultAddons=$(cat "${INSTALLER_DIR}/kubermatic/values.yaml" | yq '.kubermatic.controller.addons.kubernetes.defaultAddons | join(",")' -r)
 
 if [[ "${TAG_WORKER}" == "false" ]]; then
@@ -63,6 +67,12 @@ while true; do
           -kubernetes-addons-path=${INSTALLER_DIR}/kubermatic/cluster-addons/addons \
           -openshift-addons-path=../openshift_addons \
           -kubernetes-addons-list=$defaultAddons \
+          -overwrite-registry= \
+          -keycloak-cache-expiry=2h \
+          -feature-gates= \
+          -monitoring-environment-label=${KUBERMATIC_ENV} \
+          -monitoring-scrape-annotation-prefix=monitoring.metakube.de \
+          -namespace=kubermatic \
           ${WORKER_OPTION} \
           -external-url=${EXTERNAL_URL} \
           -docker-pull-config-json-file="$dockercfgjson" \
@@ -72,6 +82,7 @@ while true; do
           -cleanup-container=./hack/sys11-cleanup-container.yaml \
           -worker-count=1 \
           -kubermatic-image=docker.io/syseleven/kubermatic \
+          -dnatcontroller-image=syseleven/kubeletdnat-controller \
           ${DISABLE_LE_OPTION} \
           -v=8 $@ &
 
@@ -86,6 +97,12 @@ while true; do
           -kubernetes-addons-path=${INSTALLER_DIR}/kubermatic/cluster-addons/addons \
           -openshift-addons-path=../openshift_addons \
           -kubernetes-addons-list=$defaultAddons \
+          -overwrite-registry= \
+          -keycloak-cache-expiry=2h \
+          -feature-gates= \
+          -monitoring-environment-label=${KUBERMATIC_ENV} \
+          -monitoring-scrape-annotation-prefix=monitoring.metakube.de \
+          -namespace=kubermatic \
           ${WORKER_OPTION} \
           -external-url=${EXTERNAL_URL} \
           -docker-pull-config-json-file="$dockercfgjson" \
@@ -95,12 +112,14 @@ while true; do
           -cleanup-container=./hack/sys11-cleanup-container.yaml \
           -worker-count=1 \
           -kubermatic-image=docker.io/syseleven/kubermatic \
+          -dnatcontroller-image=syseleven/kubeletdnat-controller \
           ${DISABLE_LE_OPTION} \
           -v=6 $@ &
 
           # TODO
-          #-backup-container=../config/kubermatic/static/backup-container.yaml \
-          #-cleanup-container=../config/kubermatic/static/cleanup-container.yaml \
+          #-in-cluster-prometheus-rules-file="$inClusterPrometheusRulesFile" \
+          #-seed-admissionwebhook-cert-file=/opt/seed-webhook-serving-cert/serverCert.pem
+          #-seed-admissionwebhook-key-file=/opt/seed-webhook-serving-cert/serverKey.pem
           #-oidc-ca-file=../../secrets/seed-clusters/dev.kubermatic.io/caBundle.pem \
           #-oidc-issuer-url=$(vault kv get -field=oidc-issuer-url dev/seed-clusters/dev.kubermatic.io) \
           #-oidc-issuer-client-id=$(vault kv get -field=oidc-issuer-client-id dev/seed-clusters/dev.kubermatic.io) \
