@@ -50,7 +50,7 @@ func Add(ctx context.Context, log *zap.SugaredLogger, mgr manager.Manager) error
 	}
 
 	// Watch for changes to ClusterRoles
-	if err = c.Watch(&source.Kind{Type: &rbacv1.ClusterRole{}}, &handler.EnqueueRequestForObject{}, predicateutil.ByName("admin", "view", "edit")); err != nil {
+	if err = c.Watch(&source.Kind{Type: &rbacv1.ClusterRole{}}, &handler.EnqueueRequestForObject{}, predicateutil.ByName("admin", "view", "edit", "cluster-admin")); err != nil {
 		return fmt.Errorf("failed to establish watch for the ClusterRoles %v", err)
 	}
 
