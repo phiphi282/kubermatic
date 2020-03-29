@@ -17,6 +17,13 @@ fi
 : "${EXTERNAL_URL:=dev.metakube.de}"
 : "${DEBUG:="false"}"
 : "${KUBERMATICCOMMIT:="$([[ -n "$(git tag --points-at)" ]] && git tag --points-at || git log -1 --format=%H)"}"
+: "${GITTAG:=$(git describe --tags --always)}"
+
+# $KUBERMATICCOMMIT and $GITTAG must refer to git tag names for which we've built and uploaded kubermatic images
+# (because those tags will set as image tag for user cluster apiserver pod sidecar containers, e.g. the
+# docker.io/syseleven/kubeletdnat-controller image)
+# If they don't, e.g. because you're running with locally committed and not yet pushed changes, you must
+# override those variables, e.g. KUBERMATICCOMMIT=v2.13.1-sys11-12 GITTAG=v2.13.1-sys11-12 ... ./sys11-run-controller.sh
 
 export KEYCLOAK_EXTERNAL_ADMIN_PASSWORD="$(cat ${INSTALLER_DIR}/values.yaml | yq .keycloak.external.adminPassword -r)"
 export KEYCLOAK_EXTERNAL_ADMIN_USER="$(cat ${INSTALLER_DIR}/values.yaml | yq .keycloak.external.adminUser -r)"
@@ -51,9 +58,9 @@ fi
 
 while true; do
     if [[ "${DEBUG}" == "true" ]]; then
-        make KUBERMATICCOMMIT=$KUBERMATICCOMMIT GOTOOLFLAGS_EXTRA="-gcflags='all=-N -l'" LDFLAGS_EXTRA="" -C ${SRC_DIR} seed-controller-manager
+        make KUBERMATICCOMMIT=$KUBERMATICCOMMIT GITTAG=$GITTAG GOTOOLFLAGS_EXTRA="-gcflags='all=-N -l'" LDFLAGS_EXTRA="" -C ${SRC_DIR} seed-controller-manager
     else
-        make KUBERMATICCOMMIT=$KUBERMATICCOMMIT -C ${SRC_DIR} seed-controller-manager
+        make KUBERMATICCOMMIT=$KUBERMATICCOMMIT GITTAG=$GITTAG -C ${SRC_DIR} seed-controller-manager
     fi
 
     cd ${SRC_DIR}
@@ -126,7 +133,6 @@ while true; do
           #-oidc-issuer-url=$(vault kv get -field=oidc-issuer-url dev/seed-clusters/dev.kubermatic.io) \
           #-oidc-issuer-client-id=$(vault kv get -field=oidc-issuer-client-id dev/seed-clusters/dev.kubermatic.io) \
           #-oidc-issuer-client-secret=$(vault kv get -field=oidc-issuer-client-secret dev/seed-clusters/dev.kubermatic.io) \
-          #-docker-pull-config-json-file=<generate the file>
 
         PID=$!
     fi

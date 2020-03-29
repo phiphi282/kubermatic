@@ -3,7 +3,9 @@
 This is a fork of Loodse's kubermatic upstream repository (https://github.com/kubermatic/kubermatic).
 
 Use `api/hack/sys11-run-api.sh` and `api/hack/sys11-run-dashboard-and-api.sh` scripts for for launching the
-API or API and dashboard locally.
+API or API and dashboard locally. There's also `sys11-run-controller.sh`, `sys11-run-master-controller-manager.sh`,
+and `sys11-run-userclustercontroller.sh` for running the kubermatic controller manager, master controller manager,
+and user cluster controller manager locally. 
 
 See https://intra.syseleven.de/confluence/display/K8s/Repository%3A+kubermatic for a general overview.
 
