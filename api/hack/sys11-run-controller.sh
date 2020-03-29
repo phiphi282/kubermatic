@@ -78,6 +78,7 @@ while true; do
           -docker-pull-config-json-file="$dockercfgjson" \
           -monitoring-scrape-annotation-prefix=${KUBERMATIC_ENV} \
           -logtostderr=1 \
+          -log-debug=1 \
           -backup-container=./hack/sys11-store-container.yaml \
           -cleanup-container=./hack/sys11-cleanup-container.yaml \
           -worker-count=1 \
@@ -108,6 +109,7 @@ while true; do
           -docker-pull-config-json-file="$dockercfgjson" \
           -monitoring-scrape-annotation-prefix=${KUBERMATIC_ENV} \
           -logtostderr=1 \
+          -log-debug=1 \
           -backup-container=./hack/sys11-store-container.yaml \
           -cleanup-container=./hack/sys11-cleanup-container.yaml \
           -worker-count=1 \
