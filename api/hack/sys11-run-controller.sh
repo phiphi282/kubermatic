@@ -40,6 +40,11 @@ inClusterPrometheusRulesFile="$(mktemp)"
 trap "rm -f $inClusterPrometheusRulesFile" EXIT
 cat "${INSTALLER_DIR}/kubermatic/values.yaml" | yq .kubermatic.clusterNamespacePrometheus.rules >"$inClusterPrometheusRulesFile"
 
+seedKubeconfig="$(mktemp)"
+trap "rm -f $seedKubeconfig" EXIT
+cp ${CONFIG_DIR}/kubeconfig $seedKubeconfig
+kubectl --kubeconfig $seedKubeconfig config use-context $KUBERMATIC_CLUSTER
+
 defaultAddons=$(cat "${INSTALLER_DIR}/kubermatic/values.yaml" | yq '.kubermatic.controller.addons.kubernetes.defaultAddons | join(",")' -r)
 
 if [[ "${TAG_WORKER}" == "false" ]]; then
@@ -68,7 +73,7 @@ while true; do
         dlv --listen=:2345 --headless=true --api-version=2 --accept-multiclient exec ./_build/seed-controller-manager -- \
           -datacenters=${CONFIG_DIR}/datacenters.yaml \
           -datacenter-name=${KUBERMATIC_CLUSTER} \
-          -kubeconfig=${CONFIG_DIR}/kubeconfig \
+          -kubeconfig=$seedKubeconfig \
           -versions=${RESOURCES_DIR}/versions.yaml \
           -updates=${RESOURCES_DIR}/updates.yaml \
           -kubernetes-addons-path=${INSTALLER_DIR}/kubermatic/cluster-addons/addons \
@@ -99,7 +104,7 @@ while true; do
         ./_build/seed-controller-manager \
           -datacenters=${CONFIG_DIR}/datacenters.yaml \
           -datacenter-name=${KUBERMATIC_CLUSTER} \
-          -kubeconfig=${CONFIG_DIR}/kubeconfig \
+          -kubeconfig=$seedKubeconfig \
           -versions=${RESOURCES_DIR}/versions.yaml \
           -updates=${RESOURCES_DIR}/updates.yaml \
           -kubernetes-addons-path=${INSTALLER_DIR}/kubermatic/cluster-addons/addons \
