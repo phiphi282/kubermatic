@@ -17,11 +17,12 @@ import (
 func (r Routing) RegisterV1SysEleven(mux *mux.Router) {
 	mux.Methods(http.MethodGet).
 		Path("/projects/{project_id}/dc/{dc}/cluster/{cluster_id}/prometheus/{query_path}").
-		Handler(r.resourceUsageCollectorProxyHandler())
+		Handler(r.prometheusProxyHandler())
 
 	mux.Methods(http.MethodGet).
-		Path("/projects/{project_id}/usage").
-		Handler(r.prometheusProxyHandler())
+		Path("/projects/{project_id}/dc/{dc}/cluster/{cluster_id}/usage").
+		Handler(r.resourceUsageCollectorProxyHandler())
+
 
 	mux.Methods(http.MethodGet).
 		Path("/providers/openstack/images").

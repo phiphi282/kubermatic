@@ -31,10 +31,11 @@ func (r Routing) resourceUsageCollectorProxyHandler() http.Handler {
 	)
 }
 
-// GetPrometheusProxyReq represents a request to the Prometheus proxy route
+// GetResourceUsageCollectorProxyReq represents a request to the ResourceUsageCollector proxy route
 type GetResourceUsageCollectorProxyReq struct {
 	common.GetClusterReq
-	ResourceUsageCollectorQuery     map[string][]string `json:"resource_usage_collector_raw_query"`
+	ResourceUsageCollectorQueryPath string              `json:"prometheus_query_path"`
+	ResourceUsageCollectorQuery     map[string][]string `json:"prometheus_raw_query"`
 	RequestHeaders      http.Header
 }
 
