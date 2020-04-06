@@ -99,7 +99,7 @@ func (d *Deletion) cleanupInClusterResources(ctx context.Context, log *zap.Sugar
 	if shouldDeletePVs {
 		deletedSomeVolumes, err := d.cleanupVolumes(ctx, cluster)
 		if err != nil {
-			return fmt.Errorf("failed to cleanup LBs: %v", err)
+			return fmt.Errorf("failed to cleanup PVs: %v", err)
 		}
 		deletedSomeResource = deletedSomeResource || deletedSomeVolumes
 	}
