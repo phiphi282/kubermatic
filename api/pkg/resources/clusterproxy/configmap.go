@@ -200,5 +200,15 @@ const nginxConfig = `map $http_upgrade $connection_upgrade {
 		  proxy_set_header Upgrade $http_upgrade;
 		  proxy_set_header Connection $connection_upgrade;
 	  }
+	  location = /rabbitmq {
+		  return 302 https://$server_name/rabbitmq/;
+	  }
+	  location /rabbitmq/ {
+		  set $upstream "syseleven-rabbitmq.syseleven-rabbitmq.svc.cluster.local:15672";
+		  rewrite ^/rabbitmq(/.*) $1 break;
+		  proxy_pass http://$upstream$uri$is_args$args;
+		  proxy_http_version 1.1;
+		  proxy_pass_request_headers on;
+	  }
   }
 `

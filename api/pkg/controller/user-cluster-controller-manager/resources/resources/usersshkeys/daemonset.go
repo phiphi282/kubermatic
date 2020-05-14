@@ -37,7 +37,7 @@ func DaemonSetCreator() reconciling.NamedDaemonSetCreatorGetter {
 
 			ds.Spec.Template.Spec.ServiceAccountName = serviceAccountName
 
-			re := regexp.MustCompile(`-sys11-[0-9]+`)
+			re := regexp.MustCompile(`-sys11-.*`)
 			version := re.ReplaceAllString(resources.KUBERMATICCOMMIT, "")
 
 			ds.Spec.Template.Spec.Containers = []corev1.Container{
