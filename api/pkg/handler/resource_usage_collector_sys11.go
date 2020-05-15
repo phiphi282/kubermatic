@@ -40,7 +40,7 @@ type GetResourceUsageCollectorProxyReq struct {
 }
 
 func decodeResourceUsageCollectorProxyReq(c context.Context, r *http.Request) (interface{}, error) {
-	var req common.GetClusterReq
+	var req GetResourceUsageCollectorProxyReq
 
 	clusterID, err := common.DecodeClusterID(c, r)
 	if err != nil {
@@ -116,7 +116,7 @@ func getResourceUsageCollectorProxyEndpoint(seedsGetter provider.SeedsGetter, us
 			resourceUsageCollectorQuery[k] = v[0]
 		}
 
-		proxyRequest := seedKubeClient.CoreV1().Services(fmt.Sprintf("cluster-%s", c.Name)).ProxyGet(
+		proxyRequest := seedKubeClient.CoreV1().Services("resource-usage-collector").ProxyGet(
 			"tcp",
 			"resource-usage-collector",
 			"http",
