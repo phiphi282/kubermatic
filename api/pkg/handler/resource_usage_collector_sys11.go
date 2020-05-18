@@ -34,8 +34,8 @@ func (r Routing) resourceUsageCollectorProxyHandler() http.Handler {
 // GetResourceUsageCollectorProxyReq represents a request to the ResourceUsageCollector proxy route
 type GetResourceUsageCollectorProxyReq struct {
 	common.GetClusterReq
-	ResourceUsageCollectorQueryPath string              `json:"prometheus_query_path"`
-	ResourceUsageCollectorQuery     map[string][]string `json:"prometheus_raw_query"`
+	ResourceUsageCollectorQueryPath string              `json:"usage_query_path"`
+	ResourceUsageCollectorQuery     map[string][]string `json:"usage_raw_query"`
 	RequestHeaders      http.Header
 }
 
@@ -111,19 +111,20 @@ func getResourceUsageCollectorProxyEndpoint(seedsGetter provider.SeedsGetter, us
 
 		resourceUsageCollectorQuery := map[string]string{}
 
-		// prometheus does not support the same query parameter twice, so we can just use the first
-		for k, v := range req.ResourceUsageCollectorQuery {
-			resourceUsageCollectorQuery[k] = v[0]
-		}
+		// Query parameters can be generated from the given url
+		resourceUsageCollectorQuery["seed_cluster_name"] = seed.Name
+		resourceUsageCollectorQuery["cluster_id"] = req.ClusterID
+		resourceUsageCollectorQuery["project_id"] = req.ProjectID
 
 		proxyRequest := seedKubeClient.CoreV1().Services("resource-usage-collector").ProxyGet(
-			"tcp",
+			"http",
 			"resource-usage-collector",
 			"http",
 			"/v1/usage",
 			resourceUsageCollectorQuery,
 		).(*rest.Request)
 
+		proxyRequest.SetHeader("x-auth", "cGWLWQTm7RGtqjwbkEMsCAGTDdRu7U3T")
 		body, err := proxyRequest.DoRaw()
 
 		if err != nil {
