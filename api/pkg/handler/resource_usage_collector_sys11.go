@@ -35,7 +35,7 @@ func (r Routing) resourceUsageCollectorProxyHandler() http.Handler {
 // GetResourceUsageCollectorProxyReq represents a request to the ResourceUsageCollector proxy route
 type GetResourceUsageCollectorProxyReq struct {
 	common.GetClusterReq
-	RequestHeaders      http.Header
+	RequestHeaders http.Header
 }
 
 func decodeResourceUsageCollectorProxyReq(c context.Context, r *http.Request) (interface{}, error) {
@@ -95,13 +95,10 @@ func getResourceUsageCollectorProxyEndpoint(seedsGetter provider.SeedsGetter, us
 
 		resourceUsageCollectorQuery := map[string]string{}
 
-
 		// Fixed Query parameters can be generated from the given url
 		resourceUsageCollectorQuery["seed_cluster_name"] = seed.Name
 		resourceUsageCollectorQuery["cluster_id"] = req.ClusterID
 		resourceUsageCollectorQuery["project_id"] = req.ProjectID
-
-
 
 		proxyRequest := masterKubeClient.CoreV1().Services("resource-usage-collector").ProxyGet(
 			"http",

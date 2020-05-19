@@ -23,7 +23,6 @@ func (r Routing) RegisterV1SysEleven(mux *mux.Router) {
 		Path("/projects/{project_id}/dc/{dc}/cluster/{cluster_id}/v1/usage").
 		Handler(r.resourceUsageCollectorProxyHandler())
 
-
 	mux.Methods(http.MethodGet).
 		Path("/providers/openstack/images").
 		Handler(r.listOpenstackImages())
