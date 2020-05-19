@@ -3,10 +3,10 @@ package handler
 import (
 	"context"
 	"fmt"
-	"github.com/kubermatic/kubermatic/api/pkg/resources"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
+	"os"
 
 	"net/http"
 
@@ -15,8 +15,9 @@ import (
 	"github.com/kubermatic/kubermatic/api/pkg/handler/middleware"
 	"github.com/kubermatic/kubermatic/api/pkg/handler/v1/common"
 	"github.com/kubermatic/kubermatic/api/pkg/provider"
-	metaV1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
+
+var resourceUsageCollectorAuthToken = os.Getenv("REGISTER_AUTH_TOKEN")
 
 func (r Routing) resourceUsageCollectorProxyHandler() http.Handler {
 	return httptransport.NewServer(
@@ -34,8 +35,6 @@ func (r Routing) resourceUsageCollectorProxyHandler() http.Handler {
 // GetResourceUsageCollectorProxyReq represents a request to the ResourceUsageCollector proxy route
 type GetResourceUsageCollectorProxyReq struct {
 	common.GetClusterReq
-	ResourceUsageCollectorQueryPath string              `json:"usage_query_path"`
-	ResourceUsageCollectorQuery     map[string][]string `json:"usage_raw_query"`
 	RequestHeaders      http.Header
 }
 
@@ -94,29 +93,17 @@ func getResourceUsageCollectorProxyEndpoint(seedsGetter provider.SeedsGetter, us
 			return nil, fmt.Errorf("failed to create a master kubernetes client: %v", err)
 		}
 
-		seedConfigSecret, err := masterKubeClient.CoreV1().Secrets("kubermatic").Get("kubeconfig", metaV1.GetOptions{})
-		if err != nil {
-			return nil, fmt.Errorf("failed to get kubeconfig secret: %v", err)
-		}
-
-		seedConfig, err := getSeedKubeconfig(seed.Name, seedConfigSecret.Data[resources.KubeconfigSecretKey])
-		if err != nil {
-			return nil, fmt.Errorf("failed to get seed kubeconfig: %v", err)
-		}
-
-		seedKubeClient, err := kubernetes.NewForConfig(seedConfig)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create a seed kubernetes client: %v", err)
-		}
-
 		resourceUsageCollectorQuery := map[string]string{}
 
-		// Query parameters can be generated from the given url
+
+		// Fixed Query parameters can be generated from the given url
 		resourceUsageCollectorQuery["seed_cluster_name"] = seed.Name
 		resourceUsageCollectorQuery["cluster_id"] = req.ClusterID
 		resourceUsageCollectorQuery["project_id"] = req.ProjectID
 
-		proxyRequest := seedKubeClient.CoreV1().Services("resource-usage-collector").ProxyGet(
+
+
+		proxyRequest := masterKubeClient.CoreV1().Services("resource-usage-collector").ProxyGet(
 			"http",
 			"resource-usage-collector",
 			"http",
@@ -124,7 +111,7 @@ func getResourceUsageCollectorProxyEndpoint(seedsGetter provider.SeedsGetter, us
 			resourceUsageCollectorQuery,
 		).(*rest.Request)
 
-		proxyRequest.SetHeader("x-auth", "cGWLWQTm7RGtqjwbkEMsCAGTDdRu7U3T")
+		proxyRequest.SetHeader("x-auth", resourceUsageCollectorAuthToken)
 		body, err := proxyRequest.DoRaw()
 
 		if err != nil {
