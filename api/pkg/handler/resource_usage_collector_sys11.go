@@ -17,7 +17,7 @@ import (
 	"github.com/kubermatic/kubermatic/api/pkg/provider"
 )
 
-var resourceUsageCollectorAuthToken = os.Getenv("REGISTER_AUTH_TOKEN")
+var resourceUsageCollectorAuthToken = os.Getenv("RESOURCE_USAGE_COLLECTOR_AUTH_TOKEN")
 
 func (r Routing) resourceUsageCollectorProxyHandler() http.Handler {
 	return httptransport.NewServer(
