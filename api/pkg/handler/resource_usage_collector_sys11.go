@@ -19,6 +19,16 @@ import (
 
 var resourceUsageCollectorAuthToken = os.Getenv("RESOURCE_USAGE_COLLECTOR_AUTH_TOKEN")
 
+// swagger:route GET /projects/{project_id}/dc/{dc}/cluster/{cluster_id}/v1/usage
+//
+// Gets resource usage data for the cluster
+//
+//     Produces:
+//     - application/json
+//
+//     Responses:
+//       default: errorResponse
+//       200: Quotas
 func (r Routing) resourceUsageCollectorProxyHandler() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
