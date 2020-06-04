@@ -20,7 +20,7 @@ func (r Routing) RegisterV1SysEleven(mux *mux.Router) {
 		Handler(r.prometheusProxyHandler())
 
 	mux.Methods(http.MethodGet).
-		Path("/projects/{project_id}/dc/{dc}/cluster/{cluster_id}/v1/usage").
+		Path("/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/v1/{usage}").
 		Handler(r.resourceUsageCollectorProxyHandler())
 
 	mux.Methods(http.MethodGet).

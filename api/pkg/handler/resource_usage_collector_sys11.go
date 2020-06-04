@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"fmt"
+	"github.com/gorilla/mux"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
@@ -15,6 +16,8 @@ import (
 	"github.com/kubermatic/kubermatic/api/pkg/handler/middleware"
 	"github.com/kubermatic/kubermatic/api/pkg/handler/v1/common"
 	"github.com/kubermatic/kubermatic/api/pkg/provider"
+	k8cerrors "github.com/kubermatic/kubermatic/api/pkg/util/errors"
+
 )
 
 var resourceUsageCollectorAuthToken = os.Getenv("RESOURCE_USAGE_COLLECTOR_AUTH_TOKEN")
@@ -46,6 +49,8 @@ func (r Routing) resourceUsageCollectorProxyHandler() http.Handler {
 type GetResourceUsageCollectorProxyReq struct {
 	common.GetClusterReq
 	RequestHeaders http.Header
+	ResourceUsageCollectorQueryPath string              `json:"resource_usage_collector_query_path"`
+	ResourceUsageCollectorQuery     map[string][]string `json:"resource_usage_collector_raw_query"`
 }
 
 func decodeResourceUsageCollectorProxyReq(c context.Context, r *http.Request) (interface{}, error) {
@@ -63,6 +68,13 @@ func decodeResourceUsageCollectorProxyReq(c context.Context, r *http.Request) (i
 
 	req.ClusterID = clusterID
 	req.DCReq = dcr.(common.DCReq)
+	req.ResourceUsageCollectorQueryPath = mux.Vars(r)["usage"]
+	if req.ResourceUsageCollectorQueryPath != "usage" {
+		return nil, k8cerrors.New(http.StatusBadRequest, "invalid Prometheus query path")
+	}
+
+	req.ResourceUsageCollectorQuery = r.URL.Query()
+	req.RequestHeaders = r.Header
 
 	return req, nil
 }
@@ -110,11 +122,16 @@ func getResourceUsageCollectorProxyEndpoint(seedsGetter provider.SeedsGetter, us
 		resourceUsageCollectorQuery["cluster_id"] = req.ClusterID
 		resourceUsageCollectorQuery["project_id"] = req.ProjectID
 
+		// Add additional query parameters
+		for k, v := range req.ResourceUsageCollectorQuery {
+			resourceUsageCollectorQuery[k] = v[0]
+		}
+
 		proxyRequest := masterKubeClient.CoreV1().Services("resource-usage-collector").ProxyGet(
 			"http",
 			"resource-usage-collector",
 			"http",
-			"/v1/usage",
+			"/v1/"+req.ResourceUsageCollectorQueryPath,
 			resourceUsageCollectorQuery,
 		).(*rest.Request)
 
