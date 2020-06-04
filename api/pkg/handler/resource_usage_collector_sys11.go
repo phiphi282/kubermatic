@@ -17,7 +17,6 @@ import (
 	"github.com/kubermatic/kubermatic/api/pkg/handler/v1/common"
 	"github.com/kubermatic/kubermatic/api/pkg/provider"
 	k8cerrors "github.com/kubermatic/kubermatic/api/pkg/util/errors"
-
 )
 
 var resourceUsageCollectorAuthToken = os.Getenv("RESOURCE_USAGE_COLLECTOR_AUTH_TOKEN")
@@ -48,7 +47,7 @@ func (r Routing) resourceUsageCollectorProxyHandler() http.Handler {
 // GetResourceUsageCollectorProxyReq represents a request to the ResourceUsageCollector proxy route
 type GetResourceUsageCollectorProxyReq struct {
 	common.GetClusterReq
-	RequestHeaders http.Header
+	RequestHeaders                  http.Header
 	ResourceUsageCollectorQueryPath string              `json:"resource_usage_collector_query_path"`
 	ResourceUsageCollectorQuery     map[string][]string `json:"resource_usage_collector_raw_query"`
 }
