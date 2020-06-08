@@ -3,7 +3,6 @@ package handler
 import (
 	"context"
 	"fmt"
-	"github.com/gorilla/mux"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
@@ -16,12 +15,11 @@ import (
 	"github.com/kubermatic/kubermatic/api/pkg/handler/middleware"
 	"github.com/kubermatic/kubermatic/api/pkg/handler/v1/common"
 	"github.com/kubermatic/kubermatic/api/pkg/provider"
-	k8cerrors "github.com/kubermatic/kubermatic/api/pkg/util/errors"
 )
 
 var resourceUsageCollectorAuthToken = os.Getenv("RESOURCE_USAGE_COLLECTOR_AUTH_TOKEN")
 
-// swagger:route GET /projects/{project_id}/dc/{dc}/cluster/{cluster_id}/v1/usage
+// swagger:route GET /api/v1/projects/{project_id}/dc/{dc}/cluster/{cluster_id}/usage
 //
 // Gets resource usage data for the cluster
 //
@@ -30,7 +28,6 @@ var resourceUsageCollectorAuthToken = os.Getenv("RESOURCE_USAGE_COLLECTOR_AUTH_T
 //
 //     Responses:
 //       default: errorResponse
-//       200: Quotas
 func (r Routing) resourceUsageCollectorProxyHandler() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
@@ -47,9 +44,8 @@ func (r Routing) resourceUsageCollectorProxyHandler() http.Handler {
 // GetResourceUsageCollectorProxyReq represents a request to the ResourceUsageCollector proxy route
 type GetResourceUsageCollectorProxyReq struct {
 	common.GetClusterReq
-	RequestHeaders                  http.Header
-	ResourceUsageCollectorQueryPath string              `json:"resource_usage_collector_query_path"`
-	ResourceUsageCollectorQuery     map[string][]string `json:"resource_usage_collector_raw_query"`
+	from  string
+	until string
 }
 
 func decodeResourceUsageCollectorProxyReq(c context.Context, r *http.Request) (interface{}, error) {
@@ -67,13 +63,8 @@ func decodeResourceUsageCollectorProxyReq(c context.Context, r *http.Request) (i
 
 	req.ClusterID = clusterID
 	req.DCReq = dcr.(common.DCReq)
-	req.ResourceUsageCollectorQueryPath = mux.Vars(r)["usage"]
-	if req.ResourceUsageCollectorQueryPath != "usage" {
-		return nil, k8cerrors.New(http.StatusBadRequest, "invalid Prometheus query path")
-	}
-
-	req.ResourceUsageCollectorQuery = r.URL.Query()
-	req.RequestHeaders = r.Header
+	req.from = r.URL.Query().Get("from")
+	req.until = r.URL.Query().Get("until")
 
 	return req, nil
 }
@@ -120,17 +111,18 @@ func getResourceUsageCollectorProxyEndpoint(seedsGetter provider.SeedsGetter, us
 		resourceUsageCollectorQuery["seed_cluster_name"] = seed.Name
 		resourceUsageCollectorQuery["cluster_id"] = req.ClusterID
 		resourceUsageCollectorQuery["project_id"] = req.ProjectID
-
-		// Add additional query parameters
-		for k, v := range req.ResourceUsageCollectorQuery {
-			resourceUsageCollectorQuery[k] = v[0]
+		if req.from != "" {
+			resourceUsageCollectorQuery["from"] = req.from
+		}
+		if req.until != "" {
+			resourceUsageCollectorQuery["until"] = req.until
 		}
 
 		proxyRequest := masterKubeClient.CoreV1().Services("resource-usage-collector").ProxyGet(
 			"http",
 			"resource-usage-collector",
 			"http",
-			"/v1/"+req.ResourceUsageCollectorQueryPath,
+			"/v1/usage",
 			resourceUsageCollectorQuery,
 		).(*rest.Request)
 
