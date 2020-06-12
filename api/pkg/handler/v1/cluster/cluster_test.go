@@ -151,6 +151,7 @@ func TestDeleteClusterEndpoint(t *testing.T) {
 		ExistingAPIUser               *apiv1.User
 		ExpectedSSHKeys               []*kubermaticv1.UserSSHKey
 		ExpectedListClusterKeysStatus int
+		PrivilegedOperation           bool
 	}{
 		{
 			Name:             "scenario 1: tests deletion of a cluster and its dependant resources",
@@ -314,6 +315,7 @@ func TestDeleteClusterEndpoint(t *testing.T) {
 				},
 			},
 			ExpectedListClusterKeysStatus: http.StatusNotFound,
+			PrivilegedOperation:           true,
 		},
 	}
 
@@ -339,26 +341,28 @@ func TestDeleteClusterEndpoint(t *testing.T) {
 			}
 			test.CompareWithResult(t, res, tc.ExpectedResponse)
 
-			validatedActions := 0
-			for _, action := range kubermaticClient.Actions() {
-				if action.Matches("update", "usersshkeies") {
-					updateAction, ok := action.(clienttesting.CreateAction)
-					if !ok {
-						t.Fatalf("unexpected action %#v", action)
-					}
-					for _, expectedSSHKey := range tc.ExpectedSSHKeys {
-						sshKeyFromAction := updateAction.GetObject().(*kubermaticv1.UserSSHKey)
-						if sshKeyFromAction.Name == expectedSSHKey.Name {
-							if !equality.Semantic.DeepEqual(updateAction.GetObject().(*kubermaticv1.UserSSHKey), expectedSSHKey) {
-								t.Fatalf("%v", diff.ObjectDiff(expectedSSHKey, updateAction.GetObject().(*kubermaticv1.UserSSHKey)))
+			if !tc.PrivilegedOperation {
+				validatedActions := 0
+				for _, action := range kubermaticClient.Actions() {
+					if action.Matches("update", "usersshkeies") {
+						updateAction, ok := action.(clienttesting.CreateAction)
+						if !ok {
+							t.Fatalf("unexpected action %#v", action)
+						}
+						for _, expectedSSHKey := range tc.ExpectedSSHKeys {
+							sshKeyFromAction := updateAction.GetObject().(*kubermaticv1.UserSSHKey)
+							if sshKeyFromAction.Name == expectedSSHKey.Name {
+								if !equality.Semantic.DeepEqual(updateAction.GetObject().(*kubermaticv1.UserSSHKey), expectedSSHKey) {
+									t.Fatalf("%v", diff.ObjectDiff(expectedSSHKey, updateAction.GetObject().(*kubermaticv1.UserSSHKey)))
+								}
 							}
 						}
+						validatedActions++
 					}
-					validatedActions++
 				}
-			}
-			if validatedActions != len(tc.ExpectedSSHKeys) {
-				t.Fatalf("not all update actions were validated, expected to validate %d but validated only %d", len(tc.ExpectedSSHKeys), validatedActions)
+				if validatedActions != len(tc.ExpectedSSHKeys) {
+					t.Fatalf("not all update actions were validated, expected to validate %d but validated only %d", len(tc.ExpectedSSHKeys), validatedActions)
+				}
 			}
 
 			// validate if the cluster was deleted
@@ -565,20 +569,6 @@ func TestDetachSSHKeyFromClusterEndpoint(t *testing.T) {
 					t.Fatalf("Expected HTTP status code %d, got %d: %s", tc.ExpectedDeleteHTTPStatus, res.Code, res.Body.String())
 				}
 				test.CompareWithResult(t, res, tc.ExpectedDeleteResponse)
-			}
-
-			// GET request list the keys from the cache, thus we wait 1 s before firing the request . . . I know :)
-			time.Sleep(time.Second)
-			{
-				req := httptest.NewRequest("GET", fmt.Sprintf("/api/v1/projects/%s/dc/us-central1/clusters/%s/sshkeys", tc.ProjectToSync, tc.ClusterToSync), strings.NewReader(tc.Body))
-				res := httptest.NewRecorder()
-
-				ep.ServeHTTP(res, req)
-
-				if res.Code != tc.ExpectedGetHTTPStatus {
-					t.Fatalf("Expected HTTP status code %d, got %d: %s", tc.ExpectedGetHTTPStatus, res.Code, res.Body.String())
-				}
-				test.CompareWithResult(t, res, tc.ExpectedResponseOnGetAfterDelte)
 			}
 		})
 	}
@@ -1059,7 +1049,7 @@ func TestCreateClusterEndpoint(t *testing.T) {
 		{
 			Name:             "scenario 11: create a cluster in audit-logging-enforced datacenter, without explicitly enabling audit logging",
 			Body:             `{"cluster":{"name":"keen-snyder","spec":{"version":"1.9.7","cloud":{"fake":{"token":"dummy_token"},"dc":"audited-dc"}}}}`,
-			ExpectedResponse: `{"id":"%s","name":"keen-snyder","creationTimestamp":"0001-01-01T00:00:00Z","type":"kubernetes","spec":{"cloud":{"dc":"audited-dc","fake":{}},"version":"1.9.7","oidc":{},"auditLogging":{"enabled":true}},"status":{"version":"1.9.7","url":""}}`,
+			ExpectedResponse: `{"id":"%s","name":"keen-snyder","creationTimestamp":"0001-01-01T00:00:00Z","type":"kubernetes","spec":{"cloud":{"dc":"audited-dc","fake":{}},"clusterNetwork":{"services":{},"pods":{}},"version":"1.9.7","oidc":{},"sys11auth":{},"auditLogging":{"enabled":true}},"status":{"version":"1.9.7","url":""}}`,
 			RewriteClusterID: true,
 			HTTPStatus:       http.StatusCreated,
 			ProjectToSync:    test.GenDefaultProject().Name,
@@ -1068,6 +1058,33 @@ func TestCreateClusterEndpoint(t *testing.T) {
 				test.GenBinding(test.GenDefaultProject().Name, test.UserEmail2, "editors"),
 			),
 			ExistingAPIUser: test.GenAPIUser(test.UserName2, test.UserEmail2),
+		},
+		{
+			Name:             "scenario 12: the admin user can create cluster for any project",
+			Body:             `{"cluster":{"name":"keen-snyder","spec":{"version":"1.9.7","cloud":{"fake":{"token":"dummy_token"},"dc":"fake-dc"}}}}`,
+			ExpectedResponse: `{"id":"%s","name":"keen-snyder","creationTimestamp":"0001-01-01T00:00:00Z","type":"kubernetes","spec":{"cloud":{"dc":"fake-dc","fake":{}},"clusterNetwork":{"services":{},"pods":{}},"version":"1.9.7","oidc":{},"sys11auth":{}},"status":{"version":"1.9.7","url":""}}`,
+			RewriteClusterID: true,
+			HTTPStatus:       http.StatusCreated,
+			ProjectToSync:    test.GenDefaultProject().Name,
+			ExistingKubermaticObjs: test.GenDefaultKubermaticObjects(
+				// add admin user
+				genUser("John", "john@acme.com", true),
+				// add an ssh key
+				&kubermaticv1.UserSSHKey{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "key-c08aa5c7abf34504f18552846485267d-yafn",
+						OwnerReferences: []metav1.OwnerReference{
+							{
+								APIVersion: "kubermatic.k8s.io/v1",
+								Kind:       "Project",
+								UID:        "",
+								Name:       test.GenDefaultProject().Name,
+							},
+						},
+					},
+				},
+			),
+			ExistingAPIUser: test.GenAPIUser("John", "john@acme.com"),
 		},
 	}
 
@@ -1345,7 +1362,7 @@ func TestPatchCluster(t *testing.T) {
 		{
 			Name:             "scenario 6: the admin John can update Bob's cluster version",
 			Body:             `{"spec":{"version":"1.2.3"}}`,
-			ExpectedResponse: `{"id":"keen-snyder","name":"clusterAbc","creationTimestamp":"2013-02-03T19:54:00Z","type":"kubernetes","spec":{"cloud":{"dc":"fake-dc","fake":{}},"version":"1.2.3","oidc":{}},"status":{"version":"1.2.3","url":"https://w225mx4z66.asia-east1-a-1.cloud.kubermatic.io:31885"}}`,
+			ExpectedResponse: `{"id":"keen-snyder","name":"clusterAbc","creationTimestamp":"2013-02-03T19:54:00Z","type":"kubernetes","spec":{"cloud":{"dc":"fake-dc","fake":{}},"clusterNetwork":{"services":{},"pods":{}},"version":"1.2.3","oidc":{},"sys11auth":{}},"status":{"version":"1.2.3","url":"https://w225mx4z66.asia-east1-a-1.cloud.kubermatic.io:31885"}}`,
 			cluster:          "keen-snyder",
 			HTTPStatus:       http.StatusOK,
 			project:          test.GenDefaultProject().Name,
@@ -1443,7 +1460,7 @@ func TestGetCluster(t *testing.T) {
 		{
 			Name:             "scenario 3: the admin John can get Bob's cluster",
 			Body:             ``,
-			ExpectedResponse: `{"id":"defClusterID","name":"defClusterName","creationTimestamp":"2013-02-03T19:54:00Z","type":"kubernetes","spec":{"cloud":{"dc":"OpenstackDatacenter","openstack":{"floatingIpPool":"floatingIPPool"}},"version":"9.9.9","oidc":{}},"status":{"version":"9.9.9","url":"https://w225mx4z66.asia-east1-a-1.cloud.kubermatic.io:31885"}}`,
+			ExpectedResponse: `{"id":"defClusterID","name":"defClusterName","creationTimestamp":"2013-02-03T19:54:00Z","type":"kubernetes","spec":{"cloud":{"dc":"OpenstackDatacenter","openstack":{"floatingIpPool":"floatingIPPool"}},"clusterNetwork":{"services":{},"pods":{}},"version":"9.9.9","oidc":{},"sys11auth":{}},"status":{"version":"9.9.9","url":"https://w225mx4z66.asia-east1-a-1.cloud.kubermatic.io:31885"}}`,
 			ClusterToGet:     test.GenDefaultCluster().Name,
 			HTTPStatus:       http.StatusOK,
 			ExistingKubermaticObjs: test.GenDefaultKubermaticObjects(

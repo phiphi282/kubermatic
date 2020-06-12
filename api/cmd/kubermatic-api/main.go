@@ -36,6 +36,7 @@ import (
 	prometheusapi "github.com/prometheus/client_golang/api"
 	"go.uber.org/zap"
 
+	cmdutil "github.com/kubermatic/kubermatic/api/cmd/util"
 	"github.com/kubermatic/kubermatic/api/pkg/cluster/client"
 	"github.com/kubermatic/kubermatic/api/pkg/controller/master-controller-manager/rbac"
 	kubermaticclientset "github.com/kubermatic/kubermatic/api/pkg/crd/client/clientset/versioned"
@@ -86,6 +87,8 @@ func main() {
 		}
 	}()
 	kubermaticlog.Logger = log
+
+	cmdutil.Hello(log, "API", options.log.Debug)
 
 	if err := clusterv1alpha1.AddToScheme(scheme.Scheme); err != nil {
 		kubermaticlog.Logger.Fatalw("failed to register scheme", zap.Stringer("api", clusterv1alpha1.SchemeGroupVersion), zap.Error(err))
@@ -159,11 +162,11 @@ func createInitProviders(options serverRunOptions) (providers, error) {
 	if err != nil {
 		return providers{}, fmt.Errorf("failed to construct manager: %v", err)
 	}
-	seedsGetter, err := provider.SeedsGetterFactory(context.Background(), mgr.GetClient(), options.dcFile, options.namespace, options.dynamicDatacenters)
+	seedsGetter, err := seedsGetterFactory(context.Background(), mgr.GetClient(), options)
 	if err != nil {
 		return providers{}, err
 	}
-	seedKubeconfigGetter, err := provider.SeedKubeconfigGetterFactory(context.Background(), mgr.GetClient(), options.kubeconfig, options.namespace, options.dynamicDatacenters)
+	seedKubeconfigGetter, err := seedKubeconfigGetterFactory(context.Background(), mgr.GetClient(), options)
 	if err != nil {
 		return providers{}, err
 	}
@@ -207,8 +210,8 @@ func createInitProviders(options serverRunOptions) (providers, error) {
 	}()
 
 	userMasterLister := kubermaticMasterInformerFactory.Kubermatic().V1().Users().Lister()
-	sshKeyProvider := kubernetesprovider.NewSSHKeyProvider(defaultKubermaticImpersonationClient.CreateImpersonatedKubermaticClientSet, kubermaticMasterInformerFactory.Kubermatic().V1().UserSSHKeys().Lister())
-	privilegedSSHKeyProvider, err := kubernetesprovider.NewPrivilegedSSHKeyProvider(defaultKubermaticImpersonationClient.CreateImpersonatedKubermaticClientSet)
+	sshKeyProvider := kubernetesprovider.NewSSHKeyProvider(defaultKubermaticImpersonationClient.CreateImpersonatedKubermaticClientSet, mgr.GetClient())
+	privilegedSSHKeyProvider, err := kubernetesprovider.NewPrivilegedSSHKeyProvider(mgr.GetClient())
 	if err != nil {
 		return providers{}, fmt.Errorf("failed to create privileged SSH key provider due to %v", err)
 	}
@@ -222,7 +225,6 @@ func createInitProviders(options serverRunOptions) (providers, error) {
 		return providers{}, fmt.Errorf("failed to create service account token provider due to %v", err)
 	}
 	serviceAccountProvider := kubernetesprovider.NewServiceAccountProvider(defaultKubermaticImpersonationClient.CreateImpersonatedKubermaticClientSet, userMasterLister, options.domain)
-
 	projectMemberProvider := kubernetesprovider.NewProjectMemberProvider(defaultKubermaticImpersonationClient.CreateImpersonatedKubermaticClientSet, kubermaticMasterInformerFactory.Kubermatic().V1().UserProjectBindings().Lister(), userMasterLister, kubernetesprovider.IsServiceAccount)
 	projectProvider, err := kubernetesprovider.NewProjectProvider(defaultKubermaticImpersonationClient.CreateImpersonatedKubermaticClientSet, kubermaticMasterInformerFactory.Kubermatic().V1().Projects().Lister())
 	if err != nil {
@@ -260,11 +262,13 @@ func createInitProviders(options serverRunOptions) (providers, error) {
 		privilegedSSHKeyProvider:              privilegedSSHKeyProvider,
 		user:                                  userProvider,
 		serviceAccountProvider:                serviceAccountProvider,
+		privilegedServiceAccountProvider:      serviceAccountProvider,
 		serviceAccountTokenProvider:           serviceAccountTokenProvider,
 		privilegedServiceAccountTokenProvider: serviceAccountTokenProvider,
 		project:                               projectProvider,
 		privilegedProject:                     privilegedProjectProvider,
 		projectMember:                         projectMemberProvider,
+		privilegedProjectMemberProvider:       projectMemberProvider,
 		memberMapper:                          projectMemberProvider,
 		eventRecorderProvider:                 eventRecorderProvider,
 		clusterProviderGetter:                 clusterProviderGetter,
@@ -356,7 +360,9 @@ func createAPIHandler(options serverRunOptions, prov providers, oidcIssuerVerifi
 		prov.privilegedSSHKeyProvider,
 		prov.user,
 		prov.serviceAccountProvider,
+		prov.privilegedServiceAccountProvider,
 		prov.serviceAccountTokenProvider,
+		prov.privilegedServiceAccountTokenProvider,
 		prov.project,
 		prov.mdRequestProviderGetter,
 		prov.privilegedProject,
@@ -366,6 +372,7 @@ func createAPIHandler(options serverRunOptions, prov providers, oidcIssuerVerifi
 		updateManager,
 		prometheusClient,
 		prov.projectMember,
+		prov.privilegedProjectMemberProvider,
 		prov.memberMapper,
 		serviceAccountTokenAuth,
 		serviceAccountTokenGenerator,

@@ -15,6 +15,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/kubermatic/kubermatic/api/pkg/cluster/client"
+	"github.com/kubermatic/kubermatic/api/pkg/controller/operator/common"
 	backupcontroller "github.com/kubermatic/kubermatic/api/pkg/controller/seed-controller-manager/backup"
 	kubermaticv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
 	"github.com/kubermatic/kubermatic/api/pkg/features"
@@ -37,7 +38,6 @@ type controllerRunOptions struct {
 
 	externalURL                                      string
 	dc                                               string
-	dcFile                                           string
 	workerName                                       string
 	versionsFile                                     string
 	updatesFile                                      string
@@ -64,7 +64,6 @@ type controllerRunOptions struct {
 	kubermaticImage                                  string
 	keycloakCacheExpiry                              time.Duration
 	dnatControllerImage                              string
-	dynamicDatacenters                               bool
 	namespace                                        string
 	disableLeaderElection                            bool
 	apiServerDefaultReplicas                         int
@@ -73,6 +72,7 @@ type controllerRunOptions struct {
 	schedulerDefaultReplicas                         int
 	seedValidationHook                               seedvalidation.WebhookOpts
 	concurrentClusterUpdate                          int
+	addonEnforceInterval                             int
 
 	// OIDC configuration
 	oidcCAFile             string
@@ -97,7 +97,6 @@ func newControllerRunOptions() (controllerRunOptions, error) {
 	flag.StringVar(&c.internalAddr, "internal-address", "127.0.0.1:8085", "The address on which the internal server is running on")
 	flag.StringVar(&c.externalURL, "external-url", "", "The external url for the apiserver host and the the dc.(Required)")
 	flag.StringVar(&c.dc, "datacenter-name", "", "The name of the seed datacenter, the controller is running in. It will be used to build the absolute url for a customer cluster.")
-	flag.StringVar(&c.dcFile, "datacenters", "", "The datacenters.yaml file path")
 	flag.StringVar(&c.workerName, "worker-name", "", "The name of the worker that will only processes resources with label=worker-name.")
 	flag.StringVar(&c.versionsFile, "versions", "versions.yaml", "The versions.yaml file path")
 	flag.StringVar(&c.updatesFile, "updates", "updates.yaml", "The updates.yaml file path")
@@ -131,7 +130,6 @@ func newControllerRunOptions() (controllerRunOptions, error) {
 	flag.StringVar(&c.kubermaticImage, "kubermatic-image", resources.DefaultKubermaticImage, "The location from which to pull the Kubermatic image")
 	flag.DurationVar(&c.keycloakCacheExpiry, "keycloak-cache-expiry", 2*time.Hour, "Time duration after which items in the Keycloak client cache expire.")
 	flag.StringVar(&c.dnatControllerImage, "dnatcontroller-image", resources.DefaultDNATControllerImage, "The location of the dnatcontroller-image")
-	flag.BoolVar(&c.dynamicDatacenters, "dynamic-datacenters", false, "Whether to enable dynamic datacenters")
 	flag.StringVar(&c.namespace, "namespace", "kubermatic", "The namespace kubermatic runs in, uses to determine where to look for datacenter custom resources")
 	flag.BoolVar(&c.disableLeaderElection, "disable-leader-election", false, "A flag indicating whether the controller should skip the leader election. Only enable this for debugging purposes.")
 	flag.IntVar(&c.apiServerDefaultReplicas, "apiserver-default-replicas", 2, "The default number of replicas for usercluster api servers")
@@ -139,7 +137,9 @@ func newControllerRunOptions() (controllerRunOptions, error) {
 	flag.IntVar(&c.controllerManagerDefaultReplicas, "controller-manager-default-replicas", 1, "The default number of replicas for usercluster controller managers")
 	flag.IntVar(&c.schedulerDefaultReplicas, "scheduler-default-replicas", 1, "The default number of replicas for usercluster schedulers")
 	flag.IntVar(&c.concurrentClusterUpdate, "max-parallel-reconcile", 10, "The default number of resources updates per cluster")
+	flag.IntVar(&c.addonEnforceInterval, "addon-enforce-interval", 5, "Check and ensure default usercluster addons are deployed every interval in minutes. Set to 0 to disable.")
 	c.seedValidationHook.AddFlags(flag.CommandLine)
+	addFlags(flag.CommandLine)
 	flag.Parse()
 
 	featureGates, err := features.NewFeatures(rawFeatureGates)
@@ -288,7 +288,11 @@ func loadAddons(listOpt, fileOpt string) (kubermaticv1.AddonList, error) {
 	}
 	if listOpt != "" {
 		for _, addonName := range strings.Split(listOpt, ",") {
-			addonList.Items = append(addonList.Items, kubermaticv1.Addon{ObjectMeta: metav1.ObjectMeta{Name: addonName}})
+			labels, err := getAddonDefaultLabels(addonName)
+			if err != nil {
+				return addonList, fmt.Errorf("failed to get default addon labels: %v", err)
+			}
+			addonList.Items = append(addonList.Items, kubermaticv1.Addon{ObjectMeta: metav1.ObjectMeta{Name: addonName, Labels: labels}})
 		}
 	}
 	if fileOpt != "" {
@@ -302,4 +306,17 @@ func loadAddons(listOpt, fileOpt string) (kubermaticv1.AddonList, error) {
 	}
 
 	return addonList, nil
+}
+
+func getAddonDefaultLabels(addonName string) (map[string]string, error) {
+	defaultAddonList := kubermaticv1.AddonList{}
+	if err := yaml.Unmarshal([]byte(common.DefaultKubernetesAddons), &defaultAddonList); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal default addon list: %v", err)
+	}
+	for _, addon := range defaultAddonList.Items {
+		if addon.Name == addonName {
+			return addon.Labels, nil
+		}
+	}
+	return nil, nil
 }

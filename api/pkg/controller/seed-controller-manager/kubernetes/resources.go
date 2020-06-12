@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	controllerutil "github.com/kubermatic/kubermatic/api/pkg/controller/util"
 	kubermaticv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
 	"github.com/kubermatic/kubermatic/api/pkg/resources"
 	"github.com/kubermatic/kubermatic/api/pkg/resources/apiserver"
@@ -128,7 +127,7 @@ func (r *Reconciler) getClusterTemplateData(ctx context.Context, cluster *kuberm
 		return nil, fmt.Errorf("failed to get datacenter %s", cluster.Spec.Cloud.DatacenterName)
 	}
 
-	supportsFailureDomainZoneAntiAffinity, err := controllerutil.SupportsFailureDomainZoneAntiAffinity(ctx, r.Client)
+	supportsFailureDomainZoneAntiAffinity, err := resources.SupportsFailureDomainZoneAntiAffinity(ctx, r.Client)
 	if err != nil {
 		return nil, err
 	}
@@ -232,8 +231,7 @@ func GetDeploymentCreators(data *resources.TemplateData, enableAPIserverOIDCAuth
 		clusterproxy.DeploymentCreator(data),
 		//kubernetesdashboard.DeploymentCreator(data),
 	}
-	if data.Cluster().Annotations[kubermaticv1.AnnotationNameClusterAutoscalerEnabled] != "" &&
-		data.Cluster().Spec.Version.Minor() > 13 {
+	if data.Cluster().Annotations[kubermaticv1.AnnotationNameClusterAutoscalerEnabled] != "" {
 		deployments = append(deployments, clusterautoscaler.DeploymentCreator(data))
 	}
 	if flag := data.Cluster().Spec.Features[kubermaticv1.ClusterFeatureExternalCloudProvider]; flag {
@@ -275,14 +273,11 @@ func (r *Reconciler) GetSecretCreators(data *resources.TemplateData) []reconcili
 		resources.GetInternalKubeconfigCreator(resources.MetricsServerKubeconfigSecretName, resources.MetricsServerCertUsername, nil, data),
 		resources.GetInternalKubeconfigCreator(resources.InternalUserClusterAdminKubeconfigSecretName, resources.InternalUserClusterAdminKubeconfigCertUsername, []string{"system:masters"}, data),
 		resources.GetInternalKubeconfigCreator(resources.KubernetesDashboardKubeconfigSecretName, resources.KubernetesDashboardCertUsername, nil, data),
+		resources.GetInternalKubeconfigCreator(resources.ClusterAutoscalerKubeconfigSecretName, resources.ClusterAutoscalerCertUsername, nil, data),
 		resources.AdminKubeconfigCreator(data),
 		apiserver.TokenViewerCreator(),
 		apiserver.TokenUsersCreator(data),
 		resources.ViewerKubeconfigCreator(data),
-	}
-
-	if data.Cluster().Spec.Version.Minor() > 13 {
-		creators = append(creators, resources.GetInternalKubeconfigCreator(resources.ClusterAutoscalerKubeconfigSecretName, resources.ClusterAutoscalerCertUsername, nil, data))
 	}
 
 	if flag := data.Cluster().Spec.Features[kubermaticv1.ClusterFeatureExternalCloudProvider]; flag {

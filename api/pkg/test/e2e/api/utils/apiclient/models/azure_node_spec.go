@@ -20,12 +20,24 @@ type AzureNodeSpec struct {
 	// should the machine have a publicly accessible IP address
 	AssignPublicIP bool `json:"assignPublicIP,omitempty"`
 
+	// Data disk size in GB
+	DataDiskSize int32 `json:"dataDiskSize,omitempty"`
+
+	// image ID
+	ImageID string `json:"imageID,omitempty"`
+
+	// OS disk size in GB
+	OSDiskSize int32 `json:"osDiskSize,omitempty"`
+
 	// VM size
 	// Required: true
 	Size *string `json:"size"`
 
 	// Additional metadata to set
 	Tags map[string]string `json:"tags,omitempty"`
+
+	// Zones represents the availability zones for azure vms
+	Zones []string `json:"zones"`
 }
 
 // Validate validates this azure node spec

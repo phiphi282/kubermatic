@@ -452,16 +452,6 @@ func ValidateSys11AuthSettings(spec *kubermaticv1.ClusterSpec, keycloakFacade ke
 	return nil
 }
 
-func ValidateUpdateWindow(updateWindow *kubermaticv1.UpdateWindow) error {
-	if updateWindow != nil && updateWindow.Start != "" && updateWindow.Length != "" {
-		_, err := timeutil.ParsePeriodic(updateWindow.Start, updateWindow.Length)
-		if err != nil {
-			return fmt.Errorf("error parsing update window: %s", err)
-		}
-	}
-	return nil
-}
-
 func validateAlibabaCloudSpec(spec *kubermaticv1.AlibabaCloudSpec) error {
 	if spec.AccessKeyID == "" {
 		if err := kuberneteshelper.ValidateSecretKeySelector(spec.CredentialsReference, resources.AlibabaAccessKeyID); err != nil {
@@ -471,6 +461,16 @@ func validateAlibabaCloudSpec(spec *kubermaticv1.AlibabaCloudSpec) error {
 	if spec.AccessKeySecret == "" {
 		if err := kuberneteshelper.ValidateSecretKeySelector(spec.CredentialsReference, resources.AlibabaAccessKeySecret); err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+func ValidateUpdateWindow(updateWindow *kubermaticv1.UpdateWindow) error {
+	if updateWindow != nil && updateWindow.Start != "" && updateWindow.Length != "" {
+		_, err := timeutil.ParsePeriodic(updateWindow.Start, updateWindow.Length)
+		if err != nil {
+			return fmt.Errorf("error parsing update window: %s", err)
 		}
 	}
 	return nil

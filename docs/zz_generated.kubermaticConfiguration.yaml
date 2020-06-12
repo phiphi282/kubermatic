@@ -12,7 +12,7 @@ spec:
     # DebugLog enables more verbose logging.
     debugLog: false
     # DockerRepository is the repository containing the Kubermatic REST API image.
-    dockerRepository: quay.io/kubermatic/api
+    dockerRepository: quay.io/kubermatic/api-ce
     # PProfEndpoint controls the port the API should listen on to provide pprof
     # data. This port is never exposed from the container and only available via port-forwardings.
     pprofEndpoint: :6600
@@ -81,7 +81,7 @@ spec:
     # DebugLog enables more verbose logging.
     debugLog: false
     # DockerRepository is the repository containing the Kubermatic master-controller-manager image.
-    dockerRepository: quay.io/kubermatic/api
+    dockerRepository: quay.io/kubermatic/api-ce
     # PProfEndpoint controls the port the master-controller-manager should listen on to provide pprof
     # data. This port is never exposed from the container and only available via port-forwardings.
     pprofEndpoint: :6600
@@ -105,6 +105,23 @@ spec:
       requests:
         cpu: 50m
         memory: 128Mi
+  # Proxy allows to configure Kubermatic to use proxies to talk to the
+  # world outside of its cluster.
+  proxy:
+    # HTTP is the full URL to the proxy to use for plaintext HTTP
+    # connections, e.g. "http://internalproxy.example.com:8080".
+    http: ""
+    # HTTPS is the full URL to the proxy to use for encrypted HTTPS
+    # connections, e.g. "http://secureinternalproxy.example.com:8080".
+    https: ""
+    # NoProxy is a comma-separated list of hostnames / network masks
+    # for which no proxy shall be used. If you make use of proxies,
+    # this list should contain all local and cluster-internal domains
+    # and networks, e.g. "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,mydomain".
+    # The operator will always prepend the following elements to this
+    # list if proxying is configured (i.e. HTTP/HTTPS are not empty):
+    # "127.0.0.1/8", "localhost", ".local", ".local.", "kubernetes", ".default", ".svc"
+    noProxy: ""
   # SeedController configures the seed-controller-manager.
   seedController:
     # BackupCleanupContainer is the container used for removing expired backups from the storage location.
@@ -116,7 +133,15 @@ spec:
       - -c
       - |
         set -euo pipefail
-        s3-storeuploader delete-all --endpoint minio.minio.svc.cluster.local:9000 --bucket kubermatic-etcd-backups --prefix $CLUSTER
+
+        endpoint=minio.minio.svc.cluster.local:9000
+        bucket=kubermatic-etcd-backups
+
+        # by default, we keep the most recent backup for every user cluster
+        s3-storeuploader delete-old-revisions --max-revisions 1 --endpoint "$endpoint" --bucket "$bucket" --prefix $CLUSTER
+
+        # alternatively, delete all backups for this cluster
+        #s3-storeuploader delete-all --endpoint "$endpoint" --bucket "$bucket" --prefix $CLUSTER
       env:
       - name: ACCESS_KEY_ID
         valueFrom:
@@ -137,8 +162,12 @@ spec:
       - -c
       - |
         set -euo pipefail
-        s3-storeuploader store --endpoint minio.minio.svc.cluster.local:9000 --bucket kubermatic-etcd-backups --create-bucket --prefix $CLUSTER --file /backup/snapshot.db
-        s3-storeuploader delete-old-revisions --endpoint minio.minio.svc.cluster.local:9000 --bucket kubermatic-etcd-backups --prefix $CLUSTER --file /backup/snapshot.db --max-revisions 20
+
+        endpoint=minio.minio.svc.cluster.local:9000
+        bucket=kubermatic-etcd-backups
+
+        s3-storeuploader store --file /backup/snapshot.db --endpoint "$endpoint" --bucket "$bucket" --create-bucket --prefix $CLUSTER
+        s3-storeuploader delete-old-revisions --max-revisions 20 --endpoint "$endpoint" --bucket "$bucket" --prefix $CLUSTER
       env:
       - name: ACCESS_KEY_ID
         valueFrom:
@@ -156,7 +185,7 @@ spec:
     # DebugLog enables more verbose logging.
     debugLog: false
     # DockerRepository is the repository containing the Kubermatic seed-controller-manager image.
-    dockerRepository: quay.io/kubermatic/api
+    dockerRepository: quay.io/kubermatic/api-ce
     # PProfEndpoint controls the port the seed-controller-manager should listen on to provide pprof
     # data. This port is never exposed from the container and only available via port-forwardings.
     pprofEndpoint: :6600
@@ -184,10 +213,7 @@ spec:
         "share_kubeconfig": false
       }
     # DockerRepository is the repository containing the Kubermatic dashboard image.
-    dockerRepository: quay.io/kubermatic/ui-v2
-    # DockerTag is used to overwrite the dashboard Docker image tag and is only for development
-    # purposes. This field must not be set in production environments.
-    dockerTag: ""
+    dockerRepository: quay.io/kubermatic/dashboard-ce
     # Replicas sets the number of pod replicas for the UI deployment.
     replicas: 2
     # Resources describes the requested and maximum allowed CPU/memory usage.
@@ -223,26 +249,38 @@ spec:
             kind: Addon
             metadata:
               name: canal
+              labels:
+                addons.kubermatic.io/ensure: true
           - apiVersion: kubermatic.k8s.io/v1
             kind: Addon
             metadata:
               name: csi
+              labels:
+                addons.kubermatic.io/ensure: true
           - apiVersion: kubermatic.k8s.io/v1
             kind: Addon
             metadata:
               name: dns
+              labels:
+                addons.kubermatic.io/ensure: true
           - apiVersion: kubermatic.k8s.io/v1
             kind: Addon
             metadata:
               name: kube-proxy
+              labels:
+                addons.kubermatic.io/ensure: true
           - apiVersion: kubermatic.k8s.io/v1
             kind: Addon
             metadata:
               name: openvpn
+              labels:
+                addons.kubermatic.io/ensure: true
           - apiVersion: kubermatic.k8s.io/v1
             kind: Addon
             metadata:
               name: rbac
+              labels:
+                addons.kubermatic.io/ensure: true
           - apiVersion: kubermatic.k8s.io/v1
             kind: Addon
             metadata:
@@ -255,14 +293,20 @@ spec:
             kind: Addon
             metadata:
               name: nodelocal-dns-cache
+              labels:
+                addons.kubermatic.io/ensure: true
           - apiVersion: kubermatic.k8s.io/v1
             kind: Addon
             metadata:
               name: pod-security-policy
+              labels:
+                addons.kubermatic.io/ensure: true
           - apiVersion: kubermatic.k8s.io/v1
             kind: Addon
             metadata:
               name: logrotate
+              labels:
+                addons.kubermatic.io/ensure: true
         # DockerRepository is the repository containing the Docker image containing
         # the possible addon manifests.
         dockerRepository: quay.io/kubermatic/addons
@@ -328,7 +372,7 @@ spec:
     # EtcdVolumeSize configures the volume size to use for each etcd pod inside user clusters.
     etcdVolumeSize: 5Gi
     # KubermaticDockerRepository is the repository containing the Kubermatic user-cluster-controller-manager image.
-    kubermaticDockerRepository: quay.io/kubermatic/api
+    kubermaticDockerRepository: quay.io/kubermatic/api-ce
     # Monitoring can be used to fine-tune to in-cluster Prometheus.
     monitoring:
       # CustomRules can be used to inject custom recording and alerting rules. This field
@@ -358,7 +402,7 @@ spec:
     # Kubernetes configures the Kubernetes versions and updates.
     kubernetes:
       # Default is the default version to offer users.
-      default: 1.15.10
+      default: 1.17.5
       # Updates is a list of available and automatic upgrades.
       # All 'to' versions must be configured in the version list for this orchestrator.
       # Each update may optionally be configured to be 'automatic: true', in which case the
@@ -375,21 +419,9 @@ spec:
         # Automatic controls whether this update is executed automatically
         # for the worker nodes of all matching user clusters.
         automaticNodeUpdate: false
-        # From is the version from which an update is allowed. Wildcards are allowed, e.g. "1.12.*".
-        from: 1.12.*
-        # From is the version to which an update is allowed. Wildcards are allowed, e.g. "1.13.*".
-        to: 1.13.*
-      - automatic: true
-        automaticNodeUpdate: null
-        from: <= 1.13.9, >= 1.13.0
-        to: 1.13.10
-      - automatic: null
-        automaticNodeUpdate: null
-        from: 1.13.*
-        to: 1.14.*
-      - automatic: null
-        automaticNodeUpdate: null
+        # From is the version from which an update is allowed. Wildcards are allowed, e.g. "1.18.*".
         from: 1.14.*
+        # From is the version to which an update is allowed. Wildcards are allowed, e.g. "1.18.*".
         to: 1.14.*
       - automatic: true
         automaticNodeUpdate: null
@@ -443,6 +475,8 @@ spec:
         automaticNodeUpdate: null
         from: 1.17.*
         to: 1.18.*
+      - from: 1.18.*
+        to: 1.18.*
       # Versions lists the available versions.
       versions:
       - 1.15.5
@@ -450,14 +484,18 @@ spec:
       - 1.15.7
       - 1.15.9
       - 1.15.10
+      - 1.15.11
       - 1.16.2
       - 1.16.3
       - 1.16.4
       - 1.16.6
       - 1.16.7
+      - 1.16.9
       - 1.17.0
       - 1.17.2
       - 1.17.3
+      - 1.17.5
+      - 1.18.2
     # Openshift configures the Openshift versions and updates.
     openshift:
       # Default is the default version to offer users.
@@ -478,9 +516,9 @@ spec:
         # Automatic controls whether this update is executed automatically
         # for the worker nodes of all matching user clusters.
         automaticNodeUpdate: false
-        # From is the version from which an update is allowed. Wildcards are allowed, e.g. "1.12.*".
+        # From is the version from which an update is allowed. Wildcards are allowed, e.g. "1.18.*".
         from: 4.1.*
-        # From is the version to which an update is allowed. Wildcards are allowed, e.g. "1.13.*".
+        # From is the version to which an update is allowed. Wildcards are allowed, e.g. "1.18.*".
         to: 4.1.*
       - automatic: null
         automaticNodeUpdate: null

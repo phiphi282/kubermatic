@@ -20,6 +20,7 @@ import (
 	"go.uber.org/zap"
 	"golang.org/x/crypto/ssh"
 
+	cmdutil "github.com/kubermatic/kubermatic/api/cmd/util"
 	clusterclient "github.com/kubermatic/kubermatic/api/pkg/cluster/client"
 	kubermaticv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
 	kubermaticlog "github.com/kubermatic/kubermatic/api/pkg/log"
@@ -82,6 +83,7 @@ type Opts struct {
 	kubermaticClient             *apiclient.MetaKube
 	kubermaticAuthenticator      runtime.ClientAuthInfoWriter
 	scenarioOptions              string
+	pushgatewayEndpoint          string
 
 	secrets secrets
 }
@@ -166,6 +168,8 @@ func main() {
 		}
 	}()
 
+	cmdutil.Hello(log, "Conformance Tests", true)
+
 	// user.Current does not work in Alpine
 	pubkeyPath := path.Join(os.Getenv("HOME"), ".ssh/id_rsa.pub")
 
@@ -183,7 +187,7 @@ func main() {
 	flag.BoolVar(&opts.deleteClusterAfterTests, "kubermatic-delete-cluster", true, "delete test cluster when tests where successful")
 	flag.StringVar(&pubKeyPath, "node-ssh-pub-key", pubkeyPath, "path to a public key which gets deployed onto every node")
 	flag.StringVar(&opts.workerName, "worker-name", "", "name of the worker, if set the 'worker-name' label will be set on all clusters")
-	flag.StringVar(&sversions, "versions", "v1.10.11,v1.11.6,v1.12.4,v1.13.1", "a comma-separated list of versions to test")
+	flag.StringVar(&sversions, "versions", "v1.15.11,v1.16.9,,v1.17.5,v1.18.2", "a comma-separated list of versions to test")
 	flag.StringVar(&opts.excludeSelectorRaw, "exclude-distributions", "", "a comma-separated list of distributions that will get excluded from the tests")
 	_ = flag.Bool("run-kubermatic-controller-manager", false, "Unused, but kept for compatibility reasons")
 	flag.IntVar(&defaultTimeoutMinutes, "default-timeout-minutes", 10, "The default timeout in minutes")
@@ -196,6 +200,7 @@ func main() {
 	// instead the KUBERMATIC_DEX_VALUES_FILE env variable will be used.
 	flag.StringVar(&opts.dexHelmValuesFile, "dex-helm-values-file", "", "Helm values.yaml of the OAuth (Dex) chart to read and configure a matching client for. Only needed if -create-oidc-token is enabled.")
 	flag.StringVar(&opts.scenarioOptions, "scenario-options", "", "Additional options to be passed to scenarios, e.g. to configure specific features to be tested.")
+	flag.StringVar(&opts.pushgatewayEndpoint, "pushgateway-endpoint", "", "host:port of a Prometheus Pushgateway to send runtime metrics to")
 
 	flag.StringVar(&opts.secrets.AWS.AccessKeyID, "aws-access-key-id", "", "AWS: AccessKeyID")
 	flag.StringVar(&opts.secrets.AWS.SecretAccessKey, "aws-secret-access-key", "", "AWS: SecretAccessKey")
@@ -271,13 +276,16 @@ func main() {
 	rootCtx, rootCancel := context.WithCancel(context.Background())
 	defer rootCancel()
 
+	initMetrics(opts.pushgatewayEndpoint, os.Getenv("JOB_NAME"), os.Getenv("PROW_JOB_ID"))
+	defer updateMetrics(log)
+
 	if !opts.createOIDCToken {
 		if opts.kubermatcProjectID == "" {
-			log.Fatalf("Kubermatic project id must be set via KUBERMATIC_PROJECT_ID env var")
+			log.Fatal("Kubermatic project id must be set via KUBERMATIC_PROJECT_ID env var")
 		}
 		kubermaticServiceaAccountToken := os.Getenv("KUBERMATIC_SERVICEACCOUNT_TOKEN")
 		if kubermaticServiceaAccountToken == "" {
-			log.Fatalf("A Kubermatic serviceAccountToken must be set via KUBERMATIC_SERVICEACCOUNT_TOKEN env var")
+			log.Fatal("A Kubermatic serviceAccountToken must be set via KUBERMATIC_SERVICEACCOUNT_TOKEN env var")
 		}
 		opts.kubermaticAuthenticator = httptransport.BearerToken(kubermaticServiceaAccountToken)
 	} else {
@@ -292,13 +300,21 @@ func main() {
 			log.Fatalw("Failed to create OIDC client", zap.Error(err))
 		}
 
-		login, password := apitest.OIDCCredentials()
+		var login, password, token string
 
-		token, err := dexClient.Login(rootCtx, login, password)
-		if err != nil {
+		if err := measureTime(
+			kubermaticLoginDurationMetric.WithLabelValues(),
+			log,
+			func() error {
+				login, password = apitest.OIDCCredentials()
+				token, err = dexClient.Login(rootCtx, login, password)
+				return err
+			},
+		); err != nil {
 			log.Fatalw("Failed to get master token", zap.Error(err))
 		}
-		log.Info("Successfully got master token")
+
+		log.Info("Successfully retrieved master token")
 
 		opts.kubermaticAuthenticator = httptransport.BearerToken(token)
 
@@ -329,11 +345,11 @@ func main() {
 	// doesn't have all flags
 	seedName := os.Getenv("SEED_NAME")
 	if seedName == "" {
-		log.Fatalf("The name of the seed dc must be configured via the SEED_NAME env var")
+		log.Fatal("The name of the seed dc must be configured via the SEED_NAME env var")
 	}
 
 	if opts.existingClusterLabel != "" && opts.clusterParallelCount != 1 {
-		log.Fatalf("-cluster-parallel-count must be 1 when testing an existing cluster")
+		log.Fatal("-cluster-parallel-count must be 1 when testing an existing cluster")
 	}
 
 	for _, s := range strings.Split(providers, ",") {
@@ -343,18 +359,17 @@ func main() {
 	if pubKeyPath != "" {
 		keyData, err := ioutil.ReadFile(pubKeyPath)
 		if err != nil {
-			log.Fatalf("failed to load ssh key: %v", err)
+			log.Fatalw("Failed to load ssh key", zap.Error(err))
 		}
 		opts.publicKeys = append(opts.publicKeys, keyData)
 	}
 
 	homeDir, e2eTestPubKeyBytes, err := setupHomeDir(log)
 	if err != nil {
-		log.Fatalf("failed to setup temporary home dir: %v", err)
+		log.Fatalw("Failed to setup temporary home dir", zap.Error(err))
 	}
 	opts.publicKeys = append(opts.publicKeys, e2eTestPubKeyBytes)
 	opts.homeDir = homeDir
-	log = log.With("home", homeDir)
 
 	stopCh := kubermaticsignals.SetupSignalHandler()
 
@@ -362,9 +377,9 @@ func main() {
 		select {
 		case <-stopCh:
 			rootCancel()
-			log.Info("user requested to stop the application")
+			log.Info("User requested to stop the application")
 		case <-rootCtx.Done():
-			log.Info("context has been closed")
+			log.Info("Context has been closed")
 		}
 	}()
 
@@ -375,7 +390,7 @@ func main() {
 	opts.seedRestConfig = config
 
 	if err := clusterv1alpha1.SchemeBuilder.AddToScheme(scheme.Scheme); err != nil {
-		log.Fatalf("failed to add clusterv1alpha1 to scheme: %v", err)
+		log.Fatalw("Failed to add clusterv1alpha1 to scheme", zap.Error(err))
 	}
 
 	seedClusterClient, err := ctrlruntimeclient.New(config, ctrlruntimeclient.Options{})
@@ -395,18 +410,18 @@ func main() {
 		log.Warn("Environment variable `NAMESPACE` was unset, defaulting to `kubermatic`")
 		namespaceName = "kubermatic"
 	}
-	seedGetter, err := provider.SeedGetterFactory(context.Background(), seedClusterClient, seedName, "", namespaceName, true)
+	seedGetter, err := provider.SeedGetterFactory(context.Background(), seedClusterClient, seedName, namespaceName)
 	if err != nil {
-		log.Fatalw("failed to consturct seedGetter", zap.Error(err))
+		log.Fatalw("Failed to consturct seedGetter", zap.Error(err))
 	}
 	opts.seed, err = seedGetter()
 	if err != nil {
-		log.Fatalw("failed to get seed", zap.Error(err))
+		log.Fatalw("Failed to get seed", zap.Error(err))
 	}
 
 	clusterClientProvider, err := clusterclient.NewExternal(seedClusterClient)
 	if err != nil {
-		log.Fatalw("failed to get clusterClientProvider", zap.Error(err))
+		log.Fatalw("Failed to get clusterClientProvider", zap.Error(err))
 	}
 	opts.clusterClientProvider = clusterClientProvider
 

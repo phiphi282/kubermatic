@@ -459,9 +459,8 @@ func getNetClient(username, password, domain, tenant, tenantID, authURL, region 
 		} else {
 			return nil, err
 		}
-	} else if err != nil {
-		return nil, err
 	}
+
 	return serviceClient, err
 }
 

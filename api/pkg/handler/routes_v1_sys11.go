@@ -1,9 +1,10 @@
 package handler
 
 import (
+	"net/http"
+
 	"github.com/kubermatic/kubermatic/api/pkg/handler/v1/addon"
 	"github.com/kubermatic/kubermatic/api/pkg/handler/v1/node"
-	"net/http"
 
 	"github.com/go-kit/kit/endpoint"
 	httptransport "github.com/go-kit/kit/transport/http"
@@ -153,7 +154,8 @@ func (r Routing) listOpenstackImagesNoCredentials() http.Handler {
 			middleware.TokenVerifier(r.tokenVerifiers),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
-		)(provider.OpenstackImageNoCredentialsEndpoint(r.projectProvider, r.seedsGetter, r.userInfoGetter)),
+			middleware.SetPrivilegedClusterProvider(r.clusterProviderGetter, r.seedsGetter),
+		)(provider.OpenstackImageNoCredentialsEndpoint(r.projectProvider, r.privilegedProjectProvider, r.seedsGetter, r.userInfoGetter)),
 		provider.DecodeOpenstackNoCredentialsReq,
 		encodeJSON,
 		r.defaultServerOptions()...,
@@ -176,7 +178,8 @@ func (r Routing) listOpenstackQuotaLimitsNoCredentials() http.Handler {
 			middleware.TokenVerifier(r.tokenVerifiers),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
-		)(provider.OpenstackQuotaLimitNoCredentialsEndpoint(r.projectProvider, r.seedsGetter, r.userInfoGetter)),
+			middleware.SetPrivilegedClusterProvider(r.clusterProviderGetter, r.seedsGetter),
+		)(provider.OpenstackQuotaLimitNoCredentialsEndpoint(r.projectProvider, r.privilegedProjectProvider, r.seedsGetter, r.userInfoGetter)),
 		provider.DecodeOpenstackNoCredentialsReq,
 		encodeJSON,
 		r.defaultServerOptions()...,

@@ -1526,8 +1526,8 @@ func TestPatchNodeDeployment(t *testing.T) {
 		// Scenario 4: Downgrade to too old kubelet version
 		{
 			Name:                       "Scenario 4: Downgrade kubelet to too old",
-			Body:                       fmt.Sprintf(`{"spec":{"template":{"versions":{"kubelet":"9.6.0"}}}}`),
-			ExpectedResponse:           fmt.Sprintf(`{"error":{"code":400,"message":"kubelet version 9.6.0 is not compatible with control plane version 9.9.9"}}`),
+			Body:                       `{"spec":{"template":{"versions":{"kubelet":"9.6.0"}}}}`,
+			ExpectedResponse:           `{"error":{"code":400,"message":"kubelet version 9.6.0 is not compatible with control plane version 9.9.9"}}`,
 			cluster:                    "keen-snyder",
 			HTTPStatus:                 http.StatusBadRequest,
 			project:                    test.GenDefaultProject().Name,
@@ -1539,8 +1539,8 @@ func TestPatchNodeDeployment(t *testing.T) {
 		// Scenario 5: Upgrade kubelet to a too new version
 		{
 			Name:                       "Scenario 5: Upgrade kubelet to too new",
-			Body:                       fmt.Sprintf(`{"spec":{"template":{"versions":{"kubelet":"9.10.0"}}}}`),
-			ExpectedResponse:           fmt.Sprintf(`{"error":{"code":400,"message":"kubelet version 9.10.0 is not compatible with control plane version 9.9.9"}}`),
+			Body:                       `{"spec":{"template":{"versions":{"kubelet":"9.10.0"}}}}`,
+			ExpectedResponse:           `{"error":{"code":400,"message":"kubelet version 9.10.0 is not compatible with control plane version 9.9.9"}}`,
 			cluster:                    "keen-snyder",
 			HTTPStatus:                 http.StatusBadRequest,
 			project:                    test.GenDefaultProject().Name,
@@ -1553,7 +1553,7 @@ func TestPatchNodeDeployment(t *testing.T) {
 		{
 			Name:                       "Scenario 6: The admin John can update any node deployment",
 			Body:                       fmt.Sprintf(`{"spec":{"replicas":%v}}`, replicasUpdated),
-			ExpectedResponse:           fmt.Sprintf(`{"id":"venus","name":"venus","creationTimestamp":"0001-01-01T00:00:00Z","spec":{"replicas":%v,"template":{"cloud":{"digitalocean":{"size":"2GB","backups":false,"ipv6":false,"monitoring":false,"tags":["kubernetes","kubernetes-cluster-defClusterID","system-cluster-defClusterID","system-project-my-first-project-ID"]}},"operatingSystem":{"ubuntu":{"distUpgradeOnBoot":true}},"versions":{"kubelet":"v9.9.9"},"labels":{"system/cluster":"defClusterID","system/project":"my-first-project-ID"}},"paused":false,"dynamicConfig":false},"status":{}}`, replicasUpdated),
+			ExpectedResponse:           fmt.Sprintf(`{"id":"venus","name":"venus","creationTimestamp":"0001-01-01T00:00:00Z","spec":{"replicas":%v,"template":{"cloud":{"digitalocean":{"size":"2GB","backups":false,"ipv6":false,"monitoring":false,"tags":["metakube","metakube-cluster-defClusterID","system-cluster-defClusterID","system-project-my-first-project-ID"]}},"operatingSystem":{"ubuntu":{"distUpgradeOnBoot":true}},"versions":{"kubelet":"v9.9.9"},"labels":{"system/cluster":"defClusterID","system/project":"my-first-project-ID"}},"paused":false,"dynamicConfig":false},"status":{}}`, replicasUpdated),
 			cluster:                    "keen-snyder",
 			HTTPStatus:                 http.StatusOK,
 			project:                    test.GenDefaultProject().Name,

@@ -116,11 +116,6 @@ type Sys11AuthSettings struct {
 	Realm string `json:"realm,omitempty"`
 }
 
-type UpdateWindow struct {
-	Start  string `json:"start,omitempty"`
-	Length string `json:"length,omitempty"`
-}
-
 const (
 	// ClusterFeatureExternalCloudProvider describes the external cloud provider feature. It is
 	// only supported on a limited set of providers for a specific set of Kube versions. It must
@@ -139,6 +134,11 @@ const (
 // types, the `true` value must indicate success. All condition types must be registered within
 // the `AllClusterConditionTypes` variable.
 type ClusterConditionType string
+
+type UpdateWindow struct {
+	Start  string `json:"start,omitempty"`
+	Length string `json:"length,omitempty"`
+}
 
 const (
 	// ClusterConditionSeedResourcesUpToDate indicates that all controllers have finished setting up the

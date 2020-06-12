@@ -298,6 +298,7 @@ type GCPNetwork struct {
 	AutoCreateSubnetworks bool     `json:"autoCreateSubnetworks"`
 	Subnetworks           []string `json:"subnetworks"`
 	Kind                  string   `json:"kind"`
+	Path                  string   `json:"path"`
 }
 
 // GCPSubnetworkList represents an array of GCP subnetworks.
@@ -343,6 +344,12 @@ type DigitaloceanSize struct {
 	VCPUs        int      `json:"vcpus"`
 	Disk         int      `json:"disk"`
 	Regions      []string `json:"regions"`
+}
+
+// AzureAvailabilityZonesList is the object representing the availability zones for vms in azure cloud provider
+// swagger:model AzureAvailabilityZonesList
+type AzureAvailabilityZonesList struct {
+	Zones []string `json:"zones"`
 }
 
 // AzureSizeList represents an array of Azure VM sizes.
@@ -1084,6 +1091,16 @@ type AzureNodeSpec struct {
 	// Additional metadata to set
 	// required: false
 	Tags map[string]string `json:"tags,omitempty"`
+	// OS disk size in GB
+	// required: false
+	OSDiskSize int32 `json:"osDiskSize"`
+	// Data disk size in GB
+	// required: false
+	DataDiskSize int32 `json:"dataDiskSize"`
+	// Zones represents the availability zones for azure vms
+	// required: false
+	Zones   []string `json:"zones"`
+	ImageID string   `json:"imageID"`
 }
 
 // VSphereNodeSpec VSphere node settings
@@ -1165,6 +1182,7 @@ type GCPNodeSpec struct {
 	Preemptible bool              `json:"preemptible"`
 	Labels      map[string]string `json:"labels"`
 	Tags        []string          `json:"tags"`
+	CustomImage string            `json:"customImage"`
 }
 
 // KubevirtNodeSpec kubevirt specific node settings
@@ -1587,3 +1605,13 @@ const (
 	// UserClusterRoleCleanupFinalizer indicates that user cluster role still need cleanup
 	UserClusterRoleCleanupFinalizer = "kubermatic.io/user-cluster-role"
 )
+
+func ToInternalClusterType(externalClusterType string) kubermaticv1.ClusterType {
+	if externalClusterType == KubernetesClusterType {
+		return kubermaticv1.ClusterTypeKubernetes
+	}
+	if externalClusterType == OpenShiftClusterType {
+		return kubermaticv1.ClusterTypeOpenShift
+	}
+	return kubermaticv1.ClusterTypeAll
+}

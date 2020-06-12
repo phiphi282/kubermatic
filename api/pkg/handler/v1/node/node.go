@@ -74,23 +74,19 @@ func DecodeCreateNodeDeployment(c context.Context, r *http.Request) (interface{}
 	return req, nil
 }
 
-func CreateNodeDeployment(sshKeyProvider provider.SSHKeyProvider, projectProvider provider.ProjectProvider, seedsGetter provider.SeedsGetter, userInfoGetter provider.UserInfoGetter) endpoint.Endpoint {
+func CreateNodeDeployment(sshKeyProvider provider.SSHKeyProvider, projectProvider provider.ProjectProvider, privilegedProjectProvider provider.PrivilegedProjectProvider, seedsGetter provider.SeedsGetter, userInfoGetter provider.UserInfoGetter) endpoint.Endpoint {
 	return func(ctx context.Context, request interface{}) (interface{}, error) {
 		req := request.(createNodeDeploymentReq)
 		clusterProvider := ctx.Value(middleware.ClusterProviderContextKey).(provider.ClusterProvider)
-		userInfo, err := userInfoGetter(ctx, req.ProjectID)
+
+		project, err := common.GetProject(ctx, userInfoGetter, projectProvider, privilegedProjectProvider, req.ProjectID, nil)
 		if err != nil {
 			return nil, common.KubernetesErrorToHTTPError(err)
 		}
 
-		project, err := projectProvider.Get(userInfo, req.ProjectID, &provider.ProjectGetOptions{})
+		cluster, err := cluster.GetCluster(ctx, projectProvider, privilegedProjectProvider, userInfoGetter, req.ProjectID, req.ClusterID, &provider.ClusterGetOptions{CheckInitStatus: true})
 		if err != nil {
-			return nil, common.KubernetesErrorToHTTPError(err)
-		}
-
-		cluster, err := clusterProvider.Get(userInfo, req.ClusterID, &provider.ClusterGetOptions{CheckInitStatus: true})
-		if err != nil {
-			return nil, common.KubernetesErrorToHTTPError(err)
+			return nil, err
 		}
 
 		isBYO, err := common.IsBringYourOwnProvider(cluster.Spec.Cloud)
@@ -106,11 +102,15 @@ func CreateNodeDeployment(sshKeyProvider provider.SSHKeyProvider, projectProvide
 			return nil, common.KubernetesErrorToHTTPError(err)
 		}
 
-		client, err := clusterProvider.GetClientForCustomerCluster(userInfo, cluster)
+		client, err := common.GetClusterClient(ctx, userInfoGetter, clusterProvider, cluster, project.Name)
+		if err != nil {
+			return nil, err
+		}
+
+		userInfo, err := userInfoGetter(ctx, "")
 		if err != nil {
 			return nil, common.KubernetesErrorToHTTPError(err)
 		}
-
 		_, dc, err := provider.DatacenterFromSeedMap(userInfo, seedsGetter, cluster.Spec.Cloud.DatacenterName)
 		if err != nil {
 			return nil, fmt.Errorf("error getting dc: %v", err)
@@ -235,7 +235,7 @@ func ListNodeDeployments(projectProvider provider.ProjectProvider, privilegedPro
 		req := request.(listNodeDeploymentsReq)
 		clusterProvider := ctx.Value(middleware.ClusterProviderContextKey).(provider.ClusterProvider)
 
-		cluster, err := cluster.GetCluster(ctx, projectProvider, privilegedProjectProvider, userInfoGetter, req.ProjectID, req.ClusterID)
+		cluster, err := cluster.GetCluster(ctx, projectProvider, privilegedProjectProvider, userInfoGetter, req.ProjectID, req.ClusterID, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -310,7 +310,7 @@ func GetNodeDeployment(projectProvider provider.ProjectProvider, privilegedProje
 	return func(ctx context.Context, request interface{}) (interface{}, error) {
 		req := request.(nodeDeploymentReq)
 		clusterProvider := ctx.Value(middleware.ClusterProviderContextKey).(provider.ClusterProvider)
-		cluster, err := cluster.GetCluster(ctx, projectProvider, privilegedProjectProvider, userInfoGetter, req.ProjectID, req.ClusterID)
+		cluster, err := cluster.GetCluster(ctx, projectProvider, privilegedProjectProvider, userInfoGetter, req.ProjectID, req.ClusterID, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -421,7 +421,7 @@ func ListNodeDeploymentNodes(projectProvider provider.ProjectProvider, privilege
 		req := request.(nodeDeploymentNodesReq)
 		clusterProvider := ctx.Value(middleware.ClusterProviderContextKey).(provider.ClusterProvider)
 
-		cluster, err := cluster.GetCluster(ctx, projectProvider, privilegedProjectProvider, userInfoGetter, req.ProjectID, req.ClusterID)
+		cluster, err := cluster.GetCluster(ctx, projectProvider, privilegedProjectProvider, userInfoGetter, req.ProjectID, req.ClusterID, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -489,7 +489,7 @@ func ListNodeDeploymentMetrics(projectProvider provider.ProjectProvider, privile
 		req := request.(nodeDeploymentMetricsReq)
 		clusterProvider := ctx.Value(middleware.ClusterProviderContextKey).(provider.ClusterProvider)
 
-		cluster, err := cluster.GetCluster(ctx, projectProvider, privilegedProjectProvider, userInfoGetter, req.ProjectID, req.ClusterID)
+		cluster, err := cluster.GetCluster(ctx, projectProvider, privilegedProjectProvider, userInfoGetter, req.ProjectID, req.ClusterID, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -628,12 +628,12 @@ func PatchNodeDeployment(sshKeyProvider provider.SSHKeyProvider, projectProvider
 			return nil, common.KubernetesErrorToHTTPError(err)
 		}
 
-		project, err := common.GetProject(ctx, userInfoGetter, projectProvider, privilegedProjectProvider, req.ProjectID)
+		project, err := common.GetProject(ctx, userInfoGetter, projectProvider, privilegedProjectProvider, req.ProjectID, nil)
 		if err != nil {
 			return nil, common.KubernetesErrorToHTTPError(err)
 		}
 
-		cluster, err := cluster.GetCluster(ctx, projectProvider, privilegedProjectProvider, userInfoGetter, req.ProjectID, req.ClusterID)
+		cluster, err := cluster.GetCluster(ctx, projectProvider, privilegedProjectProvider, userInfoGetter, req.ProjectID, req.ClusterID, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -754,7 +754,7 @@ func DeleteNodeDeployment(projectProvider provider.ProjectProvider, privilegedPr
 	return func(ctx context.Context, request interface{}) (interface{}, error) {
 		req := request.(deleteNodeDeploymentReq)
 		clusterProvider := ctx.Value(middleware.ClusterProviderContextKey).(provider.ClusterProvider)
-		cluster, err := cluster.GetCluster(ctx, projectProvider, privilegedProjectProvider, userInfoGetter, req.ProjectID, req.ClusterID)
+		cluster, err := cluster.GetCluster(ctx, projectProvider, privilegedProjectProvider, userInfoGetter, req.ProjectID, req.ClusterID, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -822,7 +822,7 @@ func ListNodeDeploymentNodesEvents(projectProvider provider.ProjectProvider, pri
 		req := request.(nodeDeploymentNodesEventsReq)
 		clusterProvider := ctx.Value(middleware.ClusterProviderContextKey).(provider.ClusterProvider)
 
-		cluster, err := cluster.GetCluster(ctx, projectProvider, privilegedProjectProvider, userInfoGetter, req.ProjectID, req.ClusterID)
+		cluster, err := cluster.GetCluster(ctx, projectProvider, privilegedProjectProvider, userInfoGetter, req.ProjectID, req.ClusterID, nil)
 		if err != nil {
 			return nil, err
 		}

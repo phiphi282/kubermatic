@@ -37,8 +37,12 @@ const (
 	DefaultVPARecommenderDockerRepository         = "gcr.io/google_containers/vpa-recommender"
 	DefaultVPAUpdaterDockerRepository             = "gcr.io/google_containers/vpa-updater"
 	DefaultVPAAdmissionControllerDockerRepository = "gcr.io/google_containers/vpa-admission-controller"
-	DefaultNodeportProxyDockerRepository          = "quay.io/kubermatic/nodeport-proxy"
 	DefaultEnvoyDockerRepository                  = "docker.io/envoyproxy/envoy-alpine"
+
+	// DefaultNoProxy is a set of domains/networks that should never be
+	// routed through a proxy. All user-supplied values are appended to
+	// this constant.
+	DefaultNoProxy = "127.0.0.1/8,localhost,.local,.local.,kubernetes,.default,.svc"
 )
 
 var (
@@ -165,7 +169,7 @@ var (
 	}
 
 	DefaultKubernetesVersioning = operatorv1alpha1.KubermaticVersioningConfiguration{
-		Default: semver.MustParse("v1.15.10"),
+		Default: semver.MustParse("v1.17.5"),
 		Versions: []*semver.Version{
 			// Kubernetes 1.15
 			semver.MustParse("v1.15.5"),
@@ -173,38 +177,23 @@ var (
 			semver.MustParse("v1.15.7"),
 			semver.MustParse("v1.15.9"),
 			semver.MustParse("v1.15.10"),
+			semver.MustParse("v1.15.11"),
 			// Kubernetes 1.16
 			semver.MustParse("v1.16.2"),
 			semver.MustParse("v1.16.3"),
 			semver.MustParse("v1.16.4"),
 			semver.MustParse("v1.16.6"),
 			semver.MustParse("v1.16.7"),
+			semver.MustParse("v1.16.9"),
 			// Kubernetes 1.17
 			semver.MustParse("v1.17.0"),
 			semver.MustParse("v1.17.2"),
 			semver.MustParse("v1.17.3"),
+			semver.MustParse("v1.17.5"),
+			// Kubernetes 1.18
+			semver.MustParse("v1.18.2"),
 		},
 		Updates: []operatorv1alpha1.Update{
-			// ======= 1.12 =======
-			{
-				// Allow to next minor release
-				From: "1.12.*",
-				To:   "1.13.*",
-			},
-
-			// ======= 1.13 =======
-			{
-				// CVE-2019-11247, CVE-2019-11249, CVE-2019-9512, CVE-2019-9514
-				From:      "<= 1.13.9, >= 1.13.0",
-				To:        "1.13.10",
-				Automatic: pointer.BoolPtr(true),
-			},
-			{
-				// Allow to next minor release
-				From: "1.13.*",
-				To:   "1.14.*",
-			},
-
 			// ======= 1.14 =======
 			{
 				// Allow to change to any patch version
@@ -286,6 +275,13 @@ var (
 			{
 				// Allow to next minor release
 				From: "1.17.*",
+				To:   "1.18.*",
+			},
+
+			// ======= 1.18 =======
+			{
+				// Allow to change to any patch version
+				From: "1.18.*",
 				To:   "1.18.*",
 			},
 		},
@@ -647,8 +643,12 @@ command:
 - -c
 - |
   set -euo pipefail
-  s3-storeuploader store --endpoint minio.minio.svc.cluster.local:9000 --bucket kubermatic-etcd-backups --create-bucket --prefix $CLUSTER --file /backup/snapshot.db
-  s3-storeuploader delete-old-revisions --endpoint minio.minio.svc.cluster.local:9000 --bucket kubermatic-etcd-backups --prefix $CLUSTER --file /backup/snapshot.db --max-revisions 20
+
+  endpoint=minio.minio.svc.cluster.local:9000
+  bucket=kubermatic-etcd-backups
+
+  s3-storeuploader store --file /backup/snapshot.db --endpoint "$endpoint" --bucket "$bucket" --create-bucket --prefix $CLUSTER
+  s3-storeuploader delete-old-revisions --max-revisions 20 --endpoint "$endpoint" --bucket "$bucket" --prefix $CLUSTER
 env:
 - name: ACCESS_KEY_ID
   valueFrom:
@@ -673,7 +673,15 @@ command:
 - -c
 - |
   set -euo pipefail
-  s3-storeuploader delete-all --endpoint minio.minio.svc.cluster.local:9000 --bucket kubermatic-etcd-backups --prefix $CLUSTER
+
+  endpoint=minio.minio.svc.cluster.local:9000
+  bucket=kubermatic-etcd-backups
+
+  # by default, we keep the most recent backup for every user cluster
+  s3-storeuploader delete-old-revisions --max-revisions 1 --endpoint "$endpoint" --bucket "$bucket" --prefix $CLUSTER
+
+  # alternatively, delete all backups for this cluster
+  #s3-storeuploader delete-all --endpoint "$endpoint" --bucket "$bucket" --prefix $CLUSTER
 env:
 - name: ACCESS_KEY_ID
   valueFrom:
@@ -861,26 +869,38 @@ items:
   kind: Addon
   metadata:
     name: canal
+    labels:
+      addons.kubermatic.io/ensure: true
 - apiVersion: kubermatic.k8s.io/v1
   kind: Addon
   metadata:
     name: csi
+    labels:
+      addons.kubermatic.io/ensure: true
 - apiVersion: kubermatic.k8s.io/v1
   kind: Addon
   metadata:
     name: dns
+    labels:
+      addons.kubermatic.io/ensure: true
 - apiVersion: kubermatic.k8s.io/v1
   kind: Addon
   metadata:
     name: kube-proxy
+    labels:
+      addons.kubermatic.io/ensure: true
 - apiVersion: kubermatic.k8s.io/v1
   kind: Addon
   metadata:
     name: openvpn
+    labels:
+      addons.kubermatic.io/ensure: true
 - apiVersion: kubermatic.k8s.io/v1
   kind: Addon
   metadata:
     name: rbac
+    labels:
+      addons.kubermatic.io/ensure: true
 - apiVersion: kubermatic.k8s.io/v1
   kind: Addon
   metadata:
@@ -893,14 +913,20 @@ items:
   kind: Addon
   metadata:
     name: nodelocal-dns-cache
+    labels:
+      addons.kubermatic.io/ensure: true
 - apiVersion: kubermatic.k8s.io/v1
   kind: Addon
   metadata:
     name: pod-security-policy
+    labels:
+      addons.kubermatic.io/ensure: true
 - apiVersion: kubermatic.k8s.io/v1
   kind: Addon
   metadata:
     name: logrotate
+    labels:
+      addons.kubermatic.io/ensure: true
 `
 
 const DefaultOpenshiftAddons = `

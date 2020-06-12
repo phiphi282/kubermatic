@@ -9,6 +9,7 @@ import (
 	providerconfig "github.com/kubermatic/machine-controller/pkg/providerconfig/types"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/watch"
@@ -42,6 +43,8 @@ const (
 
 	DefaultSSHPort     = 22
 	DefaultKubeletPort = 10250
+
+	DefaultKubeconfigFieldPath = "kubeconfig"
 )
 
 // CloudProvider declares a set of methods for interacting with a cloud provider
@@ -187,7 +190,7 @@ type PrivilegedClusterProvider interface {
 	// GetUnsecured returns a cluster for the project and given name.
 	//
 	// Note that the admin privileges are used to get cluster
-	GetUnsecured(project *kubermaticv1.Project, clusterName string) (*kubermaticv1.Cluster, error)
+	GetUnsecured(project *kubermaticv1.Project, clusterName string, options *ClusterGetOptions) (*kubermaticv1.Cluster, error)
 
 	// UpdateUnsecured updates a cluster.
 	//
@@ -198,6 +201,11 @@ type PrivilegedClusterProvider interface {
 	//
 	// Note that the admin privileges are used to delete cluster
 	DeleteUnsecured(cluster *kubermaticv1.Cluster) error
+
+	// NewUnsecured creates a brand new cluster that is bound to the given project.
+	//
+	// Note that the admin privileges are used to create cluster
+	NewUnsecured(project *kubermaticv1.Project, cluster *kubermaticv1.Cluster, userEmail string) (*kubermaticv1.Cluster, error)
 }
 
 // SSHKeyListOptions allows to set filters that will be applied to filter the result.
@@ -240,6 +248,14 @@ type PrivilegedSSHKeyProvider interface {
 	// UpdateUnsecured update a specific ssh key and returns the updated ssh key
 	// This function is unsafe in a sense that it uses privileged account to update the ssh key
 	UpdateUnsecured(sshKey *kubermaticv1.UserSSHKey) (*kubermaticv1.UserSSHKey, error)
+
+	// Create creates a ssh key that belongs to the given project
+	// This function is unsafe in a sense that it uses privileged account to create the ssh key
+	CreateUnsecured(project *kubermaticv1.Project, keyName, pubKey string) (*kubermaticv1.UserSSHKey, error)
+
+	// Delete deletes the given ssh key
+	// This function is unsafe in a sense that it uses privileged account to delete the ssh key
+	DeleteUnsecured(keyName string) error
 }
 
 // UserProvider declares the set of methods for interacting with kubermatic users
@@ -314,13 +330,30 @@ type ProjectMemberProvider interface {
 	// List gets all members of the given project
 	List(userInfo *UserInfo, project *kubermaticv1.Project, options *ProjectMemberListOptions) ([]*kubermaticv1.UserProjectBinding, error)
 
-	// Delete simply deletes the given binding
+	// Delete deletes the given binding
 	// Note:
 	// Use List to get binding for the specific member of the given project
 	Delete(userInfo *UserInfo, bindinName string) error
 
-	// Update simply updates the given binding
+	// Update updates the given binding
 	Update(userInfo *UserInfo, binding *kubermaticv1.UserProjectBinding) (*kubermaticv1.UserProjectBinding, error)
+}
+
+// PrivilegedProjectMemberProvider binds users with projects and uses privileged account for it
+type PrivilegedProjectMemberProvider interface {
+	// CreateUnsecured creates a binding for the given member and the given project
+	// This function is unsafe in a sense that it uses privileged account to create the resource
+	CreateUnsecured(project *kubermaticv1.Project, memberEmail, group string) (*kubermaticv1.UserProjectBinding, error)
+
+	// DeleteUnsecured deletes the given binding
+	// Note:
+	// Use List to get binding for the specific member of the given project
+	// This function is unsafe in a sense that it uses privileged account to delete the resource
+	DeleteUnsecured(bindingName string) error
+
+	// UpdateUnsecured updates the given binding
+	// This function is unsafe in a sense that it uses privileged account to update the resource
+	UpdateUnsecured(binding *kubermaticv1.UserProjectBinding) (*kubermaticv1.UserProjectBinding, error)
 }
 
 // ProjectMemberMapper exposes method that knows how to map
@@ -462,6 +495,40 @@ type ServiceAccountProvider interface {
 	Delete(userInfo *UserInfo, name string) error
 }
 
+// PrivilegedServiceAccountProvider declares the set of methods for interacting with kubermatic service account
+type PrivilegedServiceAccountProvider interface {
+	// CreateUnsecured creates a service accounts
+	//
+	// Note that this function:
+	// is unsafe in a sense that it uses privileged account to create the resources
+	CreateUnsecured(project *kubermaticv1.Project, name, group string) (*kubermaticv1.User, error)
+
+	// ListUnsecured gets all service accounts
+	// If you want to filter the result please take a look at ServiceAccountListOptions
+	//
+	// Note that this function:
+	// is unsafe in a sense that it uses privileged account to get the resources
+	ListUnsecured(project *kubermaticv1.Project, options *ServiceAccountListOptions) ([]*kubermaticv1.User, error)
+
+	// GetUnsecured gets all service accounts
+	//
+	// Note that this function:
+	// is unsafe in a sense that it uses privileged account to get the resource
+	GetUnsecured(name string, options *ServiceAccountGetOptions) (*kubermaticv1.User, error)
+
+	// UpdateUnsecured gets all service accounts
+	//
+	// Note that this function:
+	// is unsafe in a sense that it uses privileged account to update the resource
+	UpdateUnsecured(serviceAccount *kubermaticv1.User) (*kubermaticv1.User, error)
+
+	// DeleteUnsecured gets all service accounts
+	//
+	// Note that this function:
+	// is unsafe in a sense that it uses privileged account to delete the resource
+	DeleteUnsecured(name string) error
+}
+
 // ServiceAccountGetOptions allows to set filters that will be applied to filter the get result.
 type ServiceAccountGetOptions struct {
 	// RemovePrefix when set to false will NOT remove "serviceaccount-" prefix from the ID
@@ -490,6 +557,12 @@ type ServiceAccountTokenProvider interface {
 type ServiceAccountTokenListOptions struct {
 	// TokenID list only tokens with the specified name
 	TokenID string
+
+	// LabelSelector list only tokens with the specified label
+	LabelSelector labels.Selector
+
+	// TokenID list only tokens which belong to the SA
+	ServiceAccountID string
 }
 
 // PrivilegedServiceAccountTokenProvider declares the set of method for interacting with kubermatic's sa's tokens and uses privileged account for it
@@ -500,6 +573,30 @@ type PrivilegedServiceAccountTokenProvider interface {
 	// is unsafe in a sense that it uses privileged account to get the resource
 	// gets resources from the cache
 	ListUnsecured(*ServiceAccountTokenListOptions) ([]*corev1.Secret, error)
+
+	// CreateUnsecured creates a new token
+	//
+	// Note that this function:
+	// is unsafe in a sense that it uses privileged account to create the resource
+	CreateUnsecured(sa *kubermaticv1.User, projectID, tokenName, tokenID, tokenData string) (*corev1.Secret, error)
+
+	// GetUnsecured gets the token
+	//
+	// Note that this function:
+	// is unsafe in a sense that it uses privileged account to get the resource
+	GetUnsecured(name string) (*corev1.Secret, error)
+
+	// UpdateUnsecured updates the token
+	//
+	// Note that this function:
+	// is unsafe in a sense that it uses privileged account to get the resource
+	UpdateUnsecured(secret *corev1.Secret) (*corev1.Secret, error)
+
+	// DeleteUnsecured deletes the token
+	//
+	// Note that this function:
+	// is unsafe in a sense that it uses privileged account to delete the resource
+	DeleteUnsecured(name string) error
 }
 
 // EventRecorderProvider allows to record events for objects that can be read using K8S API.
@@ -526,6 +623,39 @@ type AddonProvider interface {
 
 	// Delete deletes the given addon
 	Delete(userInfo *UserInfo, cluster *kubermaticv1.Cluster, addonName string) error
+}
+
+type PrivilegedAddonProvider interface {
+	// ListUnsecured gets all addons that belong to the given cluster
+	// If you want to filter the result please take a look at ClusterListOptions
+	//
+	// Note that this function:
+	// is unsafe in a sense that it uses privileged account to get the resources
+	ListUnsecured(cluster *kubermaticv1.Cluster) ([]*kubermaticv1.Addon, error)
+
+	// NewUnsecured creates a new addon in the given cluster
+	//
+	// Note that this function:
+	// is unsafe in a sense that it uses privileged account to create the resource
+	NewUnsecured(cluster *kubermaticv1.Cluster, addonName string, variables *runtime.RawExtension) (*kubermaticv1.Addon, error)
+
+	// GetUnsecured returns the given addon
+	//
+	// Note that this function:
+	// is unsafe in a sense that it uses privileged account to get the resource
+	GetUnsecured(cluster *kubermaticv1.Cluster, addonName string) (*kubermaticv1.Addon, error)
+
+	// UpdateUnsecured updates an addon
+	//
+	// Note that this function:
+	// is unsafe in a sense that it uses privileged account to update the resource
+	UpdateUnsecured(cluster *kubermaticv1.Cluster, newAddon *kubermaticv1.Addon) (*kubermaticv1.Addon, error)
+
+	// DeleteUnsecured deletes the given addon
+	//
+	// Note that this function:
+	// is unsafe in a sense that it uses privileged account to delete the resource
+	DeleteUnsecured(cluster *kubermaticv1.Cluster, addonName string) error
 }
 
 type AddonConfigProvider interface {

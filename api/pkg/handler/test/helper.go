@@ -132,7 +132,9 @@ type newRoutingFunc func(
 	privilegedSSHKeyProvider provider.PrivilegedSSHKeyProvider,
 	userProvider provider.UserProvider,
 	serviceAccountProvider provider.ServiceAccountProvider,
+	privilegedServiceAccountProvider provider.PrivilegedServiceAccountProvider,
 	serviceAccountTokenProvider provider.ServiceAccountTokenProvider,
+	privilegedServiceAccountTokenProvider provider.PrivilegedServiceAccountTokenProvider,
 	projectProvider provider.ProjectProvider,
 	mdRequestProviderGetter provider.MachineDeploymentRequestProviderGetter,
 	privilegedProjectProvider provider.PrivilegedProjectProvider,
@@ -141,6 +143,7 @@ type newRoutingFunc func(
 	tokenExtractors auth.TokenExtractor,
 	prometheusClient prometheusapi.Client,
 	projectMemberProvider *kubernetes.ProjectMemberProvider,
+	privilegedProjectMemberProvider provider.PrivilegedProjectMemberProvider,
 	versions []*version.Version,
 	updates []*version.Update,
 	saTokenAuthenticator serviceaccount.TokenAuthenticator,
@@ -171,8 +174,8 @@ func initTestEndpoint(user apiv1.User, seedsGetter provider.SeedsGetter, kubeObj
 	}
 
 	userLister := kubermaticInformerFactory.Kubermatic().V1().Users().Lister()
-	sshKeyProvider := kubernetes.NewSSHKeyProvider(fakeKubermaticImpersonationClient, kubermaticInformerFactory.Kubermatic().V1().UserSSHKeys().Lister())
-	privilegedSSHKeyProvider, err := kubernetes.NewPrivilegedSSHKeyProvider(fakeKubermaticImpersonationClient)
+	sshKeyProvider := kubernetes.NewSSHKeyProvider(fakeKubermaticImpersonationClient, fakeClient)
+	privilegedSSHKeyProvider, err := kubernetes.NewPrivilegedSSHKeyProvider(fakeClient)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -311,6 +314,8 @@ func initTestEndpoint(user apiv1.User, seedsGetter provider.SeedsGetter, kubeObj
 		privilegedSSHKeyProvider,
 		userProvider,
 		serviceAccountProvider,
+		serviceAccountProvider,
+		serviceAccountTokenProvider,
 		serviceAccountTokenProvider,
 		projectProvider,
 		machineDeploymentRequestProviderGetter,
@@ -319,6 +324,7 @@ func initTestEndpoint(user apiv1.User, seedsGetter provider.SeedsGetter, kubeObj
 		tokenVerifiers,
 		tokenExtractors,
 		prometheusClient,
+		projectMemberProvider,
 		projectMemberProvider,
 		versions,
 		updates,

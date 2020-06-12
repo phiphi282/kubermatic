@@ -16,13 +16,14 @@ import (
 	kubermaticlog "github.com/kubermatic/kubermatic/api/pkg/log"
 	"github.com/kubermatic/kubermatic/api/pkg/pprof"
 	"github.com/kubermatic/kubermatic/api/pkg/provider"
+	"github.com/kubermatic/kubermatic/api/pkg/resources"
 	"github.com/kubermatic/kubermatic/api/pkg/signals"
 
 	certmanagerv1alpha2 "github.com/jetstack/cert-manager/pkg/apis/certmanager/v1alpha2"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/klog"
+	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
-	ctrllog "sigs.k8s.io/controller-runtime/pkg/runtime/log"
 	// Do not import "sigs.k8s.io/controller-runtime/pkg" to prevent
 	// duplicate kubeconfig flags being defined.
 )
@@ -71,7 +72,7 @@ func main() {
 		log.Fatal("-namespace is a mandatory flag")
 	}
 
-	log.Infow("Moin, moin, I'm the Kubermatic Operator and these are the versions I work with.", "kubermatic", common.KUBERMATICDOCKERTAG, "ui", common.UIDOCKERTAG)
+	log.With("kubermatic", common.KUBERMATICDOCKERTAG, "ui", common.UIDOCKERTAG).Infof("Moin, moin, I'm the Kubermatic %s Operator and these are the versions I work with.", resources.KubermaticEdition)
 
 	config, err := clientcmd.BuildConfigFromFlags("", opt.kubeconfig)
 	if err != nil {
@@ -95,12 +96,12 @@ func main() {
 		log.Fatalw("Failed to register scheme", zap.Stringer("api", certmanagerv1alpha2.SchemeGroupVersion), zap.Error(err))
 	}
 
-	seedsGetter, err := provider.SeedsGetterFactory(ctx, mgr.GetClient(), "", opt.namespace, true)
+	seedsGetter, err := seedsGetterFactory(ctx, mgr.GetClient(), opt)
 	if err != nil {
 		log.Fatalw("Failed to construct seedsGetter", zap.Error(err))
 	}
 
-	seedKubeconfigGetter, err := provider.SeedKubeconfigGetterFactory(ctx, mgr.GetClient(), "", opt.namespace, true)
+	seedKubeconfigGetter, err := provider.SeedKubeconfigGetterFactory(ctx, mgr.GetClient())
 	if err != nil {
 		log.Fatalw("Failed to construct seedKubeconfigGetter", zap.Error(err))
 	}

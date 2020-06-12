@@ -89,6 +89,10 @@ func (r Routing) RegisterV1(mux *mux.Router, metrics common.ServerMetrics) {
 		Handler(r.listAzureSizes())
 
 	mux.Methods(http.MethodGet).
+		Path("/providers/azure/availabilityzones").
+		Handler(r.listAzureSKUAvailabilityZones())
+
+	mux.Methods(http.MethodGet).
 		Path("/providers/openstack/sizes").
 		Handler(r.listOpenstackSizes())
 
@@ -444,6 +448,10 @@ func (r Routing) RegisterV1(mux *mux.Router, metrics common.ServerMetrics) {
 		Handler(r.listAzureSizesNoCredentials())
 
 	mux.Methods(http.MethodGet).
+		Path("/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/providers/azure/availabilityzones").
+		Handler(r.listAzureAvailabilityZonesNoCredentials())
+
+	mux.Methods(http.MethodGet).
 		Path("/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/providers/openstack/sizes").
 		Handler(r.listOpenstackSizesNoCredentials())
 
@@ -603,7 +611,7 @@ func (r Routing) listSSHKeys() http.Handler {
 		endpoint.Chain(
 			middleware.TokenVerifier(r.tokenVerifiers),
 			middleware.UserSaver(r.userProvider),
-		)(ssh.ListEndpoint(r.sshKeyProvider, r.projectProvider, r.userInfoGetter)),
+		)(ssh.ListEndpoint(r.sshKeyProvider, r.projectProvider, r.privilegedProjectProvider, r.userInfoGetter)),
 		ssh.DecodeListReq,
 		encodeJSON,
 		r.defaultServerOptions()...,
@@ -630,7 +638,7 @@ func (r Routing) createSSHKey() http.Handler {
 		endpoint.Chain(
 			middleware.TokenVerifier(r.tokenVerifiers),
 			middleware.UserSaver(r.userProvider),
-		)(ssh.CreateEndpoint(r.sshKeyProvider, r.projectProvider, r.userInfoGetter)),
+		)(ssh.CreateEndpoint(r.sshKeyProvider, r.privilegedSSHKeyProvider, r.projectProvider, r.privilegedProjectProvider, r.userInfoGetter)),
 		ssh.DecodeCreateReq,
 		setStatusCreatedHeader(encodeJSON),
 		r.defaultServerOptions()...,
@@ -654,7 +662,7 @@ func (r Routing) deleteSSHKey() http.Handler {
 		endpoint.Chain(
 			middleware.TokenVerifier(r.tokenVerifiers),
 			middleware.UserSaver(r.userProvider),
-		)(ssh.DeleteEndpoint(r.sshKeyProvider, r.projectProvider, r.userInfoGetter)),
+		)(ssh.DeleteEndpoint(r.sshKeyProvider, r.privilegedSSHKeyProvider, r.projectProvider, r.privilegedProjectProvider, r.userInfoGetter)),
 		ssh.DecodeDeleteReq,
 		encodeJSON,
 		r.defaultServerOptions()...,
@@ -903,6 +911,28 @@ func (r Routing) listAzureSizes() http.Handler {
 	)
 }
 
+// swagger:route GET /api/v1/providers/azure/availabilityzones azure listAzureAvailabilityZones
+//
+// Lists VM availability zones in an Azure region
+//
+//     Produces:
+//     - application/json
+//
+//     Responses:
+//       default: errorResponse
+//       200: AzureAvailabilityZonesList
+func (r Routing) listAzureSKUAvailabilityZones() http.Handler {
+	return httptransport.NewServer(
+		endpoint.Chain(
+			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.UserSaver(r.userProvider),
+		)(provider.AzureAvailabilityZonesEndpoint(r.presetsProvider, r.userInfoGetter)),
+		provider.DecodeAzureAvailabilityZonesReq,
+		encodeJSON,
+		r.defaultServerOptions()...,
+	)
+}
+
 // swagger:route GET /api/v1/providers/openstack/sizes openstack listOpenstackSizes
 //
 // Lists sizes from openstack
@@ -1007,7 +1037,8 @@ func (r Routing) listPacketSizesNoCredentials() http.Handler {
 			middleware.TokenVerifier(r.tokenVerifiers),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
-		)(provider.PacketSizesWithClusterCredentialsEndpoint(r.projectProvider, r.userInfoGetter)),
+			middleware.SetPrivilegedClusterProvider(r.clusterProviderGetter, r.seedsGetter),
+		)(provider.PacketSizesWithClusterCredentialsEndpoint(r.projectProvider, r.privilegedProjectProvider, r.userInfoGetter)),
 		provider.DecodePacketSizesNoCredentialsReq,
 		encodeJSON,
 		r.defaultServerOptions()...,
@@ -1405,7 +1436,7 @@ func (r Routing) createCluster(initNodeDeploymentFailures *prometheus.CounterVec
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
 			middleware.Keycloak(r.keycloakFacade),
 			middleware.SetPrivilegedClusterProvider(r.clusterProviderGetter, r.seedsGetter),
-		)(cluster.CreateEndpoint(r.sshKeyProvider, r.projectProvider, r.seedsGetter, initNodeDeploymentFailures, r.eventRecorderProvider, r.presetsProvider, r.exposeStrategy, r.userInfoGetter)),
+		)(cluster.CreateEndpoint(r.sshKeyProvider, r.projectProvider, r.privilegedProjectProvider, r.seedsGetter, initNodeDeploymentFailures, r.eventRecorderProvider, r.presetsProvider, r.exposeStrategy, r.userInfoGetter, r.settingsProvider)),
 		cluster.DecodeCreateReq,
 		setStatusCreatedHeader(encodeJSON),
 		r.defaultServerOptions()...,
@@ -1560,7 +1591,8 @@ func (r Routing) getClusterKubeconfig() http.Handler {
 			middleware.TokenVerifier(r.tokenVerifiers),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
-		)(cluster.GetAdminKubeconfigEndpoint(r.projectProvider, r.userInfoGetter)),
+			middleware.SetPrivilegedClusterProvider(r.clusterProviderGetter, r.seedsGetter),
+		)(cluster.GetAdminKubeconfigEndpoint(r.projectProvider, r.privilegedProjectProvider, r.userInfoGetter)),
 		cluster.DecodeGetAdminKubeconfig,
 		cluster.EncodeKubeconfig,
 		r.defaultServerOptions()...,
@@ -1586,8 +1618,9 @@ func (r Routing) getOidcClusterKubeconfig() http.Handler {
 			middleware.TokenVerifier(r.tokenVerifiers),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
+			middleware.SetPrivilegedClusterProvider(r.clusterProviderGetter, r.seedsGetter),
 			middleware.Keycloak(r.keycloakFacade),
-		)(cluster.GetSysElevenOidcKubeconfigEndpoint(r.projectProvider, r.userInfoGetter)),
+		)(cluster.GetOidcKubeconfigEndpoint(r.projectProvider, r.privilegedProjectProvider, r.userInfoGetter)),
 		cluster.DecodeGetAdminKubeconfig,
 		cluster.EncodeKubeconfig,
 		r.defaultServerOptions()...,
@@ -1805,7 +1838,8 @@ func (r Routing) getClusterUpgrades() http.Handler {
 			middleware.TokenVerifier(r.tokenVerifiers),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
-		)(cluster.GetUpgradesEndpoint(r.updateManager, r.projectProvider, r.userInfoGetter)),
+			middleware.SetPrivilegedClusterProvider(r.clusterProviderGetter, r.seedsGetter),
+		)(cluster.GetUpgradesEndpoint(r.updateManager, r.projectProvider, r.privilegedProjectProvider, r.userInfoGetter)),
 		common.DecodeGetClusterReq,
 		encodeJSON,
 		r.defaultServerOptions()...,
@@ -1854,7 +1888,8 @@ func (r Routing) upgradeClusterNodeDeployments() http.Handler {
 			middleware.TokenVerifier(r.tokenVerifiers),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
-		)(cluster.UpgradeNodeDeploymentsEndpoint(r.projectProvider, r.userInfoGetter)),
+			middleware.SetPrivilegedClusterProvider(r.clusterProviderGetter, r.seedsGetter),
+		)(cluster.UpgradeNodeDeploymentsEndpoint(r.projectProvider, r.privilegedProjectProvider, r.userInfoGetter)),
 		cluster.DecodeUpgradeNodeDeploymentsReq,
 		encodeJSON,
 		r.defaultServerOptions()...,
@@ -1881,7 +1916,7 @@ func (r Routing) addUserToProject() http.Handler {
 		endpoint.Chain(
 			middleware.TokenVerifier(r.tokenVerifiers),
 			middleware.UserSaver(r.userProvider),
-		)(user.AddEndpoint(r.projectProvider, r.userProvider, r.projectMemberProvider, r.userInfoGetter)),
+		)(user.AddEndpoint(r.projectProvider, r.privilegedProjectProvider, r.userProvider, r.projectMemberProvider, r.privilegedProjectMemberProvider, r.userInfoGetter)),
 		user.DecodeAddReq,
 		setStatusCreatedHeader(encodeJSON),
 		r.defaultServerOptions()...,
@@ -1908,7 +1943,7 @@ func (r Routing) getUsersForProject() http.Handler {
 		endpoint.Chain(
 			middleware.TokenVerifier(r.tokenVerifiers),
 			middleware.UserSaver(r.userProvider),
-		)(user.ListEndpoint(r.projectProvider, r.userProvider, r.projectMemberProvider, r.userInfoGetter)),
+		)(user.ListEndpoint(r.projectProvider, r.privilegedProjectProvider, r.userProvider, r.projectMemberProvider, r.userInfoGetter)),
 		common.DecodeGetProject,
 		encodeJSON,
 		r.defaultServerOptions()...,
@@ -1935,7 +1970,7 @@ func (r Routing) editUserInProject() http.Handler {
 		endpoint.Chain(
 			middleware.TokenVerifier(r.tokenVerifiers),
 			middleware.UserSaver(r.userProvider),
-		)(user.EditEndpoint(r.projectProvider, r.userProvider, r.projectMemberProvider, r.userInfoGetter)),
+		)(user.EditEndpoint(r.projectProvider, r.privilegedProjectProvider, r.userProvider, r.projectMemberProvider, r.privilegedProjectMemberProvider, r.userInfoGetter)),
 		user.DecodeEditReq,
 		encodeJSON,
 		r.defaultServerOptions()...,
@@ -1962,7 +1997,7 @@ func (r Routing) deleteUserFromProject() http.Handler {
 		endpoint.Chain(
 			middleware.TokenVerifier(r.tokenVerifiers),
 			middleware.UserSaver(r.userProvider),
-		)(user.DeleteEndpoint(r.projectProvider, r.userProvider, r.projectMemberProvider, r.userInfoGetter)),
+		)(user.DeleteEndpoint(r.projectProvider, r.privilegedProjectProvider, r.userProvider, r.projectMemberProvider, r.privilegedProjectMemberProvider, r.userInfoGetter)),
 		user.DecodeDeleteReq,
 		encodeJSON,
 		r.defaultServerOptions()...,
@@ -2061,7 +2096,7 @@ func (r Routing) addServiceAccountToProject() http.Handler {
 		endpoint.Chain(
 			middleware.TokenVerifier(r.tokenVerifiers),
 			middleware.UserSaver(r.userProvider),
-		)(serviceaccount.CreateEndpoint(r.projectProvider, r.serviceAccountProvider, r.userInfoGetter)),
+		)(serviceaccount.CreateEndpoint(r.projectProvider, r.privilegedProjectProvider, r.serviceAccountProvider, r.privilegedServiceAccountProvider, r.userInfoGetter)),
 		serviceaccount.DecodeAddReq,
 		setStatusCreatedHeader(encodeJSON),
 		r.defaultServerOptions()...,
@@ -2085,7 +2120,7 @@ func (r Routing) listServiceAccounts() http.Handler {
 		endpoint.Chain(
 			middleware.TokenVerifier(r.tokenVerifiers),
 			middleware.UserSaver(r.userProvider),
-		)(serviceaccount.ListEndpoint(r.projectProvider, r.serviceAccountProvider, r.userProjectMapper, r.userInfoGetter)),
+		)(serviceaccount.ListEndpoint(r.projectProvider, r.privilegedProjectProvider, r.serviceAccountProvider, r.privilegedServiceAccountProvider, r.userProjectMapper, r.userInfoGetter)),
 		common.DecodeGetProject,
 		encodeJSON,
 		r.defaultServerOptions()...,
@@ -2112,7 +2147,7 @@ func (r Routing) updateServiceAccount() http.Handler {
 		endpoint.Chain(
 			middleware.TokenVerifier(r.tokenVerifiers),
 			middleware.UserSaver(r.userProvider),
-		)(serviceaccount.UpdateEndpoint(r.projectProvider, r.serviceAccountProvider, r.userProjectMapper, r.userInfoGetter)),
+		)(serviceaccount.UpdateEndpoint(r.projectProvider, r.privilegedProjectProvider, r.serviceAccountProvider, r.privilegedServiceAccountProvider, r.userProjectMapper, r.userInfoGetter)),
 		serviceaccount.DecodeUpdateReq,
 		encodeJSON,
 		r.defaultServerOptions()...,
@@ -2137,7 +2172,7 @@ func (r Routing) deleteServiceAccount() http.Handler {
 		endpoint.Chain(
 			middleware.TokenVerifier(r.tokenVerifiers),
 			middleware.UserSaver(r.userProvider),
-		)(serviceaccount.DeleteEndpoint(r.serviceAccountProvider, r.projectProvider, r.userInfoGetter)),
+		)(serviceaccount.DeleteEndpoint(r.serviceAccountProvider, r.privilegedServiceAccountProvider, r.projectProvider, r.privilegedProjectProvider, r.userInfoGetter)),
 		serviceaccount.DecodeDeleteReq,
 		encodeJSON,
 		r.defaultServerOptions()...,
@@ -2164,7 +2199,7 @@ func (r Routing) addTokenToServiceAccount() http.Handler {
 		endpoint.Chain(
 			middleware.TokenVerifier(r.tokenVerifiers),
 			middleware.UserSaver(r.userProvider),
-		)(serviceaccount.CreateTokenEndpoint(r.projectProvider, r.serviceAccountProvider, r.serviceAccountTokenProvider, r.saTokenAuthenticator, r.saTokenGenerator, r.userInfoGetter)),
+		)(serviceaccount.CreateTokenEndpoint(r.projectProvider, r.privilegedProjectProvider, r.serviceAccountProvider, r.privilegedServiceAccountProvider, r.serviceAccountTokenProvider, r.privilegedServiceAccountTokenProvider, r.saTokenAuthenticator, r.saTokenGenerator, r.userInfoGetter)),
 		serviceaccount.DecodeAddTokenReq,
 		setStatusCreatedHeader(encodeJSON),
 		r.defaultServerOptions()...,
@@ -2188,7 +2223,7 @@ func (r Routing) listServiceAccountTokens() http.Handler {
 		endpoint.Chain(
 			middleware.TokenVerifier(r.tokenVerifiers),
 			middleware.UserSaver(r.userProvider),
-		)(serviceaccount.ListTokenEndpoint(r.projectProvider, r.serviceAccountProvider, r.serviceAccountTokenProvider, r.saTokenAuthenticator, r.userInfoGetter)),
+		)(serviceaccount.ListTokenEndpoint(r.projectProvider, r.privilegedProjectProvider, r.serviceAccountProvider, r.privilegedServiceAccountProvider, r.serviceAccountTokenProvider, r.privilegedServiceAccountTokenProvider, r.saTokenAuthenticator, r.userInfoGetter)),
 		serviceaccount.DecodeTokenReq,
 		encodeJSON,
 		r.defaultServerOptions()...,
@@ -2215,7 +2250,7 @@ func (r Routing) updateServiceAccountToken() http.Handler {
 		endpoint.Chain(
 			middleware.TokenVerifier(r.tokenVerifiers),
 			middleware.UserSaver(r.userProvider),
-		)(serviceaccount.UpdateTokenEndpoint(r.projectProvider, r.serviceAccountProvider, r.serviceAccountTokenProvider, r.saTokenAuthenticator, r.saTokenGenerator, r.userInfoGetter)),
+		)(serviceaccount.UpdateTokenEndpoint(r.projectProvider, r.privilegedProjectProvider, r.serviceAccountProvider, r.privilegedServiceAccountProvider, r.serviceAccountTokenProvider, r.privilegedServiceAccountTokenProvider, r.saTokenAuthenticator, r.saTokenGenerator, r.userInfoGetter)),
 		serviceaccount.DecodeUpdateTokenReq,
 		encodeJSON,
 		r.defaultServerOptions()...,
@@ -2242,7 +2277,7 @@ func (r Routing) patchServiceAccountToken() http.Handler {
 		endpoint.Chain(
 			middleware.TokenVerifier(r.tokenVerifiers),
 			middleware.UserSaver(r.userProvider),
-		)(serviceaccount.PatchTokenEndpoint(r.projectProvider, r.serviceAccountProvider, r.serviceAccountTokenProvider, r.saTokenAuthenticator, r.saTokenGenerator, r.userInfoGetter)),
+		)(serviceaccount.PatchTokenEndpoint(r.projectProvider, r.privilegedProjectProvider, r.serviceAccountProvider, r.privilegedServiceAccountProvider, r.serviceAccountTokenProvider, r.privilegedServiceAccountTokenProvider, r.saTokenAuthenticator, r.saTokenGenerator, r.userInfoGetter)),
 		serviceaccount.DecodePatchTokenReq,
 		encodeJSON,
 		r.defaultServerOptions()...,
@@ -2266,7 +2301,7 @@ func (r Routing) deleteServiceAccountToken() http.Handler {
 		endpoint.Chain(
 			middleware.TokenVerifier(r.tokenVerifiers),
 			middleware.UserSaver(r.userProvider),
-		)(serviceaccount.DeleteTokenEndpoint(r.projectProvider, r.serviceAccountProvider, r.serviceAccountTokenProvider, r.userInfoGetter)),
+		)(serviceaccount.DeleteTokenEndpoint(r.projectProvider, r.privilegedProjectProvider, r.serviceAccountProvider, r.privilegedServiceAccountProvider, r.serviceAccountTokenProvider, r.privilegedServiceAccountTokenProvider, r.userInfoGetter)),
 		serviceaccount.DecodeDeleteTokenReq,
 		encodeJSON,
 		r.defaultServerOptions()...,
@@ -2289,7 +2324,8 @@ func (r Routing) listAWSSizesNoCredentials() http.Handler {
 			middleware.TokenVerifier(r.tokenVerifiers),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
-		)(provider.AWSSizeNoCredentialsEndpoint(r.projectProvider, r.seedsGetter, r.userInfoGetter)),
+			middleware.SetPrivilegedClusterProvider(r.clusterProviderGetter, r.seedsGetter),
+		)(provider.AWSSizeNoCredentialsEndpoint(r.projectProvider, r.privilegedProjectProvider, r.seedsGetter, r.userInfoGetter)),
 		common.DecodeGetClusterReq,
 		encodeJSON,
 		r.defaultServerOptions()...,
@@ -2312,7 +2348,8 @@ func (r Routing) listAWSSubnetsNoCredentials() http.Handler {
 			middleware.TokenVerifier(r.tokenVerifiers),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
-		)(provider.AWSSubnetWithClusterCredentialsEndpoint(r.projectProvider, r.seedsGetter, r.userInfoGetter)),
+			middleware.SetPrivilegedClusterProvider(r.clusterProviderGetter, r.seedsGetter),
+		)(provider.AWSSubnetWithClusterCredentialsEndpoint(r.projectProvider, r.privilegedProjectProvider, r.seedsGetter, r.userInfoGetter)),
 		common.DecodeGetClusterReq,
 		encodeJSON,
 		r.defaultServerOptions()...,
@@ -2335,7 +2372,8 @@ func (r Routing) listGCPSizesNoCredentials() http.Handler {
 			middleware.TokenVerifier(r.tokenVerifiers),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
-		)(provider.GCPSizeWithClusterCredentialsEndpoint(r.projectProvider, r.userInfoGetter)),
+			middleware.SetPrivilegedClusterProvider(r.clusterProviderGetter, r.seedsGetter),
+		)(provider.GCPSizeWithClusterCredentialsEndpoint(r.projectProvider, r.privilegedProjectProvider, r.userInfoGetter)),
 		provider.DecodeGCPTypesNoCredentialReq,
 		encodeJSON,
 		r.defaultServerOptions()...,
@@ -2358,7 +2396,8 @@ func (r Routing) listGCPDiskTypesNoCredentials() http.Handler {
 			middleware.TokenVerifier(r.tokenVerifiers),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
-		)(provider.GCPDiskTypesWithClusterCredentialsEndpoint(r.projectProvider, r.userInfoGetter)),
+			middleware.SetPrivilegedClusterProvider(r.clusterProviderGetter, r.seedsGetter),
+		)(provider.GCPDiskTypesWithClusterCredentialsEndpoint(r.projectProvider, r.privilegedProjectProvider, r.userInfoGetter)),
 		provider.DecodeGCPTypesNoCredentialReq,
 		encodeJSON,
 		r.defaultServerOptions()...,
@@ -2381,7 +2420,8 @@ func (r Routing) listGCPZonesNoCredentials() http.Handler {
 			middleware.TokenVerifier(r.tokenVerifiers),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
-		)(provider.GCPZoneWithClusterCredentialsEndpoint(r.projectProvider, r.seedsGetter, r.userInfoGetter)),
+			middleware.SetPrivilegedClusterProvider(r.clusterProviderGetter, r.seedsGetter),
+		)(provider.GCPZoneWithClusterCredentialsEndpoint(r.projectProvider, r.privilegedProjectProvider, r.seedsGetter, r.userInfoGetter)),
 		common.DecodeGetClusterReq,
 		encodeJSON,
 		r.defaultServerOptions()...,
@@ -2404,7 +2444,8 @@ func (r Routing) listGCPNetworksNoCredentials() http.Handler {
 			middleware.TokenVerifier(r.tokenVerifiers),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
-		)(provider.GCPNetworkWithClusterCredentialsEndpoint(r.projectProvider, r.userInfoGetter)),
+			middleware.SetPrivilegedClusterProvider(r.clusterProviderGetter, r.seedsGetter),
+		)(provider.GCPNetworkWithClusterCredentialsEndpoint(r.projectProvider, r.privilegedProjectProvider, r.userInfoGetter)),
 		common.DecodeGetClusterReq,
 		encodeJSON,
 		r.defaultServerOptions()...,
@@ -2427,7 +2468,8 @@ func (r Routing) listGCPSubnetworksNoCredentials() http.Handler {
 			middleware.TokenVerifier(r.tokenVerifiers),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
-		)(provider.GCPSubnetworkWithClusterCredentialsEndpoint(r.projectProvider, r.seedsGetter, r.userInfoGetter)),
+			middleware.SetPrivilegedClusterProvider(r.clusterProviderGetter, r.seedsGetter),
+		)(provider.GCPSubnetworkWithClusterCredentialsEndpoint(r.projectProvider, r.privilegedProjectProvider, r.seedsGetter, r.userInfoGetter)),
 		provider.DecodeGCPSubnetworksNoCredentialReq,
 		encodeJSON,
 		r.defaultServerOptions()...,
@@ -2450,7 +2492,8 @@ func (r Routing) listHetznerSizesNoCredentials() http.Handler {
 			middleware.TokenVerifier(r.tokenVerifiers),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
-		)(provider.HetznerSizeWithClusterCredentialsEndpoint(r.projectProvider, r.userInfoGetter)),
+			middleware.SetPrivilegedClusterProvider(r.clusterProviderGetter, r.seedsGetter),
+		)(provider.HetznerSizeWithClusterCredentialsEndpoint(r.projectProvider, r.privilegedProjectProvider, r.userInfoGetter)),
 		provider.DecodeHetznerSizesNoCredentialsReq,
 		encodeJSON,
 		r.defaultServerOptions()...,
@@ -2473,7 +2516,8 @@ func (r Routing) listDigitaloceanSizesNoCredentials() http.Handler {
 			middleware.TokenVerifier(r.tokenVerifiers),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
-		)(provider.DigitaloceanSizeWithClusterCredentialsEndpoint(r.projectProvider, r.userInfoGetter)),
+			middleware.SetPrivilegedClusterProvider(r.clusterProviderGetter, r.seedsGetter),
+		)(provider.DigitaloceanSizeWithClusterCredentialsEndpoint(r.projectProvider, r.privilegedProjectProvider, r.userInfoGetter)),
 		provider.DecodeDoSizesNoCredentialsReq,
 		encodeJSON,
 		r.defaultServerOptions()...,
@@ -2496,8 +2540,33 @@ func (r Routing) listAzureSizesNoCredentials() http.Handler {
 			middleware.TokenVerifier(r.tokenVerifiers),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
-		)(provider.AzureSizeWithClusterCredentialsEndpoint(r.projectProvider, r.seedsGetter, r.userInfoGetter)),
+			middleware.SetPrivilegedClusterProvider(r.clusterProviderGetter, r.seedsGetter),
+		)(provider.AzureSizeWithClusterCredentialsEndpoint(r.projectProvider, r.privilegedProjectProvider, r.seedsGetter, r.userInfoGetter)),
 		provider.DecodeAzureSizesNoCredentialsReq,
+		encodeJSON,
+		r.defaultServerOptions()...,
+	)
+}
+
+// swagger:route GET /api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/providers/azure/availabilityzones azure listAzureAvailabilityZonesNoCredentials
+//
+// Lists available VM availability zones in an Azure region
+//
+//     Produces:
+//     - application/json
+//
+//     Responses:
+//       default: errorResponse
+//       200: AzureAvailabilityZonesList
+func (r Routing) listAzureAvailabilityZonesNoCredentials() http.Handler {
+	return httptransport.NewServer(
+		endpoint.Chain(
+			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.UserSaver(r.userProvider),
+			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
+			middleware.SetPrivilegedClusterProvider(r.clusterProviderGetter, r.seedsGetter),
+		)(provider.AzureAvailabilityZonesWithClusterCredentialsEndpoint(r.projectProvider, r.privilegedProjectProvider, r.seedsGetter, r.userInfoGetter)),
+		provider.DecodeAzureAvailabilityZonesNoCredentialsReq,
 		encodeJSON,
 		r.defaultServerOptions()...,
 	)
@@ -2519,7 +2588,8 @@ func (r Routing) listOpenstackSizesNoCredentials() http.Handler {
 			middleware.TokenVerifier(r.tokenVerifiers),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
-		)(provider.OpenstackSizeWithClusterCredentialsEndpoint(r.projectProvider, r.seedsGetter, r.userInfoGetter)),
+			middleware.SetPrivilegedClusterProvider(r.clusterProviderGetter, r.seedsGetter),
+		)(provider.OpenstackSizeWithClusterCredentialsEndpoint(r.projectProvider, r.privilegedProjectProvider, r.seedsGetter, r.userInfoGetter)),
 		provider.DecodeOpenstackNoCredentialsReq,
 		encodeJSON,
 		r.defaultServerOptions()...,
@@ -2542,7 +2612,8 @@ func (r Routing) listOpenstackTenantsNoCredentials() http.Handler {
 			middleware.TokenVerifier(r.tokenVerifiers),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
-		)(provider.OpenstackTenantWithClusterCredentialsEndpoint(r.projectProvider, r.seedsGetter, r.userInfoGetter)),
+			middleware.SetPrivilegedClusterProvider(r.clusterProviderGetter, r.seedsGetter),
+		)(provider.OpenstackTenantWithClusterCredentialsEndpoint(r.projectProvider, r.privilegedProjectProvider, r.seedsGetter, r.userInfoGetter)),
 		provider.DecodeOpenstackNoCredentialsReq,
 		encodeJSON,
 		r.defaultServerOptions()...,
@@ -2565,7 +2636,8 @@ func (r Routing) listOpenstackNetworksNoCredentials() http.Handler {
 			middleware.TokenVerifier(r.tokenVerifiers),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
-		)(provider.OpenstackNetworkWithClusterCredentialsEndpoint(r.projectProvider, r.seedsGetter, r.userInfoGetter)),
+			middleware.SetPrivilegedClusterProvider(r.clusterProviderGetter, r.seedsGetter),
+		)(provider.OpenstackNetworkWithClusterCredentialsEndpoint(r.projectProvider, r.privilegedProjectProvider, r.seedsGetter, r.userInfoGetter)),
 		provider.DecodeOpenstackNoCredentialsReq,
 		encodeJSON,
 		r.defaultServerOptions()...,
@@ -2588,7 +2660,8 @@ func (r Routing) listOpenstackSecurityGroupsNoCredentials() http.Handler {
 			middleware.TokenVerifier(r.tokenVerifiers),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
-		)(provider.OpenstackSecurityGroupWithClusterCredentialsEndpoint(r.projectProvider, r.seedsGetter, r.userInfoGetter)),
+			middleware.SetPrivilegedClusterProvider(r.clusterProviderGetter, r.seedsGetter),
+		)(provider.OpenstackSecurityGroupWithClusterCredentialsEndpoint(r.projectProvider, r.privilegedProjectProvider, r.seedsGetter, r.userInfoGetter)),
 		provider.DecodeOpenstackNoCredentialsReq,
 		encodeJSON,
 		r.defaultServerOptions()...,
@@ -2611,7 +2684,8 @@ func (r Routing) listOpenstackSubnetsNoCredentials() http.Handler {
 			middleware.TokenVerifier(r.tokenVerifiers),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
-		)(provider.OpenstackSubnetsWithClusterCredentialsEndpoint(r.projectProvider, r.seedsGetter, r.userInfoGetter)),
+			middleware.SetPrivilegedClusterProvider(r.clusterProviderGetter, r.seedsGetter),
+		)(provider.OpenstackSubnetsWithClusterCredentialsEndpoint(r.projectProvider, r.privilegedProjectProvider, r.seedsGetter, r.userInfoGetter)),
 		provider.DecodeOpenstackSubnetNoCredentialsReq,
 		encodeJSON,
 		r.defaultServerOptions()...,
@@ -2634,7 +2708,8 @@ func (r Routing) listVSphereNetworksNoCredentials() http.Handler {
 			middleware.TokenVerifier(r.tokenVerifiers),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
-		)(provider.VsphereNetworksWithClusterCredentialsEndpoint(r.projectProvider, r.seedsGetter, r.userInfoGetter)),
+			middleware.SetPrivilegedClusterProvider(r.clusterProviderGetter, r.seedsGetter),
+		)(provider.VsphereNetworksWithClusterCredentialsEndpoint(r.projectProvider, r.privilegedProjectProvider, r.seedsGetter, r.userInfoGetter)),
 		provider.DecodeVSphereNetworksNoCredentialsReq,
 		encodeJSON,
 		r.defaultServerOptions()...,
@@ -2657,7 +2732,8 @@ func (r Routing) listVSphereFoldersNoCredentials() http.Handler {
 			middleware.TokenVerifier(r.tokenVerifiers),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
-		)(provider.VsphereFoldersWithClusterCredentialsEndpoint(r.projectProvider, r.seedsGetter, r.userInfoGetter)),
+			middleware.SetPrivilegedClusterProvider(r.clusterProviderGetter, r.seedsGetter),
+		)(provider.VsphereFoldersWithClusterCredentialsEndpoint(r.projectProvider, r.privilegedProjectProvider, r.seedsGetter, r.userInfoGetter)),
 		provider.DecodeVSphereFoldersNoCredentialsReq,
 		encodeJSON,
 		r.defaultServerOptions()...,
@@ -2680,7 +2756,8 @@ func (r Routing) listAlibabaInstanceTypesNoCredentials() http.Handler {
 			middleware.TokenVerifier(r.tokenVerifiers),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
-		)(provider.AlibabaInstanceTypesWithClusterCredentialsEndpoint(r.projectProvider, r.seedsGetter, r.userInfoGetter)),
+			middleware.SetPrivilegedClusterProvider(r.clusterProviderGetter, r.seedsGetter),
+		)(provider.AlibabaInstanceTypesWithClusterCredentialsEndpoint(r.projectProvider, r.privilegedProjectProvider, r.seedsGetter, r.userInfoGetter)),
 		provider.DecodeAlibabaNoCredentialReq,
 		encodeJSON,
 		r.defaultServerOptions()...,
@@ -2703,7 +2780,8 @@ func (r Routing) listAlibabaZonesNoCredentials() http.Handler {
 			middleware.TokenVerifier(r.tokenVerifiers),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
-		)(provider.AlibabaZonesWithClusterCredentialsEndpoint(r.projectProvider, r.seedsGetter, r.userInfoGetter)),
+			middleware.SetPrivilegedClusterProvider(r.clusterProviderGetter, r.seedsGetter),
+		)(provider.AlibabaZonesWithClusterCredentialsEndpoint(r.projectProvider, r.privilegedProjectProvider, r.seedsGetter, r.userInfoGetter)),
 		provider.DecodeAlibabaNoCredentialReq,
 		encodeJSON,
 		r.defaultServerOptions()...,
@@ -2731,7 +2809,8 @@ func (r Routing) createNodeDeployment() http.Handler {
 			middleware.TokenVerifier(r.tokenVerifiers),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
-		)(node.CreateNodeDeployment(r.sshKeyProvider, r.projectProvider, r.seedsGetter, r.userInfoGetter)),
+			middleware.SetPrivilegedClusterProvider(r.clusterProviderGetter, r.seedsGetter),
+		)(node.CreateNodeDeployment(r.sshKeyProvider, r.projectProvider, r.privilegedProjectProvider, r.seedsGetter, r.userInfoGetter)),
 		node.DecodeCreateNodeDeployment,
 		setStatusCreatedHeader(encodeJSON),
 		r.defaultServerOptions()...,
@@ -2970,8 +3049,10 @@ func (r Routing) listInstallableAddons() http.Handler {
 			middleware.TokenVerifier(r.tokenVerifiers),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
+			middleware.SetPrivilegedClusterProvider(r.clusterProviderGetter, r.seedsGetter),
 			middleware.Addons(r.addonProviderGetter, r.seedsGetter),
-		)(addon.ListInstallableAddonEndpoint(r.projectProvider, r.userInfoGetter, r.accessibleAddons)),
+			middleware.PrivilegedAddons(r.addonProviderGetter, r.seedsGetter),
+		)(addon.ListInstallableAddonEndpoint(r.projectProvider, r.privilegedProjectProvider, r.userInfoGetter, r.accessibleAddons)),
 		addon.DecodeListAddons,
 		encodeJSON,
 		r.defaultServerOptions()...,
@@ -2999,8 +3080,10 @@ func (r Routing) createAddon() http.Handler {
 			middleware.TokenVerifier(r.tokenVerifiers),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
+			middleware.SetPrivilegedClusterProvider(r.clusterProviderGetter, r.seedsGetter),
 			middleware.Addons(r.addonProviderGetter, r.seedsGetter),
-		)(addon.CreateAddonEndpoint(r.projectProvider, r.userInfoGetter)),
+			middleware.PrivilegedAddons(r.addonProviderGetter, r.seedsGetter),
+		)(addon.CreateAddonEndpoint(r.projectProvider, r.privilegedProjectProvider, r.userInfoGetter)),
 		addon.DecodeCreateAddon,
 		setStatusCreatedHeader(encodeJSON),
 		r.defaultServerOptions()...,
@@ -3025,8 +3108,10 @@ func (r Routing) listAddons() http.Handler {
 			middleware.TokenVerifier(r.tokenVerifiers),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
+			middleware.SetPrivilegedClusterProvider(r.clusterProviderGetter, r.seedsGetter),
 			middleware.Addons(r.addonProviderGetter, r.seedsGetter),
-		)(addon.ListAddonEndpoint(r.projectProvider, r.userInfoGetter)),
+			middleware.PrivilegedAddons(r.addonProviderGetter, r.seedsGetter),
+		)(addon.ListAddonEndpoint(r.projectProvider, r.privilegedProjectProvider, r.userInfoGetter)),
 		addon.DecodeListAddons,
 		encodeJSON,
 		r.defaultServerOptions()...,
@@ -3051,8 +3136,10 @@ func (r Routing) getAddon() http.Handler {
 			middleware.TokenVerifier(r.tokenVerifiers),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
+			middleware.SetPrivilegedClusterProvider(r.clusterProviderGetter, r.seedsGetter),
 			middleware.Addons(r.addonProviderGetter, r.seedsGetter),
-		)(addon.GetAddonEndpoint(r.projectProvider, r.userInfoGetter)),
+			middleware.PrivilegedAddons(r.addonProviderGetter, r.seedsGetter),
+		)(addon.GetAddonEndpoint(r.projectProvider, r.privilegedProjectProvider, r.userInfoGetter)),
 		addon.DecodeGetAddon,
 		encodeJSON,
 		r.defaultServerOptions()...,
@@ -3080,8 +3167,10 @@ func (r Routing) patchAddon() http.Handler {
 			middleware.TokenVerifier(r.tokenVerifiers),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
+			middleware.SetPrivilegedClusterProvider(r.clusterProviderGetter, r.seedsGetter),
 			middleware.Addons(r.addonProviderGetter, r.seedsGetter),
-		)(addon.PatchAddonEndpoint(r.projectProvider, r.userInfoGetter)),
+			middleware.PrivilegedAddons(r.addonProviderGetter, r.seedsGetter),
+		)(addon.PatchAddonEndpoint(r.projectProvider, r.privilegedProjectProvider, r.userInfoGetter)),
 		addon.DecodePatchAddon,
 		encodeJSON,
 		r.defaultServerOptions()...,
@@ -3106,8 +3195,10 @@ func (r Routing) deleteAddon() http.Handler {
 			middleware.TokenVerifier(r.tokenVerifiers),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
+			middleware.SetPrivilegedClusterProvider(r.clusterProviderGetter, r.seedsGetter),
 			middleware.Addons(r.addonProviderGetter, r.seedsGetter),
-		)(addon.DeleteAddonEndpoint(r.projectProvider, r.userInfoGetter)),
+			middleware.PrivilegedAddons(r.addonProviderGetter, r.seedsGetter),
+		)(addon.DeleteAddonEndpoint(r.projectProvider, r.privilegedProjectProvider, r.userInfoGetter)),
 		addon.DecodeGetAddon,
 		encodeJSON,
 		r.defaultServerOptions()...,
@@ -3661,7 +3752,8 @@ func (r Routing) bindUserToClusterRole() http.Handler {
 			middleware.TokenVerifier(r.tokenVerifiers),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
-		)(cluster.BindUserToClusterRoleEndpoint(r.userInfoGetter)),
+			middleware.SetPrivilegedClusterProvider(r.clusterProviderGetter, r.seedsGetter),
+		)(cluster.BindUserToClusterRoleEndpoint(r.projectProvider, r.privilegedProjectProvider, r.userInfoGetter)),
 		cluster.DecodeClusterRoleUserReq,
 		encodeJSON,
 		r.defaultServerOptions()...,
@@ -3689,7 +3781,8 @@ func (r Routing) unbindUserFromClusterRoleBinding() http.Handler {
 			middleware.TokenVerifier(r.tokenVerifiers),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
-		)(cluster.UnbindUserFromClusterRoleBindingEndpoint(r.userInfoGetter)),
+			middleware.SetPrivilegedClusterProvider(r.clusterProviderGetter, r.seedsGetter),
+		)(cluster.UnbindUserFromClusterRoleBindingEndpoint(r.projectProvider, r.privilegedProjectProvider, r.userInfoGetter)),
 		cluster.DecodeClusterRoleUserReq,
 		encodeJSON,
 		r.defaultServerOptions()...,

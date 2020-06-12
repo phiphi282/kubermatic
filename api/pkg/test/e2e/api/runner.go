@@ -122,6 +122,42 @@ func (r *runner) GetProject(id string, attempts int) (*apiv1.Project, error) {
 	return convertProject(project.Payload)
 }
 
+// ListProjects gets projects
+func (r *runner) ListProjects(displayAll bool, attempts int) ([]*apiv1.Project, error) {
+	params := &project.ListProjectsParams{
+		DisplayAll: &displayAll,
+	}
+	params.WithTimeout(timeout)
+
+	var errListProjects error
+	var projects *project.ListProjectsOK
+	duration := time.Duration(attempts) * time.Second
+	if err := wait.PollImmediate(time.Second, duration, func() (bool, error) {
+		projects, errListProjects = r.client.Project.ListProjects(params, r.bearerToken)
+		if errListProjects != nil {
+			return false, nil
+		}
+		return true, nil
+	}); err != nil {
+		// first check error from ListProjects
+		if errListProjects != nil {
+			return nil, errListProjects
+		}
+		return nil, err
+	}
+
+	projectList := make([]*apiv1.Project, 0)
+	for _, project := range projects.Payload {
+		apiProject, err := convertProject(project)
+		if err != nil {
+			return nil, err
+		}
+		projectList = append(projectList, apiProject)
+	}
+
+	return projectList, nil
+}
+
 // UpdateProject updates the given project
 func (r *runner) UpdateProject(projectToUpdate *apiv1.Project) (*apiv1.Project, error) {
 	params := &project.UpdateProjectParams{ProjectID: projectToUpdate.ID, Body: &models.Project{Name: projectToUpdate.Name}}
@@ -602,14 +638,15 @@ func cleanUpProject(id string, attempts int) func(t *testing.T) {
 	return func(t *testing.T) {
 		masterToken, err := retrieveMasterToken()
 		if err != nil {
-			t.Fatalf("can not get master token due error: %v", err)
+			t.Fatalf("can not get master token: %v", err)
 		}
 		runner := createRunner(masterToken, t)
 
+		t.Log("deleting project...")
 		if err := runner.DeleteProject(id); err != nil {
-			t.Fatalf("can not delete project due error: %v", err)
+			t.Fatalf("can not delete project: %v", err)
 		}
-		t.Log("project deleting ...")
+
 		for attempt := 1; attempt <= attempts; attempt++ {
 			_, err := runner.GetProject(id, 5)
 			if err != nil {
@@ -617,10 +654,12 @@ func cleanUpProject(id string, attempts int) func(t *testing.T) {
 			}
 			time.Sleep(3 * time.Second)
 		}
+
 		_, err = runner.GetProject(id, 5)
 		if err == nil {
 			t.Fatalf("can not delete the project")
 		}
+
 		t.Log("project deleted successfully")
 	}
 }
@@ -752,7 +791,7 @@ func convertGlobalSettings(gSettings *models.GlobalSettings) *apiv1.GlobalSettin
 			Enforced: gSettings.CleanupOptions.Enforced,
 		},
 		DefaultNodeCount:      gSettings.DefaultNodeCount,
-		ClusterTypeOptions:    gSettings.ClusterTypeOptions,
+		ClusterTypeOptions:    kubermaticv1.ClusterType(gSettings.ClusterTypeOptions),
 		DisplayDemoInfo:       gSettings.DisplayDemoInfo,
 		DisplayAPIDocs:        gSettings.DisplayAPIDocs,
 		DisplayTermsOfService: gSettings.DisplayTermsOfService,

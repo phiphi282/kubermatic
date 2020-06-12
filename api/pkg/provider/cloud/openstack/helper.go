@@ -364,8 +364,6 @@ func getFlavors(authClient *gophercloud.ProviderClient, region string) ([]osflav
 		} else {
 			return nil, fmt.Errorf("couldn't get identity endpoint: %v", err)
 		}
-	} else if err != nil {
-		return nil, fmt.Errorf("couldn't get identity endpoint: %v", err)
 	}
 
 	var allFlavors []osflavors.Flavor
@@ -399,8 +397,6 @@ func getTenants(authClient *gophercloud.ProviderClient, region string) ([]osproj
 		} else {
 			return nil, fmt.Errorf("couldn't get identity endpoint: %v", err)
 		}
-	} else if err != nil {
-		return nil, fmt.Errorf("couldn't get identity endpoint: %v", err)
 	}
 
 	// We need to fetch the token to get more details - here we're just fetching the user object from the token response
@@ -464,7 +460,7 @@ func getRouterIDForSubnet(netClient *gophercloud.ServiceClient, subnetID, networ
 	}
 
 	for _, port := range ports {
-		if port.DeviceOwner == "network:router_interface" {
+		if port.DeviceOwner == "network:router_interface" || port.DeviceOwner == "network:router_interface_distributed" {
 			// Check IP for the interface & check if the IP belongs to the subnet
 			for _, ip := range port.FixedIPs {
 				if ip.SubnetID == subnetID {

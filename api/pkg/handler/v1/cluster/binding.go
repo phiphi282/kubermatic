@@ -34,7 +34,7 @@ func BindUserToRoleEndpoint(projectProvider provider.ProjectProvider, privileged
 			return nil, errors.NewBadRequest("invalid request: %v", err)
 		}
 
-		cluster, err := GetCluster(ctx, projectProvider, privilegedProjectProvider, userInfoGetter, req.ProjectID, req.ClusterID)
+		cluster, err := GetCluster(ctx, projectProvider, privilegedProjectProvider, userInfoGetter, req.ProjectID, req.ClusterID, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -113,7 +113,7 @@ func UnbindUserFromRoleBindingEndpoint(projectProvider provider.ProjectProvider,
 			return nil, errors.NewBadRequest("invalid request: %v", err)
 		}
 
-		cluster, err := GetCluster(ctx, projectProvider, privilegedProjectProvider, userInfoGetter, req.ProjectID, req.ClusterID)
+		cluster, err := GetCluster(ctx, projectProvider, privilegedProjectProvider, userInfoGetter, req.ProjectID, req.ClusterID, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -228,7 +228,7 @@ func ListRoleBindingEndpoint(projectProvider provider.ProjectProvider, privilege
 		req := request.(listBindingReq)
 		clusterProvider := ctx.Value(middleware.ClusterProviderContextKey).(provider.ClusterProvider)
 
-		cluster, err := GetCluster(ctx, projectProvider, privilegedProjectProvider, userInfoGetter, req.ProjectID, req.ClusterID)
+		cluster, err := GetCluster(ctx, projectProvider, privilegedProjectProvider, userInfoGetter, req.ProjectID, req.ClusterID, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -251,7 +251,7 @@ func ListRoleBindingEndpoint(projectProvider provider.ProjectProvider, privilege
 	}
 }
 
-func BindUserToClusterRoleEndpoint(userInfoGetter provider.UserInfoGetter) endpoint.Endpoint {
+func BindUserToClusterRoleEndpoint(projectProvider provider.ProjectProvider, privilegedProjectProvider provider.PrivilegedProjectProvider, userInfoGetter provider.UserInfoGetter) endpoint.Endpoint {
 	return func(ctx context.Context, request interface{}) (interface{}, error) {
 		req := request.(clusterRoleUserReq)
 		clusterProvider := ctx.Value(middleware.ClusterProviderContextKey).(provider.ClusterProvider)
@@ -259,16 +259,12 @@ func BindUserToClusterRoleEndpoint(userInfoGetter provider.UserInfoGetter) endpo
 			return nil, errors.NewBadRequest("invalid request: %v", err)
 		}
 
-		userInfo, err := userInfoGetter(ctx, req.ProjectID)
-		if err != nil {
-			return nil, common.KubernetesErrorToHTTPError(err)
-		}
-		cluster, err := clusterProvider.Get(userInfo, req.ClusterID, &provider.ClusterGetOptions{CheckInitStatus: true})
+		cluster, err := GetCluster(ctx, projectProvider, privilegedProjectProvider, userInfoGetter, req.ProjectID, req.ClusterID, nil)
 		if err != nil {
 			return nil, err
 		}
 
-		client, err := clusterProvider.GetClientForCustomerCluster(userInfo, cluster)
+		client, err := common.GetClusterClient(ctx, userInfoGetter, clusterProvider, cluster, req.ProjectID)
 		if err != nil {
 			return nil, common.KubernetesErrorToHTTPError(err)
 		}
@@ -331,7 +327,7 @@ func BindUserToClusterRoleEndpoint(userInfoGetter provider.UserInfoGetter) endpo
 	}
 }
 
-func UnbindUserFromClusterRoleBindingEndpoint(userInfoGetter provider.UserInfoGetter) endpoint.Endpoint {
+func UnbindUserFromClusterRoleBindingEndpoint(projectProvider provider.ProjectProvider, privilegedProjectProvider provider.PrivilegedProjectProvider, userInfoGetter provider.UserInfoGetter) endpoint.Endpoint {
 	return func(ctx context.Context, request interface{}) (interface{}, error) {
 		req := request.(clusterRoleUserReq)
 		clusterProvider := ctx.Value(middleware.ClusterProviderContextKey).(provider.ClusterProvider)
@@ -339,16 +335,12 @@ func UnbindUserFromClusterRoleBindingEndpoint(userInfoGetter provider.UserInfoGe
 			return nil, errors.NewBadRequest("invalid request: %v", err)
 		}
 
-		userInfo, err := userInfoGetter(ctx, req.ProjectID)
-		if err != nil {
-			return nil, common.KubernetesErrorToHTTPError(err)
-		}
-		cluster, err := clusterProvider.Get(userInfo, req.ClusterID, &provider.ClusterGetOptions{CheckInitStatus: true})
+		cluster, err := GetCluster(ctx, projectProvider, privilegedProjectProvider, userInfoGetter, req.ProjectID, req.ClusterID, nil)
 		if err != nil {
 			return nil, err
 		}
 
-		client, err := clusterProvider.GetClientForCustomerCluster(userInfo, cluster)
+		client, err := common.GetClusterClient(ctx, userInfoGetter, clusterProvider, cluster, req.ProjectID)
 		if err != nil {
 			return nil, common.KubernetesErrorToHTTPError(err)
 		}
@@ -451,7 +443,7 @@ func ListClusterRoleBindingEndpoint(projectProvider provider.ProjectProvider, pr
 		req := request.(listBindingReq)
 		clusterProvider := ctx.Value(middleware.ClusterProviderContextKey).(provider.ClusterProvider)
 
-		cluster, err := GetCluster(ctx, projectProvider, privilegedProjectProvider, userInfoGetter, req.ProjectID, req.ClusterID)
+		cluster, err := GetCluster(ctx, projectProvider, privilegedProjectProvider, userInfoGetter, req.ProjectID, req.ClusterID, nil)
 		if err != nil {
 			return nil, err
 		}
