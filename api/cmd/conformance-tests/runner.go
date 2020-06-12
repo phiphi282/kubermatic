@@ -40,6 +40,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/rand"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 	"k8s.io/client-go/util/retry"
 	ctrlruntimeclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -69,6 +70,7 @@ func newRunner(scenarios []testScenario, opts *Opts, log *zap.SugaredLogger) *te
 		namePrefix:                   opts.namePrefix,
 		clusterClientProvider:        opts.clusterClientProvider,
 		seed:                         opts.seed,
+		seedRestConfig:               opts.seedRestConfig,
 		nodeCount:                    opts.nodeCount,
 		repoRoot:                     opts.repoRoot,
 		reportsRoot:                  opts.reportsRoot,
@@ -117,6 +119,7 @@ type testRunner struct {
 	seedGeneratedClient   kubernetes.Interface
 	clusterClientProvider *clusterclient.Provider
 	seed                  *kubermaticv1.Seed
+	seedRestConfig        *rest.Config
 
 	// The label to use to select an existing cluster to test against instead of
 	// creating a new one
@@ -486,7 +489,7 @@ func (r *testRunner) deleteCluster(report *reporters.JUnitTestSuite, cluster *ku
 
 	deleteParms := &projectclient.DeleteClusterParams{
 		ProjectID: r.kubermatcProjectID,
-		Dc:        r.seed.Name,
+		DC:        r.seed.Name,
 	}
 	deleteTimeout := 15 * time.Minute
 	if cluster.Spec.Cloud.Azure != nil {
@@ -635,6 +638,16 @@ func (r *testRunner) testCluster(
 		log.Errorf("Failed to verify that user cluster RBAC controller work: %v", err)
 	}
 
+	// Do prometheus metrics available test - with retries
+	if err := junitReporterWrapper(
+		"[Kubermatic] Test prometheus metrics availability", report, func() error {
+			return retryNAttempts(maxTestAttempts, func(attempt int) error {
+				return r.testUserClusterMetrics(log, cluster, r.seedClusterClient)
+			})
+		}); err != nil {
+		log.Errorf("Failed to verify that prometheus metrics are available: %v", err)
+	}
+
 	return nil
 }
 
@@ -681,7 +694,7 @@ func (r *testRunner) createNodeDeployments(log *zap.SugaredLogger, scenario test
 	nodeDeploymentGetParams := &projectclient.ListNodeDeploymentsParams{
 		ProjectID: r.kubermatcProjectID,
 		ClusterID: clusterName,
-		Dc:        r.seed.Name,
+		DC:        r.seed.Name,
 	}
 	nodeDeploymentGetParams.SetTimeout(15 * time.Second)
 	if err := wait.PollImmediate(10*time.Second, time.Minute, func() (bool, error) {
@@ -725,7 +738,7 @@ func (r *testRunner) createNodeDeployments(log *zap.SugaredLogger, scenario test
 		params := &projectclient.CreateNodeDeploymentParams{
 			ProjectID: r.kubermatcProjectID,
 			ClusterID: clusterName,
-			Dc:        r.seed.Name,
+			DC:        r.seed.Name,
 			Body:      &nd,
 		}
 		params.SetTimeout(15 * time.Second)
@@ -822,7 +835,7 @@ func (r *testRunner) createCluster(log *zap.SugaredLogger, scenario testScenario
 
 	params := &projectclient.CreateClusterParams{
 		ProjectID: r.kubermatcProjectID,
-		Dc:        r.seed.Name,
+		DC:        r.seed.Name,
 		Body:      cluster,
 	}
 	params.SetTimeout(15 * time.Second)

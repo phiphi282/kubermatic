@@ -13,8 +13,7 @@ import (
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/runtime"
 	cr "github.com/go-openapi/runtime/client"
-
-	strfmt "github.com/go-openapi/strfmt"
+	"github.com/go-openapi/strfmt"
 )
 
 // NewGetKubeLoginClusterKubeconfigParams creates a new GetKubeLoginClusterKubeconfigParams object
@@ -64,7 +63,7 @@ type GetKubeLoginClusterKubeconfigParams struct {
 	/*ClusterID*/
 	ClusterID string
 	/*Dc*/
-	Dc string
+	DC string
 	/*ProjectID*/
 	ProjectID string
 
@@ -117,15 +116,15 @@ func (o *GetKubeLoginClusterKubeconfigParams) SetClusterID(clusterID string) {
 	o.ClusterID = clusterID
 }
 
-// WithDc adds the dc to the get kube login cluster kubeconfig params
-func (o *GetKubeLoginClusterKubeconfigParams) WithDc(dc string) *GetKubeLoginClusterKubeconfigParams {
-	o.SetDc(dc)
+// WithDC adds the dc to the get kube login cluster kubeconfig params
+func (o *GetKubeLoginClusterKubeconfigParams) WithDC(dc string) *GetKubeLoginClusterKubeconfigParams {
+	o.SetDC(dc)
 	return o
 }
 
-// SetDc adds the dc to the get kube login cluster kubeconfig params
-func (o *GetKubeLoginClusterKubeconfigParams) SetDc(dc string) {
-	o.Dc = dc
+// SetDC adds the dc to the get kube login cluster kubeconfig params
+func (o *GetKubeLoginClusterKubeconfigParams) SetDC(dc string) {
+	o.DC = dc
 }
 
 // WithProjectID adds the projectID to the get kube login cluster kubeconfig params
@@ -153,7 +152,7 @@ func (o *GetKubeLoginClusterKubeconfigParams) WriteToRequest(r runtime.ClientReq
 	}
 
 	// path param dc
-	if err := r.SetPathParam("dc", o.Dc); err != nil {
+	if err := r.SetPathParam("dc", o.DC); err != nil {
 		return err
 	}
 

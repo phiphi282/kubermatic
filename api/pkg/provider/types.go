@@ -11,6 +11,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/kubernetes"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	"k8s.io/client-go/tools/record"
@@ -37,6 +38,7 @@ const (
 	VSphereCloudProvider      = "vsphere"
 	GCPCloudProvider          = "gcp"
 	KubevirtCloudProvider     = "kubevirt"
+	AlibabaCloudProvider      = "alibaba"
 
 	DefaultSSHPort     = 22
 	DefaultKubeletPort = 10250
@@ -130,6 +132,9 @@ type ClusterProvider interface {
 	// We don't do this because we assume that if the user was able to get the project (argument) it has to have at least read access.
 	List(project *kubermaticv1.Project, options *ClusterListOptions) (*kubermaticv1.ClusterList, error)
 
+	// ListAll gets all clusters for the seed
+	ListAll() (*kubermaticv1.ClusterList, error)
+
 	// Get returns the given cluster, it uses the projectInternalName to determine the group the user belongs to
 	Get(userInfo *UserInfo, clusterName string, options *ClusterGetOptions) (*kubermaticv1.Cluster, error)
 
@@ -183,6 +188,16 @@ type PrivilegedClusterProvider interface {
 	//
 	// Note that the admin privileges are used to get cluster
 	GetUnsecured(project *kubermaticv1.Project, clusterName string) (*kubermaticv1.Cluster, error)
+
+	// UpdateUnsecured updates a cluster.
+	//
+	// Note that the admin privileges are used to update cluster
+	UpdateUnsecured(project *kubermaticv1.Project, cluster *kubermaticv1.Cluster) (*kubermaticv1.Cluster, error)
+
+	// DeleteUnsecured deletes a cluster.
+	//
+	// Note that the admin privileges are used to delete cluster
+	DeleteUnsecured(cluster *kubermaticv1.Cluster) error
 }
 
 // SSHKeyListOptions allows to set filters that will be applied to filter the result.
@@ -216,6 +231,17 @@ type SSHKeyProvider interface {
 	Update(userInfo *UserInfo, newKey *kubermaticv1.UserSSHKey) (*kubermaticv1.UserSSHKey, error)
 }
 
+// SSHKeyProvider declares the set of methods for interacting with ssh keys and uses privileged account for it
+type PrivilegedSSHKeyProvider interface {
+	// GetUnsecured returns a key with the given name
+	// This function is unsafe in a sense that it uses privileged account to get the ssh key
+	GetUnsecured(keyName string) (*kubermaticv1.UserSSHKey, error)
+
+	// UpdateUnsecured update a specific ssh key and returns the updated ssh key
+	// This function is unsafe in a sense that it uses privileged account to update the ssh key
+	UpdateUnsecured(sshKey *kubermaticv1.UserSSHKey) (*kubermaticv1.UserSSHKey, error)
+}
+
 // UserProvider declares the set of methods for interacting with kubermatic users
 type UserProvider interface {
 	UserByEmail(email string) (*kubermaticv1.User, error)
@@ -229,6 +255,14 @@ type PrivilegedProjectProvider interface {
 	// GetUnsecured returns the project with the given name
 	// This function is unsafe in a sense that it uses privileged account to get project with the given name
 	GetUnsecured(projectInternalName string, options *ProjectGetOptions) (*kubermaticv1.Project, error)
+
+	// DeleteUnsecured deletes any given project
+	// This function is unsafe in a sense that it uses privileged account to delete project with the given name
+	DeleteUnsecured(projectInternalName string) error
+
+	// UpdateUnsecured update an existing project and returns it
+	// This function is unsafe in a sense that it uses privileged account to update project
+	UpdateUnsecured(project *kubermaticv1.Project) (*kubermaticv1.Project, error)
 }
 
 // ProjectProvider declares the set of method for interacting with kubermatic's project
@@ -337,6 +371,9 @@ func ClusterCloudProviderName(spec kubermaticv1.CloudSpec) (string, error) {
 	if spec.Kubevirt != nil {
 		clouds = append(clouds, KubevirtCloudProvider)
 	}
+	if spec.Alibaba != nil {
+		clouds = append(clouds, AlibabaCloudProvider)
+	}
 	if len(clouds) == 0 {
 		return "", nil
 	}
@@ -403,6 +440,9 @@ func DatacenterCloudProviderName(spec *kubermaticv1.DatacenterSpec) (string, err
 	}
 	if spec.Kubevirt != nil {
 		clouds = append(clouds, KubevirtCloudProvider)
+	}
+	if spec.Alibaba != nil {
+		clouds = append(clouds, AlibabaCloudProvider)
 	}
 	if len(clouds) == 0 {
 		return "", nil
@@ -497,6 +537,7 @@ type AddonConfigProvider interface {
 type SettingsProvider interface {
 	GetGlobalSettings() (*kubermaticv1.KubermaticSetting, error)
 	UpdateGlobalSettings(userInfo *UserInfo, settings *kubermaticv1.KubermaticSetting) (*kubermaticv1.KubermaticSetting, error)
+	WatchGlobalSettings() (watch.Interface, error)
 }
 
 // AdminProvider declares the set of methods for interacting with admin
@@ -510,4 +551,13 @@ type PresetProvider interface {
 	GetPresets(userInfo *UserInfo) ([]kubermaticv1.Preset, error)
 	GetPreset(userInfo *UserInfo, name string) (*kubermaticv1.Preset, error)
 	SetCloudCredentials(userInfo *UserInfo, presetName string, cloud kubermaticv1.CloudSpec, dc *kubermaticv1.Datacenter) (*kubermaticv1.CloudSpec, error)
+}
+
+// AdmissionPluginsProvider declares the set of methods for interacting with admission plugins
+type AdmissionPluginsProvider interface {
+	List(userInfo *UserInfo) ([]kubermaticv1.AdmissionPlugin, error)
+	Get(userInfo *UserInfo, name string) (*kubermaticv1.AdmissionPlugin, error)
+	Delete(userInfo *UserInfo, name string) error
+	Update(userInfo *UserInfo, admissionPlugin *kubermaticv1.AdmissionPlugin) (*kubermaticv1.AdmissionPlugin, error)
+	ListPluginNamesFromVersion(fromVersion string) ([]string, error)
 }

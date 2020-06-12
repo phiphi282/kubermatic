@@ -6,18 +6,22 @@ package models
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
-	strfmt "github.com/go-openapi/strfmt"
-
 	"github.com/go-openapi/errors"
+	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
 )
 
 // DatacenterSpec DatacenterSpec specifies the data for a datacenter.
+//
 // swagger:model DatacenterSpec
 type DatacenterSpec struct {
 
 	// country
 	Country string `json:"country,omitempty"`
+
+	// EnforceAuditLogging enforces audit logging on every cluster within the DC,
+	// ignoring cluster-specific settings.
+	EnforceAuditLogging bool `json:"enforceAuditLogging,omitempty"`
 
 	// location
 	Location string `json:"location,omitempty"`
@@ -33,6 +37,9 @@ type DatacenterSpec struct {
 
 	// seed
 	Seed string `json:"seed,omitempty"`
+
+	// alibaba
+	Alibaba *AlibabaDatacenterSpec `json:"alibaba,omitempty"`
 
 	// aws
 	Aws *AWSDatacenterSpec `json:"aws,omitempty"`
@@ -69,6 +76,10 @@ type DatacenterSpec struct {
 func (m *DatacenterSpec) Validate(formats strfmt.Registry) error {
 	var res []error
 
+	if err := m.validateAlibaba(formats); err != nil {
+		res = append(res, err)
+	}
+
 	if err := m.validateAws(formats); err != nil {
 		res = append(res, err)
 	}
@@ -104,6 +115,24 @@ func (m *DatacenterSpec) Validate(formats strfmt.Registry) error {
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
+	return nil
+}
+
+func (m *DatacenterSpec) validateAlibaba(formats strfmt.Registry) error {
+
+	if swag.IsZero(m.Alibaba) { // not required
+		return nil
+	}
+
+	if m.Alibaba != nil {
+		if err := m.Alibaba.Validate(formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("alibaba")
+			}
+			return err
+		}
+	}
+
 	return nil
 }
 

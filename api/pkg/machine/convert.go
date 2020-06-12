@@ -5,6 +5,7 @@ import (
 
 	apiv1 "github.com/kubermatic/kubermatic/api/pkg/api/v1"
 	clusterv1alpha1 "github.com/kubermatic/machine-controller/pkg/apis/cluster/v1alpha1"
+	alibaba "github.com/kubermatic/machine-controller/pkg/cloudprovider/provider/alibaba/types"
 	aws "github.com/kubermatic/machine-controller/pkg/cloudprovider/provider/aws/types"
 	azure "github.com/kubermatic/machine-controller/pkg/cloudprovider/provider/azure/types"
 	digitalocean "github.com/kubermatic/machine-controller/pkg/cloudprovider/provider/digitalocean/types"
@@ -17,6 +18,8 @@ import (
 	providerconfig "github.com/kubermatic/machine-controller/pkg/providerconfig/types"
 	"github.com/kubermatic/machine-controller/pkg/userdata/centos"
 	"github.com/kubermatic/machine-controller/pkg/userdata/coreos"
+	"github.com/kubermatic/machine-controller/pkg/userdata/rhel"
+	"github.com/kubermatic/machine-controller/pkg/userdata/sles"
 	"github.com/kubermatic/machine-controller/pkg/userdata/ubuntu"
 
 	"k8s.io/apimachinery/pkg/util/json"
@@ -57,6 +60,27 @@ func GetAPIV1OperatingSystemSpec(machineSpec clusterv1alpha1.MachineSpec) (*apiv
 		}
 		operatingSystemSpec.CentOS = &apiv1.CentOSSpec{
 			DistUpgradeOnBoot: config.DistUpgradeOnBoot,
+		}
+
+	case providerconfig.OperatingSystemSLES:
+		config := &sles.Config{}
+		if err := json.Unmarshal(decodedProviderSpec.OperatingSystemSpec.Raw, &config); err != nil {
+			return nil, fmt.Errorf("failed to parse sles config: %v", err)
+		}
+		operatingSystemSpec.SLES = &apiv1.SLESSpec{
+			DistUpgradeOnBoot: config.DistUpgradeOnBoot,
+		}
+
+	case providerconfig.OperatingSystemRHEL:
+		config := &rhel.Config{}
+		if err := json.Unmarshal(decodedProviderSpec.OperatingSystemSpec.Raw, &config); err != nil {
+			return nil, fmt.Errorf("failed to parse rhel config: %v", err)
+		}
+		operatingSystemSpec.RHEL = &apiv1.RHELSpec{
+			DistUpgradeOnBoot:               config.DistUpgradeOnBoot,
+			RHELSubscriptionManagerUser:     config.RHELSubscriptionManagerUser,
+			RHELSubscriptionManagerPassword: config.RHELSubscriptionManagerPassword,
+			RHSMOfflineToken:                config.RHSMOfflineToken,
 		}
 	}
 
@@ -183,6 +207,20 @@ func GetAPIV2NodeCloudSpec(machineSpec clusterv1alpha1.MachineSpec) (*apiv1.Node
 			SourceURL:        config.SourceURL.Value,
 			StorageClassName: config.StorageClassName.Value,
 			PVCSize:          config.PVCSize.Value,
+		}
+	case providerconfig.CloudProviderAlibaba:
+		config := &alibaba.RawConfig{}
+		if err := json.Unmarshal(decodedProviderSpec.CloudProviderSpec.Raw, &config); err != nil {
+			return nil, fmt.Errorf("failed to parse alibaba config: %v", err)
+		}
+		cloudSpec.Alibaba = &apiv1.AlibabaNodeSpec{
+			InstanceType:            config.InstanceType.Value,
+			DiskSize:                config.DiskSize.Value,
+			DiskType:                config.DiskType.Value,
+			VSwitchID:               config.VSwitchID.Value,
+			InternetMaxBandwidthOut: config.InternetMaxBandwidthOut.Value,
+			Labels:                  config.Labels,
+			ZoneID:                  config.ZoneID.Value,
 		}
 	default:
 		return nil, fmt.Errorf("unknown cloud provider %q", decodedProviderSpec.CloudProvider)

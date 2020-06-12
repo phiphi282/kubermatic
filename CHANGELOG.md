@@ -1,3 +1,139 @@
+### [v2.13.1]()
+
+
+- Fixed swagger and API client for ssh key creation. [#5069](https://github.com/kubermatic/kubermatic/issues/5069) ([kdomanski](https://github.com/kdomanski))
+- Added Kubernetes v1.15.10, v1.16.7, v1.17.3 [#5102](https://github.com/kubermatic/kubermatic/issues/5102) ([kdomanski](https://github.com/kdomanski))
+- AddonConfig's shortDescription field is now used in the accessible addons overview. [#2050](https://github.com/kubermatic/dashboard-v2/issues/2050) ([maciaszczykm](https://github.com/maciaszczykm))
+
+
+
+
+### [v2.13.0]()
+
+
+Supported Kubernetes versions:
+- `1.15.5`
+- `1.15.6`
+- `1.15.7`
+- `1.15.9`
+- `1.16.2`
+- `1.16.3`
+- `1.16.4`
+- `1.16.6`
+- `1.17.0`
+- `1.17.2`
+- Openshift `v4.1.18`
+
+**Major changes:**
+- End-of-Life Kubernetes v1.14 is no longer supported. [#4987](https://github.com/kubermatic/kubermatic/issues/4987) ([kdomanski](https://github.com/kdomanski))
+- The `authorized_keys` files on nodes are now updated whenever the SSH keys for a cluster are changed [#4531](https://github.com/kubermatic/kubermatic/issues/4531) ([moadqassem](https://github.com/moadqassem))
+- Added support for custom CA for OpenID provider in Kubermatic API. [#4994](https://github.com/kubermatic/kubermatic/issues/4994) ([xrstf](https://github.com/xrstf))
+- Added user settings panel. [#1738](https://github.com/kubermatic/dashboard-v2/issues/1738) ([maciaszczykm](https://github.com/maciaszczykm))
+- Added cluster addon UI
+- MachineDeployments can now be configured to enable dynamic kubelet config [#4946](https://github.com/kubermatic/kubermatic/issues/4946) ([kdomanski](https://github.com/kdomanski))
+- Added RBAC management functionality to UI [#1815](https://github.com/kubermatic/dashboard-v2/issues/1815) ([kgroschoff](https://github.com/kgroschoff))
+- Added RedHat Enterprise Linux as an OS option (#669)
+- Added SUSE Linux Enterprise Server as an OS option (#659)
+
+**Cloud providers:**
+- Openstack: A bug that caused cluster reconciliation to fail if the controller crashed at the wrong time was fixed [#4754](https://github.com/kubermatic/kubermatic/issues/4754) ([alvaroaleman](https://github.com/alvaroaleman))
+- Openstack: New Kubernetes 1.16&#43; clusters use the external Cloud Controller Manager and CSI by default [#4756](https://github.com/kubermatic/kubermatic/issues/4756) ([alvaroaleman](https://github.com/alvaroaleman))
+- vSphere: Fixed a bug that resulted in a faulty cloud config when using a non-default port [#4562](https://github.com/kubermatic/kubermatic/issues/4562) ([alvaroaleman](https://github.com/alvaroaleman))
+- vSphere: Fixed a bug which cased custom VM folder paths not to be put in cloud-configs [#4737](https://github.com/kubermatic/kubermatic/issues/4737) ([kdomanski](https://github.com/kdomanski))
+- vSphere: The robustness of machine reconciliation has been improved. [#4651](https://github.com/kubermatic/kubermatic/issues/4651) ([alvaroaleman](https://github.com/alvaroaleman))
+- vSphere: Added support for datastore clusters (#671)
+- Azure: Node sizes are displayed in size dropdown when creating/updating a node deployment [#1908](https://github.com/kubermatic/dashboard-v2/issues/1908) ([bashofmann](https://github.com/bashofmann))
+- GCP: Networks are fetched from API now [#1913](https://github.com/kubermatic/dashboard-v2/issues/1913) ([kgroschoff](https://github.com/kgroschoff))
+
+
+**Bugfixes:**
+- Fixed parsing Kibana's logs in Fluent-Bit [#4544](https://github.com/kubermatic/kubermatic/issues/4544) ([xrstf](https://github.com/xrstf))
+- Fixed master-controller failing to create project-label-synchronizer controllers. [#4577](https://github.com/kubermatic/kubermatic/issues/4577) ([xrstf](https://github.com/xrstf))
+- Fixed broken NodePort-Proxy for user clusters with LoadBalancer expose strategy. [#4590](https://github.com/kubermatic/kubermatic/issues/4590) ([xrstf](https://github.com/xrstf))
+- Fixed cluster namespaces being stuck in Terminating state when deleting a cluster. [#4619](https://github.com/kubermatic/kubermatic/issues/4619) ([xrstf](https://github.com/xrstf))
+- Fixed Seed Validation Webhook rejecting new Seeds in certain situations [#4662](https://github.com/kubermatic/kubermatic/issues/4662) ([xrstf](https://github.com/xrstf))
+- A panic that could occur on clusters that lack both credentials and a credentialsSecret was fixed. [#4742](https://github.com/kubermatic/kubermatic/issues/4742) ([alvaroaleman](https://github.com/alvaroaleman))
+- A bug that occasionally resulted in a `Error: no matches for kind "MachineDeployment" in version "cluster.k8s.io/v1alpha1"` visible in the UI was fixed. [#4870](https://github.com/kubermatic/kubermatic/issues/4870) ([alvaroaleman](https://github.com/alvaroaleman))
+- A memory leak in the port-forwarding of the Kubernetes dashboard and Openshift console endpoints was fixed [#4879](https://github.com/kubermatic/kubermatic/issues/4879) ([alvaroaleman](https://github.com/alvaroaleman))
+- Fixed a bug that could result in 403 errors during cluster creation when using the BringYourOwn provider [#4892](https://github.com/kubermatic/kubermatic/issues/4892) ([alvaroaleman](https://github.com/alvaroaleman))
+- Fixed a bug that prevented clusters in working seeds from being listed in the dashboard if any other seed was unreachable. [#4961](https://github.com/kubermatic/kubermatic/issues/4961) ([xrstf](https://github.com/xrstf))
+- Prevented removing system labels during cluster edit [#4986](https://github.com/kubermatic/kubermatic/issues/4986) ([zreigz](https://github.com/zreigz))
+- Fixed FluentbitManyRetries Prometheus alert being too sensitive to harmless backpressure. [#5011](https://github.com/kubermatic/kubermatic/issues/5011) ([xrstf](https://github.com/xrstf))
+- Fixed deleting user-selectable addons from clusters. [#5022](https://github.com/kubermatic/kubermatic/issues/5022) ([xrstf](https://github.com/xrstf))
+- Fixed node name validation while creating clusters and node deployments [#1783](https://github.com/kubermatic/dashboard-v2/issues/1783) ([chrkl](https://github.com/chrkl))
+
+**UI:**
+- ACTION REQUIRED: Added logos and descriptions for the addons. In order to see the logos and descriptions addons have to be configured with AddonConfig CRDs with the same names as addons. [#1824](https://github.com/kubermatic/dashboard-v2/issues/1824) ([maciaszczykm](https://github.com/maciaszczykm))
+- ACTION REQUIRED: Added application settings view. Some of the settings were moved from config map to the `KubermaticSettings` CRD. In order to use them in the UI it is required to manually update the CRD or do it from newly added UI. [#1772](https://github.com/kubermatic/dashboard-v2/issues/1772) ([maciaszczykm](https://github.com/maciaszczykm))
+- Fixed label form validator. [#1710](https://github.com/kubermatic/dashboard-v2/issues/1710) ([maciaszczykm](https://github.com/maciaszczykm))
+- Removed `Edit Settings` option from cluster detail view and instead combine everything under `Edit Cluster`. [#1718](https://github.com/kubermatic/dashboard-v2/issues/1718) ([kgroschoff](https://github.com/kgroschoff))
+- Enabled edit options for kubeAdm [#1735](https://github.com/kubermatic/dashboard-v2/issues/1735) ([kgroschoff](https://github.com/kgroschoff))
+- Switched flag proportions to 4:3. [#1742](https://github.com/kubermatic/dashboard-v2/issues/1742) ([maciaszczykm](https://github.com/maciaszczykm))
+- Added new project view [#1766](https://github.com/kubermatic/dashboard-v2/issues/1766) ([kgroschoff](https://github.com/kgroschoff))
+- Added custom links to admin settings. [#1800](https://github.com/kubermatic/dashboard-v2/issues/1800) ([maciaszczykm](https://github.com/maciaszczykm))
+- Blocked option to edit cluster labels inherited from the project. [#1801](https://github.com/kubermatic/dashboard-v2/issues/1801) ([floreks](https://github.com/floreks))
+- Moved pod security policy configuration to the edit cluster dialog. [#1837](https://github.com/kubermatic/dashboard-v2/issues/1837) ([maciaszczykm](https://github.com/maciaszczykm))
+- Restyled some elements in the admin panel. [#1850](https://github.com/kubermatic/dashboard-v2/issues/1850) ([maciaszczykm](https://github.com/maciaszczykm))
+- Added separate save indicators for custom links in the admin panel. [#1862](https://github.com/kubermatic/dashboard-v2/issues/1862) ([maciaszczykm](https://github.com/maciaszczykm))
+
+**Addons:**
+- The dashboard addon was removed as it's now deployed in the seed and can be used via its proxy endpoint [#4567](https://github.com/kubermatic/kubermatic/issues/4567) ([alvaroaleman](https://github.com/alvaroaleman))
+- Added default namespace/cluster roles for addons [#4695](https://github.com/kubermatic/kubermatic/issues/4695) ([zreigz](https://github.com/zreigz))
+- Introduced addon configurations. [#4702](https://github.com/kubermatic/kubermatic/issues/4702) ([maciaszczykm](https://github.com/maciaszczykm))
+- Fixed addon config get and list endpoints. [#4734](https://github.com/kubermatic/kubermatic/issues/4734) ([maciaszczykm](https://github.com/maciaszczykm))
+- Added forms for addon variables. [#1846](https://github.com/kubermatic/dashboard-v2/issues/1846) ([maciaszczykm](https://github.com/maciaszczykm))
+
+**Misc:**
+- ACTION REQUIRED: Updated cert-manager to 0.12.0. This requires a full reinstall of the chart. See https://cert-manager.io/docs/installation/upgrading/upgrading-0.10-0.11/ [#4857](https://github.com/kubermatic/kubermatic/issues/4857) ([xrstf](https://github.com/xrstf))
+- Updated Alertmanager to 0.20.0 [#4864](https://github.com/kubermatic/kubermatic/issues/4864) ([xrstf](https://github.com/xrstf))
+- Update Kubernetes Dashboard to v2.0.0-rc3 [#5015](https://github.com/kubermatic/kubermatic/issues/5015) ([floreks](https://github.com/floreks))
+- Updated Dex to v2.12.0 [#4869](https://github.com/kubermatic/kubermatic/issues/4869) ([xrstf](https://github.com/xrstf))
+- The envoy version used by the nodeport-proxy was updated to v1.12.2 [#4865](https://github.com/kubermatic/kubermatic/issues/4865) ([alvaroaleman](https://github.com/alvaroaleman))
+- Etcd was upgraded to 3.4 for 1.17&#43; clusters [#4856](https://github.com/kubermatic/kubermatic/issues/4856) ([alvaroaleman](https://github.com/alvaroaleman))
+- Updated Grafana to 6.5.2 [#4858](https://github.com/kubermatic/kubermatic/issues/4858) ([xrstf](https://github.com/xrstf))
+- Updated karma to 0.52 [#4859](https://github.com/kubermatic/kubermatic/issues/4859) ([xrstf](https://github.com/xrstf))
+- Updated kube-state-metrics to 1.8.0 [#4860](https://github.com/kubermatic/kubermatic/issues/4860) ([xrstf](https://github.com/xrstf))
+- Updated machine-controller to v1.10.0 [#5070](https://github.com/kubermatic/kubermatic/issues/5070) ([kdomanski](https://github.com/kdomanski))
+  - Added support for EBS volume encryption (#663)
+  - kubelet sets intial machine taints via --register-with-taints (#664)
+  - Moved deprecated kubelet flags into config file (#667)
+  - Enabled swap accounting for Ubuntu deployments (#666)
+- Updated nginx-ingress-controller to v0.28.0 [#4999](https://github.com/kubermatic/kubermatic/issues/4999) ([kdomanski](https://github.com/kdomanski))
+- Updated Minio to RELEASE.2019-10-12T01-39-57Z [#4868](https://github.com/kubermatic/kubermatic/issues/4868) ([xrstf](https://github.com/xrstf))
+- Updated Prometheus to 2.14 in Seed and User clusters [#4684](https://github.com/kubermatic/kubermatic/issues/4684) ([xrstf](https://github.com/xrstf))
+- Updated Thanos to 0.8.1 [#4549](https://github.com/kubermatic/kubermatic/issues/4549) ([xrstf](https://github.com/xrstf))
+- An email-restricted Datacenter can now have multiple email domains specified. [#4643](https://github.com/kubermatic/kubermatic/issues/4643) ([kdomanski](https://github.com/kdomanski))
+- Add fluent-bit Grafana dashboard [#4545](https://github.com/kubermatic/kubermatic/issues/4545) ([xrstf](https://github.com/xrstf))                    
+- Updated Dex page styling. [#4632](https://github.com/kubermatic/kubermatic/issues/4632) ([maciaszczykm](https://github.com/maciaszczykm))
+- Openshift: added metrics-server [#4671](https://github.com/kubermatic/kubermatic/issues/4671) ([kron4eg](https://github.com/kron4eg))
+- For new clusters, the Kubelet port 12050 is not exposed publicly anymore [#4703](https://github.com/kubermatic/kubermatic/issues/4703) ([bashofmann](https://github.com/bashofmann))
+- The cert-manager Helm chart now creates global ClusterIssuers for Let'&#39;'s Encrypt. [#4732](https://github.com/kubermatic/kubermatic/issues/4732) ([xrstf](https://github.com/xrstf))
+- Added migration for cluster user labels [#4744](https://github.com/kubermatic/kubermatic/issues/4744) ([zreigz](https://github.com/zreigz))
+- Fixed seed-proxy controller not working in namespaces other than `kubermatic`. [#4775](https://github.com/kubermatic/kubermatic/issues/4775) ([xrstf](https://github.com/xrstf))
+- The docker logs on the nodes now get rotated via the new `logrotate` addon [#4813](https://github.com/kubermatic/kubermatic/issues/4813) ([moadqassem](https://github.com/moadqassem))
+- Made node-exporter an optional addon. [#4832](https://github.com/kubermatic/kubermatic/issues/4832) ([maciaszczykm](https://github.com/maciaszczykm))
+- Added parent cluster readable name to default worker names. [#4839](https://github.com/kubermatic/kubermatic/issues/4839) ([maciaszczykm](https://github.com/maciaszczykm))
+- The QPS settings of Kubeletes can now be configured per-cluster using addon Variables [#4854](https://github.com/kubermatic/kubermatic/issues/4854) ([kdomanski](https://github.com/kdomanski))
+- Access to Kubernetes Dashboard can be now enabled/disabled by the global settings. [#4889](https://github.com/kubermatic/kubermatic/issues/4889) ([floreks](https://github.com/floreks))
+- Added support for dynamic presets [#4903](https://github.com/kubermatic/kubermatic/issues/4903) ([zreigz](https://github.com/zreigz))
+- Presets can now be filtered by datacenter [#4991](https://github.com/kubermatic/kubermatic/issues/4991) ([zreigz](https://github.com/zreigz))
+- Revoking the viewer token is possible via UI now. [#1708](https://github.com/kubermatic/dashboard-v2/issues/1708) ([kgroschoff](https://github.com/kgroschoff))
+
+
+
+
+### [v2.12.6]()
+
+
+**Misc:**
+
+- System labels can no longer be removed by the user. [#4983](https://github.com/kubermatic/kubermatic/issues/4983) ([zreigz](https://github.com/zreigz))
+- End-of-Life Kubernetes v1.14 is no longer supported. [#4988](https://github.com/kubermatic/kubermatic/issues/4988) ([kdomanski](https://github.com/kdomanski))
+- Added Kubernetes v1.15.7, v1.15.9, v1.16.4, v1.16.6 [#4995](https://github.com/kubermatic/kubermatic/issues/4995) ([kdomanski](https://github.com/kdomanski))
+
+
+
+
 ### [v2.12.5]()
 
 
@@ -175,6 +311,15 @@ Supported Kubernetes versions:
 - Redesigned extended options in wizard [#1609](https://github.com/kubermatic/dashboard-v2/issues/1609) ([kgroschoff](https://github.com/kgroschoff))
 - Various security improvements in authentication
 - Various other visual improvements
+
+
+
+
+### [v2.11.8]()
+
+
+- End-of-Life Kubernetes v1.14 is no longer supported. [#4989](https://github.com/kubermatic/kubermatic/issues/4989) ([kdomanski](https://github.com/kdomanski))
+- Added Kubernetes v1.15.7, v1.15.9 [#4995](https://github.com/kubermatic/kubermatic/issues/4995) ([kdomanski](https://github.com/kdomanski))
 
 
 

@@ -191,7 +191,7 @@ func KubeControllerManagerDeploymentCreatorFactory(data kubeControllerManagerDat
 					dep.Spec.Replicas = data.Cluster().Spec.ComponentsOverride.ControllerManager.Replicas
 				}
 				dep.Spec.Selector = &metav1.LabelSelector{
-					MatchLabels: resources.BaseAppLabel(resources.ControllerManagerDeploymentName, nil),
+					MatchLabels: resources.BaseAppLabels(resources.ControllerManagerDeploymentName, nil),
 				}
 				dep.Spec.Template.Spec.ImagePullSecrets = []corev1.LocalObjectReference{
 					{Name: openshiftImagePullSecretName},
@@ -241,7 +241,7 @@ func KubeControllerManagerDeploymentCreatorFactory(data kubeControllerManagerDat
 					volumeMounts = append(volumeMounts, fakeVMWareUUIDMount)
 				}
 
-				image, err := hyperkubeImage(data.Cluster().Spec.Version.String())
+				image, err := hyperkubeImage(data.Cluster().Spec.Version.String(), data.ImageRegistry(""))
 				if err != nil {
 					return nil, err
 				}

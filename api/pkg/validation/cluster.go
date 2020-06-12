@@ -4,8 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/kubermatic/kubermatic/api/pkg/keycloak"
 	"net"
+
+	"github.com/kubermatic/kubermatic/api/pkg/keycloak"
 
 	kubermaticv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
 	kuberneteshelper "github.com/kubermatic/kubermatic/api/pkg/kubernetes"
@@ -123,6 +124,9 @@ func ValidateCloudChange(newSpec, oldSpec kubermaticv1.CloudSpec) error {
 		return ErrCloudChangeNotAllowed
 	}
 	if newSpec.Kubevirt == nil && oldSpec.Kubevirt != nil {
+		return ErrCloudChangeNotAllowed
+	}
+	if newSpec.Alibaba == nil && oldSpec.Alibaba != nil {
 		return ErrCloudChangeNotAllowed
 	}
 	if newSpec.DatacenterName != oldSpec.DatacenterName {
@@ -268,6 +272,11 @@ func ValidateCloudSpec(spec kubermaticv1.CloudSpec, dc *kubermaticv1.Datacenter)
 			return fmt.Errorf("datacenter %q is not a kubevirt datacenter", spec.DatacenterName)
 		}
 		return validateKubevirtCloudSpec(spec.Kubevirt)
+	case spec.Alibaba != nil:
+		if dc.Spec.Alibaba == nil {
+			return fmt.Errorf("datacenter %q is not a alibaba datacenter", spec.DatacenterName)
+		}
+		return validateAlibabaCloudSpec(spec.Alibaba)
 	default:
 		return errors.New("no cloud provider specified")
 	}
@@ -448,6 +457,20 @@ func ValidateUpdateWindow(updateWindow *kubermaticv1.UpdateWindow) error {
 		_, err := timeutil.ParsePeriodic(updateWindow.Start, updateWindow.Length)
 		if err != nil {
 			return fmt.Errorf("error parsing update window: %s", err)
+		}
+	}
+	return nil
+}
+
+func validateAlibabaCloudSpec(spec *kubermaticv1.AlibabaCloudSpec) error {
+	if spec.AccessKeyID == "" {
+		if err := kuberneteshelper.ValidateSecretKeySelector(spec.CredentialsReference, resources.AlibabaAccessKeyID); err != nil {
+			return err
+		}
+	}
+	if spec.AccessKeySecret == "" {
+		if err := kuberneteshelper.ValidateSecretKeySelector(spec.CredentialsReference, resources.AlibabaAccessKeySecret); err != nil {
+			return err
 		}
 	}
 	return nil

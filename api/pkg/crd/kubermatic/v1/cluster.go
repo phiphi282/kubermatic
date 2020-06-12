@@ -105,7 +105,9 @@ type ClusterSpec struct {
 	// Openshift holds all openshift-specific settings
 	Openshift *Openshift `json:"openshift,omitempty"`
 
-	UsePodSecurityPolicyAdmissionPlugin bool `json:"usePodSecurityPolicyAdmissionPlugin,omitempty"`
+	UsePodSecurityPolicyAdmissionPlugin bool     `json:"usePodSecurityPolicyAdmissionPlugin,omitempty"`
+	UsePodNodeSelectorAdmissionPlugin   bool     `json:"usePodNodeSelectorAdmissionPlugin,omitempty"`
+	AdmissionPlugins                    []string `json:"admissionPlugins,omitempty"`
 
 	AuditLogging *AuditLoggingSettings `json:"auditLogging,omitempty"`
 }
@@ -128,6 +130,9 @@ const (
 	// ClusterFeatureRancherIntegration enables the rancher server integration feature.
 	// It will deploy a Rancher Server Managegment plane on the seed cluster and import the user cluster into it.
 	ClusterFeatureRancherIntegration = "rancherIntegration"
+
+	// ClusterFeatureOpenstackMultiAZ enables OpenStack multiple availability zones support
+	ClusterFeatureOpenstackMultiAZ = "openstackMultiAZ"
 )
 
 // ClusterConditionType is used to indicate the type of a cluster condition. For all condition
@@ -360,6 +365,7 @@ type CloudSpec struct {
 	VSphere      *VSphereCloudSpec      `json:"vsphere,omitempty"`
 	GCP          *GCPCloudSpec          `json:"gcp,omitempty"`
 	Kubevirt     *KubevirtCloudSpec     `json:"kubevirt,omitempty"`
+	Alibaba      *AlibabaCloudSpec      `json:"alibaba,omitempty"`
 }
 
 // KeyCert is a pair of key and cert.
@@ -512,6 +518,14 @@ type KubevirtCloudSpec struct {
 	Kubeconfig string `json:"kubeconfig,omitempty"`
 }
 
+// AlibabaCloudSpec specifies the access data to Alibaba.
+type AlibabaCloudSpec struct {
+	CredentialsReference *providerconfig.GlobalSecretKeySelector `json:"credentialsReference,omitempty"`
+
+	AccessKeyID     string `json:"accessKeyId,omitempty"`
+	AccessKeySecret string `json:"accessKeySecret,omitempty"`
+}
+
 type HealthStatus int
 
 const (
@@ -612,6 +626,9 @@ func (cluster *Cluster) GetSecretName() string {
 	}
 	if cluster.Spec.Cloud.VSphere != nil {
 		return fmt.Sprintf("%s-vsphere-%s", CredentialPrefix, cluster.Name)
+	}
+	if cluster.Spec.Cloud.Alibaba != nil {
+		return fmt.Sprintf("%s-alibaba-%s", CredentialPrefix, cluster.Name)
 	}
 	return ""
 }

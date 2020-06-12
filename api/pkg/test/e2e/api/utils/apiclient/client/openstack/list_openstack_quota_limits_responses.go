@@ -10,10 +10,9 @@ import (
 	"io"
 
 	"github.com/go-openapi/runtime"
+	"github.com/go-openapi/strfmt"
 
-	strfmt "github.com/go-openapi/strfmt"
-
-	models "github.com/kubermatic/kubermatic/api/pkg/test/e2e/api/utils/apiclient/models"
+	"github.com/kubermatic/kubermatic/api/pkg/test/e2e/api/utils/apiclient/models"
 )
 
 // ListOpenstackQuotaLimitsReader is a Reader for the ListOpenstackQuotaLimits structure.
@@ -24,14 +23,12 @@ type ListOpenstackQuotaLimitsReader struct {
 // ReadResponse reads a server response into the received o.
 func (o *ListOpenstackQuotaLimitsReader) ReadResponse(response runtime.ClientResponse, consumer runtime.Consumer) (interface{}, error) {
 	switch response.Code() {
-
 	case 200:
 		result := NewListOpenstackQuotaLimitsOK()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return result, nil
-
 	default:
 		result := NewListOpenstackQuotaLimitsDefault(response.Code())
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
@@ -59,6 +56,10 @@ type ListOpenstackQuotaLimitsOK struct {
 
 func (o *ListOpenstackQuotaLimitsOK) Error() string {
 	return fmt.Sprintf("[GET /api/v1/providers/openstack/quotalimits][%d] listOpenstackQuotaLimitsOK  %+v", 200, o.Payload)
+}
+
+func (o *ListOpenstackQuotaLimitsOK) GetPayload() *models.Quotas {
+	return o.Payload
 }
 
 func (o *ListOpenstackQuotaLimitsOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -97,6 +98,10 @@ func (o *ListOpenstackQuotaLimitsDefault) Code() int {
 
 func (o *ListOpenstackQuotaLimitsDefault) Error() string {
 	return fmt.Sprintf("[GET /api/v1/providers/openstack/quotalimits][%d] listOpenstackQuotaLimits default  %+v", o._statusCode, o.Payload)
+}
+
+func (o *ListOpenstackQuotaLimitsDefault) GetPayload() *models.ErrorResponse {
+	return o.Payload
 }
 
 func (o *ListOpenstackQuotaLimitsDefault) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {

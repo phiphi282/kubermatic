@@ -4,10 +4,11 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"github.com/kubermatic/kubermatic/api/pkg/keycloak"
 	"io/ioutil"
 	"log"
 	"os"
+
+	"github.com/kubermatic/kubermatic/api/pkg/keycloak"
 
 	"github.com/go-logr/zapr"
 	"github.com/oklog/run"
@@ -236,9 +237,12 @@ Please install the VerticalPodAutoscaler according to the documentation: https:/
 
 	// This group is running the actual controller logic
 	{
+		leaderCtx, stopLeaderElection := context.WithCancel(rootCtx)
+		defer stopLeaderElection()
+
 		runner := func(ctx context.Context) error {
 			log.Info("Executing migrations...")
-			if err := seedmigrations.RunAll(ctrlCtx.mgr.GetConfig(), options.workerName); err != nil {
+			if err := seedmigrations.RunAll(leaderCtx, ctrlCtx.mgr.GetConfig(), options.workerName); err != nil {
 				return fmt.Errorf("failed to run migrations: %v", err)
 			}
 			log.Info("Migrations executed successfully")
@@ -261,9 +265,6 @@ Please install the VerticalPodAutoscaler according to the documentation: https:/
 			})
 
 		} else {
-			leaderCtx, stopLeaderElection := context.WithCancel(rootCtx)
-			defer stopLeaderElection()
-
 			g.Add(func() error {
 				electionName := controllerName
 				if options.workerName != "" {

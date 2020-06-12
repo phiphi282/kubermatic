@@ -23,6 +23,8 @@ fi
 DEPLOY_NODEPORT_PROXY=${DEPLOY_NODEPORT_PROXY:-true}
 DEPLOY_ALERTMANAGER=${DEPLOY_ALERTMANAGER:-true}
 DEPLOY_MINIO=${DEPLOY_MINIO:-true}
+DEPLOY_LOKI=${DEPLOY_LOKI:-false}
+DEPLOY_ELASTIC=${DEPLOY_ELASTIC:-true}
 USE_KUBERMATIC_OPERATOR=${USE_KUBERMATIC_OPERATOR:-false}
 DEPLOY_STACK=${DEPLOY_STACK:-kubermatic}
 TILLER_NAMESPACE=${TILLER_NAMESPACE:-kubermatic}
@@ -94,17 +96,6 @@ function initTiller() {
   unset TEST_NAME
 }
 
-# PULL_BASE_REF is the name of the current branch in case of a post-submit
-# or the name of the base branch in case of a PR.
-LATEST_DASHBOARD="$(get_latest_dashboard_hash "${PULL_BASE_REF}")"
-
-sed -i "s/__DASHBOARD_TAG__/$LATEST_DASHBOARD/g" ./config/kubermatic/*.yaml
-sed -i "s/__KUBERMATIC_TAG__/${GIT_HEAD_HASH}/g" ./config/kubermatic/*.yaml
-sed -i "s/__KUBERMATIC_TAG__/${GIT_HEAD_HASH}/g" ./config/kubermatic-operator/*.yaml
-sed -i "s/__NAMESPACE__/kubermatic/g" ./config/kubermatic-operator/*.yaml
-sed -i "s/__WORKER_NAME__//g" ./config/kubermatic-operator/*.yaml
-sed -i "s/__KUBERMATIC_TAG__/${GIT_HEAD_HASH}/g" ./config/nodeport-proxy/*.yaml
-
 echodate "Deploying ${DEPLOY_STACK} stack..."
 case "${DEPLOY_STACK}" in
   monitoring)
@@ -128,9 +119,15 @@ case "${DEPLOY_STACK}" in
 
   logging)
     initTiller
-    deploy "elasticsearch" "logging" ./config/logging/elasticsearch/
-    deploy "fluentbit" "logging" ./config/logging/fluentbit/
-    deploy "kibana" "logging" ./config/logging/kibana/
+    if [[ "${DEPLOY_ELASTIC}" = true ]]; then
+      deploy "elasticsearch" "logging" ./config/logging/elasticsearch/
+      deploy "fluentbit" "logging" ./config/logging/fluentbit/
+      deploy "kibana" "logging" ./config/logging/kibana/
+    fi
+    if [[ "${DEPLOY_LOKI}" = true ]]; then
+      deploy "loki" "logging" ./config/logging/loki/
+      deploy "promtail" "logging" ./config/logging/promtail/
+    fi
     ;;
 
   kubermatic)
@@ -139,10 +136,18 @@ case "${DEPLOY_STACK}" in
     echodate "Deploying the CRD's..."
     retry 5 kubectl apply -f ./config/kubermatic/crd/
 
+    # PULL_BASE_REF is the name of the current branch in case of a post-submit
+    # or the name of the base branch in case of a PR.
+    LATEST_DASHBOARD="$(get_latest_dashboard_hash "${PULL_BASE_REF}")"
+
+    sed -i "s/__DASHBOARD_TAG__/$LATEST_DASHBOARD/g" ./config/kubermatic/*.yaml
+    sed -i "s/__KUBERMATIC_TAG__/${GIT_HEAD_HASH}/g" ./config/kubermatic/*.yaml
+    sed -i "s/__KUBERMATIC_TAG__/${GIT_HEAD_HASH}/g" ./config/kubermatic-operator/*.yaml
+    sed -i "s/__KUBERMATIC_TAG__/${GIT_HEAD_HASH}/g" ./config/nodeport-proxy/*.yaml
+
     if [[ "${1}" = "master" ]]; then
       deploy "nginx-ingress-controller" "nginx-ingress-controller" ./config/nginx-ingress-controller/
       deploy "cert-manager" "cert-manager" ./config/cert-manager/
-      deploy "certs" "default" ./config/certs/
       deploy "oauth" "oauth" ./config/oauth/
       # We might have not configured IAP which results in nothing being deployed. This triggers https://github.com/helm/helm/issues/4295 and marks this as failed
       # We hack around this by grepping for a string that is mandatory in the values file of IAP
@@ -167,27 +172,24 @@ case "${DEPLOY_STACK}" in
 
     # Kubermatic
     if [[ "${USE_KUBERMATIC_OPERATOR}" = true ]]; then
-      echodate "Deploying Kubermatic Operator..."
+      if [[ "${1}" = "master" ]]; then
+        echodate "Deploying Kubermatic Operator..."
 
-      DOCKER_CONFIG_SECRET="$(mktemp)"
-      cat <<EOF >$DOCKER_CONFIG_SECRET
-apiVersion: v1
-kind: Secret
-metadata:
-  name: dockercfg
-  namespace: kubermatic
-type: kubernetes.io/dockerconfigjson
-data:
-  .dockerconfigjson: "$(cat "$DOCKER_CONFIG" | base64 -w0)"
-EOF
-      retry 3 kubectl apply -f $DOCKER_CONFIG_SECRET
-      retry 3 kubectl apply -f ./config/kubermatic-operator/
+        retry 3 helm upgrade --install --force --wait --timeout 300 \
+          --set-file "kubermaticOperator.imagePullSecret=$DOCKER_CONFIG" \
+          --namespace kubermatic \
+          --values ${VALUES_FILE} \
+          kubermatic-operator \
+          ./config/kubermatic-operator/
 
-      # only deploy KubermaticConfigurations on masters, on seed clusters
-      # the relevant Seed CR is copied by Kubermatic itself
-      if [ -n "${KUBERMATIC_CONFIG:-}" ]; then
-        echodate "Deploying KubermaticConfiguration..."
-        retry 3 kubectl apply -f $KUBERMATIC_CONFIG
+        # only deploy KubermaticConfigurations on masters, on seed clusters
+        # the relevant Seed CR is copied by Kubermatic itself
+        if [ -n "${KUBERMATIC_CONFIG:-}" ]; then
+          echodate "Deploying KubermaticConfiguration..."
+          retry 3 kubectl apply -f $KUBERMATIC_CONFIG
+        fi
+      else
+        echodate "Not deploying Kubermatic, as this is not a master cluster."
       fi
     else
       deploy "kubermatic" "kubermatic" ./config/kubermatic/

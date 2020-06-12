@@ -13,8 +13,7 @@ import (
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/runtime"
 	cr "github.com/go-openapi/runtime/client"
-
-	strfmt "github.com/go-openapi/strfmt"
+	"github.com/go-openapi/strfmt"
 )
 
 // NewListAWSSizesNoCredentialsParams creates a new ListAWSSizesNoCredentialsParams object
@@ -64,7 +63,7 @@ type ListAWSSizesNoCredentialsParams struct {
 	/*ClusterID*/
 	ClusterID string
 	/*Dc*/
-	Dc string
+	DC string
 	/*ProjectID*/
 	ProjectID string
 
@@ -117,15 +116,15 @@ func (o *ListAWSSizesNoCredentialsParams) SetClusterID(clusterID string) {
 	o.ClusterID = clusterID
 }
 
-// WithDc adds the dc to the list a w s sizes no credentials params
-func (o *ListAWSSizesNoCredentialsParams) WithDc(dc string) *ListAWSSizesNoCredentialsParams {
-	o.SetDc(dc)
+// WithDC adds the dc to the list a w s sizes no credentials params
+func (o *ListAWSSizesNoCredentialsParams) WithDC(dc string) *ListAWSSizesNoCredentialsParams {
+	o.SetDC(dc)
 	return o
 }
 
-// SetDc adds the dc to the list a w s sizes no credentials params
-func (o *ListAWSSizesNoCredentialsParams) SetDc(dc string) {
-	o.Dc = dc
+// SetDC adds the dc to the list a w s sizes no credentials params
+func (o *ListAWSSizesNoCredentialsParams) SetDC(dc string) {
+	o.DC = dc
 }
 
 // WithProjectID adds the projectID to the list a w s sizes no credentials params
@@ -153,7 +152,7 @@ func (o *ListAWSSizesNoCredentialsParams) WriteToRequest(r runtime.ClientRequest
 	}
 
 	// path param dc
-	if err := r.SetPathParam("dc", o.Dc); err != nil {
+	if err := r.SetPathParam("dc", o.DC); err != nil {
 		return err
 	}
 

@@ -278,6 +278,19 @@ if [[ "${KUBERMATIC_SKIP_BUILDING}" = "false" ]]; then
     time retry 5 kind load docker-image "$IMAGE_NAME" --name ${SEED_NAME}
   )
   (
+    # The operator automatically creates a nodeport-proxy, so it needs the
+    # Docker image to exist.
+    if [[ "${KUBERMATIC_USE_OPERATOR}" = "true" ]]; then
+      echodate "Building nodeport-proxy image"
+      TEST_NAME="Build nodeport-proxy Docker image"
+      cd api/cmd/nodeport-proxy
+      make build
+      IMAGE_NAME="quay.io/kubermatic/nodeport-proxy:$KUBERMATIC_VERSION"
+      time retry 5 docker build -t "${IMAGE_NAME}" .
+      time retry 5 kind load docker-image "$IMAGE_NAME" --name ${SEED_NAME}
+    fi
+  )
+  (
     echodate "Building dnatcontroller image"
     TEST_NAME="Build dnatcontroller Docker image"
     cd api/cmd/kubeletdnat-controller
@@ -327,6 +340,12 @@ function check_all_deployments_ready() {
   return 0
 }
 
+# We don't need a valid certificate (and can't even get one), but still need
+# to have the CRDs installed so we can at least create a Certificate resource.
+TEST_NAME="Deploy cert-manager CRDs"
+echodate "Deploying cert-manager CRDs"
+retry 5 kubectl apply -f config/cert-manager/templates/crd.yaml
+
 if [[ "${KUBERMATIC_USE_OPERATOR}" = "false" ]]; then
   TEST_NAME="Deploy Kubermatic"
   echodate "Deploying Kubermatic using Helm..."
@@ -373,25 +392,20 @@ if [[ "${KUBERMATIC_USE_OPERATOR}" = "false" ]]; then
     git checkout ${KUBERMATIC_VERSION}
   fi
 else
-  # Even when it does not reconcile certificates, the operator absolutely needs the
-  # cert-manager CRDs to exist.
-  TEST_NAME="Deploy cert-manager CRDs"
-  echodate "Deploying cert-manager CRDs"
-  retry 5 kubectl apply -f config/cert-manager/templates/crd.yaml
-
   TEST_NAME="Deploy Kubermatic"
   echodate "Installing Kubermatic using operator..."
 
-  sed -i "s/__KUBERMATIC_TAG__/${KUBERMATIC_VERSION}/g" config/kubermatic-operator/*.yaml
-  sed -i "s/__NAMESPACE__/kubermatic/g" config/kubermatic-operator/*.yaml
-  sed -i "s/__WORKER_NAME__//g" config/kubermatic-operator/*.yaml
-  kubectl create namespace kubermatic || true
-  retry 3 kubectl apply -f config/kubermatic-operator/
-  retry 5 check_all_deployments_ready kubermatic
-  echodate "Kubermatic Operator is ready."
+  # --force is needed in case the first attempt at installing didn't succeed
+  # see https://github.com/helm/helm/pull/3597
+  retry 3 helm upgrade --install --force --wait --timeout 300 \
+    --set-file "kubermaticOperator.imagePullSecret=/config.json" \
+    --set-string "kubermaticOperator.image.tag=$KUBERMATIC_VERSION" \
+    --namespace kubermatic \
+    --values ${VALUES_FILE} \
+    kubermatic-operator \
+    ./config/kubermatic-operator/
 
-  # reset changes in case we re-deploy another version
-  git checkout -- config/kubermatic-operator/
+  echodate "Kubermatic Operator is ready."
 
   KUBERMATIC_CONFIG="$(mktemp)"
   cat <<EOF >$KUBERMATIC_CONFIG
@@ -410,6 +424,10 @@ $(echo "$IMAGE_PULL_SECRET_DATA" | base64 -d | sed 's/^/    /')
     apiserverReplicas: 1
   api:
     debugLog: true
+  featureGates:
+    # VPA won't do anything useful due to missing Prometheus, but we can
+    # at least ensure we deploy a working set of Deployments.
+    VerticalPodAutoscaler: {}
   ui:
     replicas: $KUBERMATIC_UI_REPLICAS
   # Dex integration
@@ -425,8 +443,9 @@ EOF
   echodate "Waiting for Kubermatic Operator to deploy master components..."
   # sleep a bit to prevent us from checking the Deployments too early, before
   # the operator had time to reconcile
-  sleep 2
-  retry 8 check_all_deployments_ready kubermatic
+  sleep 5
+  retry 10 check_all_deployments_ready kubermatic
+
   echodate "Kubermatic Master is ready."
 fi
 
@@ -464,6 +483,12 @@ spec:
       country: DE
       spec:
          bringyourown: {}
+    alibaba-eu-central-1a:
+      location: Frankfurt
+      country: DE
+      spec:
+        alibaba:
+          region: eu-central-1
     aws-eu-central-1a:
       location: EU (Frankfurt)
       country: DE
@@ -549,15 +574,19 @@ spec:
             minimum_vcpus: 0
           region: dbl
 EOF
-retry 7 kubectl apply -f $SEED_MANIFEST
+retry 8 kubectl apply -f $SEED_MANIFEST
 echodate "Finished installing Seed"
 
 # wait until the operator has reconciled
 if [[ "${KUBERMATIC_USE_OPERATOR}" = "true" ]]; then
-  sleep 2
+  sleep 5
   echodate "Waiting for Kubermatic Operator to deploy seed components..."
   retry 8 check_all_deployments_ready kubermatic
   echodate "Kubermatic Seed is ready."
+
+  echodate "Waiting for VPA to be ready..."
+  retry 5 check_all_deployments_ready kube-system
+  echodate "VPA is ready."
 fi
 
 function kill_port_forwardings() {

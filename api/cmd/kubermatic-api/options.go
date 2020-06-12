@@ -11,6 +11,7 @@ import (
 	kubermaticlog "github.com/kubermatic/kubermatic/api/pkg/log"
 	"github.com/kubermatic/kubermatic/api/pkg/provider"
 	"github.com/kubermatic/kubermatic/api/pkg/serviceaccount"
+	"github.com/kubermatic/kubermatic/api/pkg/watcher"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -161,6 +162,7 @@ func (o serverRunOptions) validate() error {
 
 type providers struct {
 	sshKey                                provider.SSHKeyProvider
+	privilegedSSHKeyProvider              provider.PrivilegedSSHKeyProvider
 	user                                  provider.UserProvider
 	serviceAccountProvider                provider.ServiceAccountProvider
 	serviceAccountTokenProvider           provider.ServiceAccountTokenProvider
@@ -173,10 +175,13 @@ type providers struct {
 	clusterProviderGetter                 provider.ClusterProviderGetter
 	mdRequestProviderGetter               provider.MachineDeploymentRequestProviderGetter
 	seedsGetter                           provider.SeedsGetter
+	seedClientGetter                      provider.SeedClientGetter
 	addons                                provider.AddonProviderGetter
 	addonConfigProvider                   provider.AddonConfigProvider
 	userInfoGetter                        provider.UserInfoGetter
 	settingsProvider                      provider.SettingsProvider
 	adminProvider                         provider.AdminProvider
 	presetProvider                        provider.PresetProvider
+	admissionPluginProvider               provider.AdmissionPluginsProvider
+	settingsWatcher                       watcher.SettingsWatcher
 }

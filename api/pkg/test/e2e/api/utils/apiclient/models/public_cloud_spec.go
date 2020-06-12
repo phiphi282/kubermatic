@@ -6,18 +6,21 @@ package models
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
-	strfmt "github.com/go-openapi/strfmt"
-
 	"github.com/go-openapi/errors"
+	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
 )
 
 // PublicCloudSpec PublicCloudSpec is a public counterpart of apiv1.CloudSpec.
+//
 // swagger:model PublicCloudSpec
 type PublicCloudSpec struct {
 
 	// datacenter name
 	DatacenterName string `json:"dc,omitempty"`
+
+	// alibaba
+	Alibaba PublicAlibabaCloudSpec `json:"alibaba,omitempty"`
 
 	// aws
 	Aws PublicAWSCloudSpec `json:"aws,omitempty"`

@@ -10,10 +10,9 @@ import (
 	"io"
 
 	"github.com/go-openapi/runtime"
+	"github.com/go-openapi/strfmt"
 
-	strfmt "github.com/go-openapi/strfmt"
-
-	models "github.com/kubermatic/kubermatic/api/pkg/test/e2e/api/utils/apiclient/models"
+	"github.com/kubermatic/kubermatic/api/pkg/test/e2e/api/utils/apiclient/models"
 )
 
 // ListOpenstackImagesReader is a Reader for the ListOpenstackImages structure.
@@ -24,14 +23,12 @@ type ListOpenstackImagesReader struct {
 // ReadResponse reads a server response into the received o.
 func (o *ListOpenstackImagesReader) ReadResponse(response runtime.ClientResponse, consumer runtime.Consumer) (interface{}, error) {
 	switch response.Code() {
-
 	case 200:
 		result := NewListOpenstackImagesOK()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return result, nil
-
 	default:
 		result := NewListOpenstackImagesDefault(response.Code())
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
@@ -59,6 +56,10 @@ type ListOpenstackImagesOK struct {
 
 func (o *ListOpenstackImagesOK) Error() string {
 	return fmt.Sprintf("[GET /api/v1/providers/openstack/images][%d] listOpenstackImagesOK  %+v", 200, o.Payload)
+}
+
+func (o *ListOpenstackImagesOK) GetPayload() []*models.Image {
+	return o.Payload
 }
 
 func (o *ListOpenstackImagesOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -95,6 +96,10 @@ func (o *ListOpenstackImagesDefault) Code() int {
 
 func (o *ListOpenstackImagesDefault) Error() string {
 	return fmt.Sprintf("[GET /api/v1/providers/openstack/images][%d] listOpenstackImages default  %+v", o._statusCode, o.Payload)
+}
+
+func (o *ListOpenstackImagesDefault) GetPayload() *models.ErrorResponse {
+	return o.Payload
 }
 
 func (o *ListOpenstackImagesDefault) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {

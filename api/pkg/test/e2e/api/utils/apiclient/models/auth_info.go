@@ -8,13 +8,13 @@ package models
 import (
 	"strconv"
 
-	strfmt "github.com/go-openapi/strfmt"
-
 	"github.com/go-openapi/errors"
+	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
 )
 
 // AuthInfo AuthInfo contains information that describes identity information.  This is use to tell the kubernetes cluster who you are.
+//
 // swagger:model AuthInfo
 type AuthInfo struct {
 

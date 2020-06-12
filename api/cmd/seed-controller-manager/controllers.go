@@ -41,7 +41,7 @@ var AllControllers = map[string]controllerCreator{
 	openshiftcontroller.ControllerName:            createOpenshiftController,
 	clustercomponentdefaulter.ControllerName:      createClusterComponentDefaulter,
 	seedresourcesuptodatecondition.ControllerName: createSeedConditionUpToDateController,
-	rancher.ControllerName:                        createrancherController,
+	rancher.ControllerName:                        createRancherController,
 }
 
 type controllerCreator func(*controllerContext) error
@@ -285,7 +285,7 @@ func createAddonInstallerController(ctrlCtx *controllerContext) error {
 		ctrlCtx.runOptions.openshiftAddons)
 }
 
-func createrancherController(ctrlCtx *controllerContext) error {
+func createRancherController(ctrlCtx *controllerContext) error {
 	return rancher.Add(
 		ctrlCtx.mgr,
 		ctrlCtx.log,

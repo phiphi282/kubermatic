@@ -62,11 +62,38 @@ type SeedSpec struct {
 	// Optional: This can be used to override the DNS name used for this seed.
 	// By default the seed name is used.
 	SeedDNSOverwrite string `json:"seed_dns_overwrite,omitempty"`
+	// NodeportProxy can be used to configure the NodePort proxy service that is
+	// responsible for making user-cluster control planes accessible from the outside.
+	NodeportProxy NodeportProxyConfig `json:"nodeport_proxy,omitempty"`
 	// Optional: ProxySettings can be used to configure HTTP proxy settings on the
 	// worker nodes in user clusters. However, proxy settings on nodes take precedence.
 	ProxySettings *ProxySettings `json:"proxy_settings,omitempty"`
 	// Optional: ExposeStrategy explicitly sets the expose strategy for this seed cluster, if not set, the default provided by the master is used.
 	ExposeStrategy corev1.ServiceType `json:"expose_strategy,omitempty"`
+}
+
+type NodeportProxyConfig struct {
+	// Disable will prevent the Kubermatic Operator from creating a nodeport-proxy
+	// setup on the seed cluster. This should only be used if a suitable replacement
+	// is installed (like the nodeport-proxy Helm chart).
+	Disable bool `json:"disable,omitempty"`
+	// Annotations are used to further tweak the LoadBalancer integration with the
+	// cloud provider where the seed cluster is running.
+	Annotations map[string]string `json:"annotations,omitempty"`
+	// Envoy configures the Envoy application itself.
+	Envoy NodeportProxyComponent `json:"envoy,omitempty"`
+	// EnvoyManager configures the Kubermatic-internal Envoy manager.
+	EnvoyManager NodeportProxyComponent `json:"envoy_manager,omitempty"`
+	// Updater configures the component responsible for updating the LoadBalancer
+	// service.
+	Updater NodeportProxyComponent `json:"updater,omitempty"`
+}
+
+type NodeportProxyComponent struct {
+	// DockerRepository is the repository containing the component's image.
+	DockerRepository string `json:"docker_repository,omitempty"`
+	// Resources describes the requested and maximum allowed CPU/memory usage.
+	Resources corev1.ResourceRequirements `json:"resources,omitempty"`
 }
 
 type Datacenter struct {
@@ -99,7 +126,11 @@ type DatacenterSpec struct {
 	VSphere      *DatacenterSpecVSphere      `json:"vsphere,omitempty"`
 	GCP          *DatacenterSpecGCP          `json:"gcp,omitempty"`
 	Kubevirt     *DatacenterSpecKubevirt     `json:"kubevirt,omitempty"`
-	Fake         *DatacenterSpecFake         `json:"fake,omitempty,omitgenyaml"` // omitgenyaml is used by the example-yaml-generator
+	Alibaba      *DatacenterSpecAlibaba      `json:"alibaba,omitempty"`
+
+	//nolint:staticcheck
+	//lint:ignore SA5008 omitgenyaml is used by the example-yaml-generator
+	Fake *DatacenterSpecFake `json:"fake,omitempty,omitgenyaml"`
 
 	// Optional: When defined, only users with an e-mail address on the
 	// given domains can make use of this datacenter. You can define multiple
@@ -108,6 +139,10 @@ type DatacenterSpec struct {
 	// RequiredEmailDomain is deprecated. Automatically migrated to the RequiredEmailDomains field.
 	RequiredEmailDomain  string   `json:"requiredEmailDomain,omitempty"`
 	RequiredEmailDomains []string `json:"requiredEmailDomains,omitempty"`
+
+	// EnforceAuditLogging enforces audit logging on every cluster within the DC,
+	// ignoring cluster-specific settings.
+	EnforceAuditLogging bool `json:"enforceAuditLogging"`
 }
 
 // ImageList defines a map of operating system and the image to use
@@ -242,6 +277,13 @@ type DatacenterSpecFake struct {
 
 // DatacenterSpecKubevirt describes a kubevirt datacenter.
 type DatacenterSpecKubevirt struct {
+}
+
+// DatacenterSpecAlibaba describes a alibaba datacenter.
+type DatacenterSpecAlibaba struct {
+	// Region to use, for a full list of regions see
+	// https://www.alibabacloud.com/help/doc-detail/40654.htm
+	Region string `json:"region"`
 }
 
 type ProxyValue string

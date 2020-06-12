@@ -10,10 +10,9 @@ import (
 	"io"
 
 	"github.com/go-openapi/runtime"
+	"github.com/go-openapi/strfmt"
 
-	strfmt "github.com/go-openapi/strfmt"
-
-	models "github.com/kubermatic/kubermatic/api/pkg/test/e2e/api/utils/apiclient/models"
+	"github.com/kubermatic/kubermatic/api/pkg/test/e2e/api/utils/apiclient/models"
 )
 
 // ListOpenstackQuotaLimitsNoCredentialsReader is a Reader for the ListOpenstackQuotaLimitsNoCredentials structure.
@@ -24,14 +23,12 @@ type ListOpenstackQuotaLimitsNoCredentialsReader struct {
 // ReadResponse reads a server response into the received o.
 func (o *ListOpenstackQuotaLimitsNoCredentialsReader) ReadResponse(response runtime.ClientResponse, consumer runtime.Consumer) (interface{}, error) {
 	switch response.Code() {
-
 	case 200:
 		result := NewListOpenstackQuotaLimitsNoCredentialsOK()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return result, nil
-
 	default:
 		result := NewListOpenstackQuotaLimitsNoCredentialsDefault(response.Code())
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
@@ -59,6 +56,10 @@ type ListOpenstackQuotaLimitsNoCredentialsOK struct {
 
 func (o *ListOpenstackQuotaLimitsNoCredentialsOK) Error() string {
 	return fmt.Sprintf("[GET /api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/providers/openstack/quotalimits][%d] listOpenstackQuotaLimitsNoCredentialsOK  %+v", 200, o.Payload)
+}
+
+func (o *ListOpenstackQuotaLimitsNoCredentialsOK) GetPayload() *models.Quotas {
+	return o.Payload
 }
 
 func (o *ListOpenstackQuotaLimitsNoCredentialsOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -97,6 +98,10 @@ func (o *ListOpenstackQuotaLimitsNoCredentialsDefault) Code() int {
 
 func (o *ListOpenstackQuotaLimitsNoCredentialsDefault) Error() string {
 	return fmt.Sprintf("[GET /api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/providers/openstack/quotalimits][%d] listOpenstackQuotaLimitsNoCredentials default  %+v", o._statusCode, o.Payload)
+}
+
+func (o *ListOpenstackQuotaLimitsNoCredentialsDefault) GetPayload() *models.ErrorResponse {
+	return o.Payload
 }
 
 func (o *ListOpenstackQuotaLimitsNoCredentialsDefault) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {

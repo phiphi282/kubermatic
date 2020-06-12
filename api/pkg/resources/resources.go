@@ -478,6 +478,9 @@ const (
 	VsphereInfraManagementUserUsername = "infraManagementUserUsername"
 	VsphereInfraManagementUserPassword = "infraManagementUserPassword"
 
+	AlibabaAccessKeyID     = "accessKeyId"
+	AlibabaAccessKeySecret = "accessKeySecret"
+
 	UserSSHKeys = "usersshkeys"
 )
 
@@ -603,8 +606,8 @@ func UserClusterDNSPolicyAndConfig(d userClusterDNSPolicyAndConfigData) (corev1.
 	}, nil
 }
 
-// BaseAppLabel returns the minimum required labels
-func BaseAppLabel(name string, additionalLabels map[string]string) map[string]string {
+// BaseAppLabels returns the minimum required labels
+func BaseAppLabels(name string, additionalLabels map[string]string) map[string]string {
 	labels := map[string]string{
 		AppLabelKey: name,
 	}
@@ -614,9 +617,9 @@ func BaseAppLabel(name string, additionalLabels map[string]string) map[string]st
 	return labels
 }
 
-// AppClusterLabel returns the base app label + the cluster label. Additional labels can be included as well
-func AppClusterLabel(appName, clusterName string, additionalLabels map[string]string) map[string]string {
-	podLabels := BaseAppLabel(appName, additionalLabels)
+// AppClusterLabels returns the base app label + the cluster label. Additional labels can be included as well
+func AppClusterLabels(appName, clusterName string, additionalLabels map[string]string) map[string]string {
+	podLabels := BaseAppLabels(appName, additionalLabels)
 	podLabels["cluster"] = clusterName
 
 	return podLabels
@@ -869,7 +872,7 @@ func GetPodTemplateLabels(
 	volumes []corev1.Volume,
 	additionalLabels map[string]string,
 ) (map[string]string, error) {
-	podLabels := AppClusterLabel(appName, clusterName, additionalLabels)
+	podLabels := AppClusterLabels(appName, clusterName, additionalLabels)
 
 	volumeLabels, err := VolumeRevisionLabels(ctx, client, namespace, volumes)
 	if err != nil {

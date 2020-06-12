@@ -14,6 +14,7 @@ import (
 	"github.com/kubermatic/kubermatic/api/pkg/handler/v1/common"
 	"github.com/kubermatic/kubermatic/api/pkg/provider"
 	"github.com/kubermatic/kubermatic/api/pkg/serviceaccount"
+	"github.com/kubermatic/kubermatic/api/pkg/watcher"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -24,7 +25,9 @@ type Routing struct {
 	log                         *zap.SugaredLogger
 	presetsProvider             provider.PresetProvider
 	seedsGetter                 provider.SeedsGetter
+	seedsClientGetter           provider.SeedClientGetter
 	sshKeyProvider              provider.SSHKeyProvider
+	privilegedSSHKeyProvider    provider.PrivilegedSSHKeyProvider
 	userProvider                provider.UserProvider
 	serviceAccountProvider      provider.ServiceAccountProvider
 	serviceAccountTokenProvider provider.ServiceAccountTokenProvider
@@ -51,6 +54,8 @@ type Routing struct {
 	userInfoGetter              provider.UserInfoGetter
 	settingsProvider            provider.SettingsProvider
 	adminProvider               provider.AdminProvider
+	admissionPluginProvider     provider.AdmissionPluginsProvider
+	settingsWatcher             watcher.SettingsWatcher
 }
 
 // NewRouting creates a new Routing.
@@ -58,10 +63,12 @@ func NewRouting(
 	logger *zap.SugaredLogger,
 	presetsProvider provider.PresetProvider,
 	seedsGetter provider.SeedsGetter,
+	seedsClientGetter provider.SeedClientGetter,
 	clusterProviderGetter provider.ClusterProviderGetter,
 	addonProviderGetter provider.AddonProviderGetter,
 	addonConfigProvider provider.AddonConfigProvider,
 	newSSHKeyProvider provider.SSHKeyProvider,
+	privilegedSSHKeyProvider provider.PrivilegedSSHKeyProvider,
 	userProvider provider.UserProvider,
 	serviceAccountProvider provider.ServiceAccountProvider,
 	serviceAccountTokenProvider provider.ServiceAccountTokenProvider,
@@ -84,15 +91,19 @@ func NewRouting(
 	userInfoGetter provider.UserInfoGetter,
 	settingsProvider provider.SettingsProvider,
 	adminProvider provider.AdminProvider,
+	admissionPluginProvider provider.AdmissionPluginsProvider,
+	settingsWatcher watcher.SettingsWatcher,
 ) Routing {
 	return Routing{
 		log:                         logger,
 		presetsProvider:             presetsProvider,
 		seedsGetter:                 seedsGetter,
+		seedsClientGetter:           seedsClientGetter,
 		clusterProviderGetter:       clusterProviderGetter,
 		addonProviderGetter:         addonProviderGetter,
 		addonConfigProvider:         addonConfigProvider,
 		sshKeyProvider:              newSSHKeyProvider,
+		privilegedSSHKeyProvider:    privilegedSSHKeyProvider,
 		userProvider:                userProvider,
 		serviceAccountProvider:      serviceAccountProvider,
 		serviceAccountTokenProvider: serviceAccountTokenProvider,
@@ -116,6 +127,8 @@ func NewRouting(
 		userInfoGetter:              userInfoGetter,
 		settingsProvider:            settingsProvider,
 		adminProvider:               adminProvider,
+		admissionPluginProvider:     admissionPluginProvider,
+		settingsWatcher:             settingsWatcher,
 	}
 }
 

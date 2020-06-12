@@ -10,10 +10,9 @@ import (
 	"io"
 
 	"github.com/go-openapi/runtime"
+	"github.com/go-openapi/strfmt"
 
-	strfmt "github.com/go-openapi/strfmt"
-
-	models "github.com/kubermatic/kubermatic/api/pkg/test/e2e/api/utils/apiclient/models"
+	"github.com/kubermatic/kubermatic/api/pkg/test/e2e/api/utils/apiclient/models"
 )
 
 // GetKubeLoginClusterKubeconfigReader is a Reader for the GetKubeLoginClusterKubeconfig structure.
@@ -24,28 +23,24 @@ type GetKubeLoginClusterKubeconfigReader struct {
 // ReadResponse reads a server response into the received o.
 func (o *GetKubeLoginClusterKubeconfigReader) ReadResponse(response runtime.ClientResponse, consumer runtime.Consumer) (interface{}, error) {
 	switch response.Code() {
-
 	case 200:
 		result := NewGetKubeLoginClusterKubeconfigOK()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return result, nil
-
 	case 401:
 		result := NewGetKubeLoginClusterKubeconfigUnauthorized()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return nil, result
-
 	case 403:
 		result := NewGetKubeLoginClusterKubeconfigForbidden()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return nil, result
-
 	default:
 		result := NewGetKubeLoginClusterKubeconfigDefault(response.Code())
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
@@ -65,19 +60,23 @@ func NewGetKubeLoginClusterKubeconfigOK() *GetKubeLoginClusterKubeconfigOK {
 
 /*GetKubeLoginClusterKubeconfigOK handles this case with default header values.
 
-Kubeconfig
+Kubeconfig is a clusters kubeconfig
 */
 type GetKubeLoginClusterKubeconfigOK struct {
-	Payload *models.Kubeconfig
+	Payload *models.Config
 }
 
 func (o *GetKubeLoginClusterKubeconfigOK) Error() string {
 	return fmt.Sprintf("[GET /api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/kubeloginkubeconfig][%d] getKubeLoginClusterKubeconfigOK  %+v", 200, o.Payload)
 }
 
+func (o *GetKubeLoginClusterKubeconfigOK) GetPayload() *models.Config {
+	return o.Payload
+}
+
 func (o *GetKubeLoginClusterKubeconfigOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
-	o.Payload = new(models.Kubeconfig)
+	o.Payload = new(models.Config)
 
 	// response payload
 	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
@@ -153,6 +152,10 @@ func (o *GetKubeLoginClusterKubeconfigDefault) Code() int {
 
 func (o *GetKubeLoginClusterKubeconfigDefault) Error() string {
 	return fmt.Sprintf("[GET /api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/kubeloginkubeconfig][%d] getKubeLoginClusterKubeconfig default  %+v", o._statusCode, o.Payload)
+}
+
+func (o *GetKubeLoginClusterKubeconfigDefault) GetPayload() *models.ErrorResponse {
+	return o.Payload
 }
 
 func (o *GetKubeLoginClusterKubeconfigDefault) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {

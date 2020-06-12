@@ -57,6 +57,8 @@ func addKnownTypes(scheme *runtime.Scheme) error {
 		&PresetList{},
 		&MachineDeploymentRequest{},
 		&MachineDeploymentRequestList{},
+		&AdmissionPlugin{},
+		&AdmissionPluginList{},
 	)
 
 	metav1.AddToGroupVersion(scheme, SchemeGroupVersion)

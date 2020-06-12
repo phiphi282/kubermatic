@@ -8,13 +8,13 @@ package models
 import (
 	"strconv"
 
-	strfmt "github.com/go-openapi/strfmt"
-
 	"github.com/go-openapi/errors"
+	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
 )
 
 // AWSSubnet AWSSubnet represents a object of AWS availability subnet.
+//
 // swagger:model AWSSubnet
 type AWSSubnet struct {
 
@@ -33,10 +33,10 @@ type AWSSubnet struct {
 	// ID
 	ID string `json:"id,omitempty"`
 
-	// ipv4 c ID r
+	// IPv4 c ID r
 	IPV4CIDR string `json:"ipv4cidr,omitempty"`
 
-	// ipv6 c ID r
+	// IPv6 c ID r
 	IPV6CIDR string `json:"ipv6cidr,omitempty"`
 
 	// is default subnet

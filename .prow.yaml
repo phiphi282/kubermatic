@@ -3,26 +3,6 @@ presubmits:
   # unit tests
   #########################################################
 
-  - name: pre-kubermatic-build
-    run_if_changed: "^api/"
-    decorate: true
-    clone_uri: "ssh://git@github.com/kubermatic/kubermatic.git"
-    spec:
-      containers:
-      - image: golang:1.12.12
-        command:
-        - make
-        args:
-        - -C
-        - api
-        - build
-        resources:
-          requests:
-            memory: 2Gi
-            cpu: 2
-          limits:
-            memory: 4Gi
-
   - name: pre-kubermatic-test
     run_if_changed: "^api/"
     decorate: true
@@ -79,6 +59,23 @@ presubmits:
             memory: 256Mi
             cpu: 250m
 
+  - name: pre-kubermatic-verify-kubermatic-chart
+    run_if_changed: "^(api|config)/"
+    decorate: true
+    clone_uri: "ssh://git@github.com/kubermatic/kubermatic.git"
+    spec:
+      containers:
+      - image: quay.io/kubermatic/go-docker:12.12-1806-3
+        command:
+        - "./api/hack/verify-kubermatic-chart.sh"
+        resources:
+          requests:
+            memory: 512Mi
+            cpu: 250m
+          limits:
+            memory: 1Gi
+            cpu: 1
+
   - name: pre-kubermatic-verify-grafana-dashboards
     run_if_changed: "^config/monitoring/grafana/"
     decorate: true
@@ -116,7 +113,7 @@ presubmits:
     clone_uri: "ssh://git@github.com/kubermatic/kubermatic.git"
     spec:
       containers:
-      - image: golangci/golangci-lint:v1.17.1
+      - image: golangci/golangci-lint:v1.23.6
         command:
         - make
         args:
@@ -125,10 +122,10 @@ presubmits:
         - lint
         resources:
           requests:
-            memory: 17Gi
+            memory: 10Gi
             cpu: 3
           limits:
-            memory: 17Gi
+            memory: 10Gi
 
   - name: pre-kubermatic-dependencies
     run_if_changed: "^api/"
@@ -1141,11 +1138,10 @@ presubmits:
           privileged: true
         resources:
           requests:
-            cpu: 500m
+            cpu: 1
             memory: 1Gi
           limits:
-            cpu: 1
-            memory: 2Gi
+            memory: 3Gi
 
   - name: pre-kubermatic-test-integration
     run_if_changed: "^api/"

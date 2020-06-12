@@ -13,8 +13,7 @@ import (
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/runtime"
 	cr "github.com/go-openapi/runtime/client"
-
-	strfmt "github.com/go-openapi/strfmt"
+	"github.com/go-openapi/strfmt"
 )
 
 // NewListAddonsParams creates a new ListAddonsParams object
@@ -64,7 +63,7 @@ type ListAddonsParams struct {
 	/*ClusterID*/
 	ClusterID string
 	/*Dc*/
-	Dc string
+	DC string
 	/*ProjectID*/
 	ProjectID string
 
@@ -117,15 +116,15 @@ func (o *ListAddonsParams) SetClusterID(clusterID string) {
 	o.ClusterID = clusterID
 }
 
-// WithDc adds the dc to the list addons params
-func (o *ListAddonsParams) WithDc(dc string) *ListAddonsParams {
-	o.SetDc(dc)
+// WithDC adds the dc to the list addons params
+func (o *ListAddonsParams) WithDC(dc string) *ListAddonsParams {
+	o.SetDC(dc)
 	return o
 }
 
-// SetDc adds the dc to the list addons params
-func (o *ListAddonsParams) SetDc(dc string) {
-	o.Dc = dc
+// SetDC adds the dc to the list addons params
+func (o *ListAddonsParams) SetDC(dc string) {
+	o.DC = dc
 }
 
 // WithProjectID adds the projectID to the list addons params
@@ -153,7 +152,7 @@ func (o *ListAddonsParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Re
 	}
 
 	// path param dc
-	if err := r.SetPathParam("dc", o.Dc); err != nil {
+	if err := r.SetPathParam("dc", o.DC); err != nil {
 		return err
 	}
 

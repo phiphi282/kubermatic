@@ -1,14 +1,20 @@
 package common
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 
+	"github.com/Masterminds/semver"
 	"github.com/docker/distribution/reference"
+	"github.com/ghodss/yaml"
 	"go.uber.org/zap"
 
+	kubermaticapiv1 "github.com/kubermatic/kubermatic/api/pkg/api/v1"
+	kubermaticv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
 	operatorv1alpha1 "github.com/kubermatic/kubermatic/api/pkg/crd/operator/v1alpha1"
 	"github.com/kubermatic/kubermatic/api/pkg/resources"
+	"github.com/kubermatic/kubermatic/api/pkg/version"
 
 	certmanagerv1alpha2 "github.com/jetstack/cert-manager/pkg/apis/certmanager/v1alpha2"
 	corev1 "k8s.io/api/core/v1"
@@ -17,34 +23,25 @@ import (
 )
 
 const (
-	DefaultPProfEndpoint               = ":6600"
-	DefaultNodePortRange               = "30000-32767"
-	DefaultEtcdVolumeSize              = "5Gi"
-	DefaultAuthClientID                = "kubermatic"
-	DefaultIngressClass                = "nginx"
-	DefaultAPIReplicas                 = 2
-	DefaultUIReplicas                  = 2
-	DefaultSeedControllerMgrReplicas   = 2
-	DefaultMasterControllerMgrReplicas = 2
-	DefaultAPIServerReplicas           = 2
-	DefaultExposeStrategy              = operatorv1alpha1.NodePortStrategy
+	DefaultPProfEndpoint                          = ":6600"
+	DefaultNodePortRange                          = "30000-32767"
+	DefaultEtcdVolumeSize                         = "5Gi"
+	DefaultAuthClientID                           = "kubermatic"
+	DefaultIngressClass                           = "nginx"
+	DefaultAPIReplicas                            = 2
+	DefaultUIReplicas                             = 2
+	DefaultSeedControllerMgrReplicas              = 2
+	DefaultMasterControllerMgrReplicas            = 2
+	DefaultAPIServerReplicas                      = 2
+	DefaultExposeStrategy                         = operatorv1alpha1.NodePortStrategy
+	DefaultVPARecommenderDockerRepository         = "gcr.io/google_containers/vpa-recommender"
+	DefaultVPAUpdaterDockerRepository             = "gcr.io/google_containers/vpa-updater"
+	DefaultVPAAdmissionControllerDockerRepository = "gcr.io/google_containers/vpa-admission-controller"
+	DefaultNodeportProxyDockerRepository          = "quay.io/kubermatic/nodeport-proxy"
+	DefaultEnvoyDockerRepository                  = "docker.io/envoyproxy/envoy-alpine"
 )
 
 var (
-	KubernetesDefaultAddons = []string{
-		"canal",
-		"csi",
-		"dns",
-		"kube-proxy",
-		"openvpn",
-		"rbac",
-		"kubelet-configmap",
-		"default-storage-class",
-		"nodelocal-dns-cache",
-		"pod-security-policy",
-		"logrotate",
-	}
-
 	DefaultAccessibleAddons = []string{
 		"node-exporter",
 	}
@@ -90,6 +87,233 @@ var (
 		Limits: corev1.ResourceList{
 			corev1.ResourceCPU:    resource.MustParse("500m"),
 			corev1.ResourceMemory: resource.MustParse("1Gi"),
+		},
+	}
+
+	DefaultVPARecommenderResources = corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("50m"),
+			corev1.ResourceMemory: resource.MustParse("512Mi"),
+		},
+		Limits: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("200m"),
+			corev1.ResourceMemory: resource.MustParse("3Gi"),
+		},
+	}
+
+	DefaultVPAUpdaterResources = corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("50m"),
+			corev1.ResourceMemory: resource.MustParse("32Mi"),
+		},
+		Limits: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("200m"),
+			corev1.ResourceMemory: resource.MustParse("128Mi"),
+		},
+	}
+
+	DefaultVPAAdmissionControllerResources = corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("50m"),
+			corev1.ResourceMemory: resource.MustParse("32Mi"),
+		},
+		Limits: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("200m"),
+			corev1.ResourceMemory: resource.MustParse("128Mi"),
+		},
+	}
+
+	DefaultNodeportProxyEnvoyResources = corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("50m"),
+			corev1.ResourceMemory: resource.MustParse("32Mi"),
+		},
+		Limits: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("200m"),
+			corev1.ResourceMemory: resource.MustParse("64Mi"),
+		},
+	}
+
+	DefaultNodeportProxyEnvoyManagerResources = corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("50m"),
+			corev1.ResourceMemory: resource.MustParse("32Mi"),
+		},
+		Limits: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("150m"),
+			corev1.ResourceMemory: resource.MustParse("48Mi"),
+		},
+	}
+
+	DefaultNodeportProxyUpdaterResources = corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("50m"),
+			corev1.ResourceMemory: resource.MustParse("32Mi"),
+		},
+		Limits: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("150m"),
+			corev1.ResourceMemory: resource.MustParse("32Mi"),
+		},
+	}
+
+	DefaultNodeportProxyServiceAnnotations = map[string]string{
+		// If we're running on AWS, use an NLB. It has a fixed IP & we can use VPC endpoints
+		// https://docs.aws.amazon.com/de_de/eks/latest/userguide/load-balancing.html
+		"service.beta.kubernetes.io/aws-load-balancer-type": "nlb",
+		// On AWS default timeout is 60s, which means: kubectl logs -f will receive EOF after 60s.
+		"service.beta.kubernetes.io/aws-load-balancer-connection-idle-timeout": "3600",
+	}
+
+	DefaultKubernetesVersioning = operatorv1alpha1.KubermaticVersioningConfiguration{
+		Default: semver.MustParse("v1.15.10"),
+		Versions: []*semver.Version{
+			// Kubernetes 1.15
+			semver.MustParse("v1.15.5"),
+			semver.MustParse("v1.15.6"),
+			semver.MustParse("v1.15.7"),
+			semver.MustParse("v1.15.9"),
+			semver.MustParse("v1.15.10"),
+			// Kubernetes 1.16
+			semver.MustParse("v1.16.2"),
+			semver.MustParse("v1.16.3"),
+			semver.MustParse("v1.16.4"),
+			semver.MustParse("v1.16.6"),
+			semver.MustParse("v1.16.7"),
+			// Kubernetes 1.17
+			semver.MustParse("v1.17.0"),
+			semver.MustParse("v1.17.2"),
+			semver.MustParse("v1.17.3"),
+		},
+		Updates: []operatorv1alpha1.Update{
+			// ======= 1.12 =======
+			{
+				// Allow to next minor release
+				From: "1.12.*",
+				To:   "1.13.*",
+			},
+
+			// ======= 1.13 =======
+			{
+				// CVE-2019-11247, CVE-2019-11249, CVE-2019-9512, CVE-2019-9514
+				From:      "<= 1.13.9, >= 1.13.0",
+				To:        "1.13.10",
+				Automatic: pointer.BoolPtr(true),
+			},
+			{
+				// Allow to next minor release
+				From: "1.13.*",
+				To:   "1.14.*",
+			},
+
+			// ======= 1.14 =======
+			{
+				// Allow to change to any patch version
+				From: "1.14.*",
+				To:   "1.14.*",
+			},
+			{
+				// CVE-2019-11247, CVE-2019-11249, CVE-2019-9512, CVE-2019-9514, CVE-2019-11253
+				From:      "<= 1.14.7, >= 1.14.0",
+				To:        "1.14.8",
+				Automatic: pointer.BoolPtr(true),
+			},
+			{
+				// Allow to next minor release
+				From: "1.14.*",
+				To:   "1.15.*",
+			},
+
+			// ======= 1.15 =======
+			{
+				// Allow to change to any patch version
+				From: "1.15.*",
+				To:   "1.15.*",
+			},
+			{
+				// CVE-2019-11247, CVE-2019-11249, CVE-2019-9512, CVE-2019-9514, CVE-2019-11253
+				From:      "<= 1.15.4, >= 1.15.0",
+				To:        "1.15.5",
+				Automatic: pointer.BoolPtr(true),
+			},
+			{
+				// Released with broken Anago
+				From:      "1.15.8",
+				To:        "1.15.9",
+				Automatic: pointer.BoolPtr(true),
+			},
+			{
+				// Allow to next minor release
+				From: "1.15.*",
+				To:   "1.16.*",
+			},
+
+			// ======= 1.16 =======
+			{
+				// Allow to change to any patch version
+				From: "1.16.*",
+				To:   "1.16.*",
+			},
+			{
+				// CVE-2019-11253
+				From:      "<= 1.16.1, >= 1.16.0",
+				To:        "1.16.2",
+				Automatic: pointer.BoolPtr(true),
+			},
+			{
+				// Released with broken Anago
+				From:      "1.16.5",
+				To:        "1.16.6",
+				Automatic: pointer.BoolPtr(true),
+			},
+			{
+				// Allow to next minor release
+				From: "1.16.*",
+				To:   "1.17.*",
+			},
+
+			// ======= 1.17 =======
+			{
+				// Allow to change to any patch version
+				From: "1.17.*",
+				To:   "1.17.*",
+			},
+			{
+				// Released with broken Anago
+				From:      "1.17.1",
+				To:        "1.17.2",
+				Automatic: pointer.BoolPtr(true),
+			},
+			{
+				// Allow to next minor release
+				From: "1.17.*",
+				To:   "1.18.*",
+			},
+		},
+	}
+
+	// DefaultOpenshiftVersioning contains the supported versions for openshift clusters. The OpenShift 4
+	// minor release is: Kubernetes minor - 12, since we only support openshift v4.1.9 and v4.1.18 only
+	// only cri-o 1.13.x is installed to the provisioned machines.
+	DefaultOpenshiftVersioning = operatorv1alpha1.KubermaticVersioningConfiguration{
+		Default: semver.MustParse("v4.1.18"),
+		Versions: []*semver.Version{
+			// Openshift 4.1.9
+			semver.MustParse("v4.1.9"),
+			// Openshift 4.1.18
+			semver.MustParse("v4.1.18"),
+		},
+		Updates: []operatorv1alpha1.Update{
+			// ======= Openshift 4.1 =======
+			{
+				// Allow to change to any patch version
+				From: "4.1.*",
+				To:   "4.1.*",
+			},
+			{
+				// Allow to next minor release
+				From: "4.1.*",
+				To:   "2.2.*",
+			},
 		},
 	}
 )
@@ -140,13 +364,13 @@ func DefaultConfiguration(config *operatorv1alpha1.KubermaticConfiguration, logg
 	}
 
 	if len(copy.Spec.UserCluster.Addons.Kubernetes.Default) == 0 && copy.Spec.UserCluster.Addons.Kubernetes.DefaultManifests == "" {
-		copy.Spec.UserCluster.Addons.Kubernetes.Default = KubernetesDefaultAddons
-		logger.Debugw("Defaulting field", "field", "userCluster.addons.kubernetes.default", "value", copy.Spec.UserCluster.Addons.Kubernetes.Default)
+		copy.Spec.UserCluster.Addons.Kubernetes.DefaultManifests = strings.TrimSpace(DefaultKubernetesAddons)
+		logger.Debugw("Defaulting field", "field", "userCluster.addons.kubernetes.defaultManifests")
 	}
 
 	if len(copy.Spec.UserCluster.Addons.Openshift.Default) == 0 && copy.Spec.UserCluster.Addons.Openshift.DefaultManifests == "" {
 		copy.Spec.UserCluster.Addons.Openshift.DefaultManifests = strings.TrimSpace(DefaultOpenshiftAddons)
-		logger.Debugw("Defaulting field", "field", "userCluster.Addons.Openshift.DefaultManifests")
+		logger.Debugw("Defaulting field", "field", "userCluster.addons.openshift.defaultManifests")
 	}
 
 	if copy.Spec.UserCluster.APIServerReplicas == nil {
@@ -197,18 +421,12 @@ func DefaultConfiguration(config *operatorv1alpha1.KubermaticConfiguration, logg
 		logger.Debugw("Defaulting field", "field", "ui.replicas", "value", *copy.Spec.UI.Replicas)
 	}
 
-	if copy.Spec.MasterFiles == nil {
-		copy.Spec.MasterFiles = map[string]string{}
+	if err := defaultVersioning(&copy.Spec.Versions.Kubernetes, DefaultKubernetesVersioning, "versions.kubernetes", logger); err != nil {
+		return copy, err
 	}
 
-	if copy.Spec.MasterFiles["versions.yaml"] == "" {
-		copy.Spec.MasterFiles["versions.yaml"] = strings.TrimSpace(DefaultVersionsYAML)
-		logger.Debugw("Defaulting field", "field", "masterFiles.'versions.yaml'")
-	}
-
-	if copy.Spec.MasterFiles["updates.yaml"] == "" {
-		copy.Spec.MasterFiles["updates.yaml"] = strings.TrimSpace(DefaultUpdatesYAML)
-		logger.Debugw("Defaulting field", "field", "masterFiles.'updates.yaml'")
+	if err := defaultVersioning(&copy.Spec.Versions.Openshift, DefaultOpenshiftVersioning, "versions.openshift", logger); err != nil {
+		return copy, err
 	}
 
 	auth := copy.Spec.Auth
@@ -267,6 +485,18 @@ func DefaultConfiguration(config *operatorv1alpha1.KubermaticConfiguration, logg
 		return copy, err
 	}
 
+	if err := defaultDockerRepo(&copy.Spec.VerticalPodAutoscaler.Recommender.DockerRepository, DefaultVPARecommenderDockerRepository, "verticalPodAutoscaler.recommender.dockerRepository", logger); err != nil {
+		return copy, err
+	}
+
+	if err := defaultDockerRepo(&copy.Spec.VerticalPodAutoscaler.Updater.DockerRepository, DefaultVPAUpdaterDockerRepository, "verticalPodAutoscaler.updater.dockerRepository", logger); err != nil {
+		return copy, err
+	}
+
+	if err := defaultDockerRepo(&copy.Spec.VerticalPodAutoscaler.AdmissionController.DockerRepository, DefaultVPAAdmissionControllerDockerRepository, "verticalPodAutoscaler.admissionController.dockerRepository", logger); err != nil {
+		return copy, err
+	}
+
 	if err := defaultResources(&copy.Spec.UI.Resources, DefaultUIResources, "ui.resources", logger); err != nil {
 		return copy, err
 	}
@@ -281,6 +511,56 @@ func DefaultConfiguration(config *operatorv1alpha1.KubermaticConfiguration, logg
 
 	if err := defaultResources(&copy.Spec.MasterController.Resources, DefaultMasterControllerMgrResources, "masterController.resources", logger); err != nil {
 		return copy, err
+	}
+
+	if err := defaultResources(&copy.Spec.VerticalPodAutoscaler.Recommender.Resources, DefaultVPARecommenderResources, "verticalPodAutoscaler.recommender.resources", logger); err != nil {
+		return copy, err
+	}
+
+	if err := defaultResources(&copy.Spec.VerticalPodAutoscaler.Updater.Resources, DefaultVPAUpdaterResources, "verticalPodAutoscaler.updater.resources", logger); err != nil {
+		return copy, err
+	}
+
+	if err := defaultResources(&copy.Spec.VerticalPodAutoscaler.AdmissionController.Resources, DefaultVPAAdmissionControllerResources, "verticalPodAutoscaler.admissionController.resources", logger); err != nil {
+		return copy, err
+	}
+
+	return copy, nil
+}
+
+func DefaultSeed(seed *kubermaticv1.Seed, logger *zap.SugaredLogger) (*kubermaticv1.Seed, error) {
+	logger = logger.With("seed", seed.Name)
+	logger.Debug("Applying defaults to Seed")
+
+	copy := seed.DeepCopy()
+
+	if err := defaultDockerRepo(&copy.Spec.NodeportProxy.Envoy.DockerRepository, DefaultEnvoyDockerRepository, "nodeportProxy.envoy.dockerRepository", logger); err != nil {
+		return copy, err
+	}
+
+	if err := defaultDockerRepo(&copy.Spec.NodeportProxy.EnvoyManager.DockerRepository, DefaultNodeportProxyDockerRepository, "nodeportProxy.envoyManager.dockerRepository", logger); err != nil {
+		return copy, err
+	}
+
+	if err := defaultDockerRepo(&copy.Spec.NodeportProxy.Updater.DockerRepository, DefaultNodeportProxyDockerRepository, "nodeportProxy.updater.dockerRepository", logger); err != nil {
+		return copy, err
+	}
+
+	if err := defaultResources(&copy.Spec.NodeportProxy.Envoy.Resources, DefaultNodeportProxyEnvoyResources, "nodeportProxy.envoy.resources", logger); err != nil {
+		return copy, err
+	}
+
+	if err := defaultResources(&copy.Spec.NodeportProxy.EnvoyManager.Resources, DefaultNodeportProxyEnvoyManagerResources, "nodeportProxy.envoyManager.resources", logger); err != nil {
+		return copy, err
+	}
+
+	if err := defaultResources(&copy.Spec.NodeportProxy.Updater.Resources, DefaultNodeportProxyUpdaterResources, "nodeportProxy.updater.resources", logger); err != nil {
+		return copy, err
+	}
+
+	if len(copy.Spec.NodeportProxy.Annotations) == 0 {
+		copy.Spec.NodeportProxy.Annotations = DefaultNodeportProxyServiceAnnotations
+		logger.Debugw("Defaulting field", "field", "nodeportProxy.annotations", "value", copy.Spec.NodeportProxy.Annotations)
 	}
 
 	return copy, nil
@@ -333,6 +613,27 @@ func defaultResourceList(list *corev1.ResourceList, defaults corev1.ResourceList
 	for _, name := range []corev1.ResourceName{corev1.ResourceMemory, corev1.ResourceCPU} {
 		(*list)[name] = defaults[name]
 		logger.Debugw("Defaulting resource constraint", "field", key+"."+name.String(), "value", (*list)[name])
+	}
+
+	return nil
+}
+
+func defaultVersioning(settings *operatorv1alpha1.KubermaticVersioningConfiguration, defaults operatorv1alpha1.KubermaticVersioningConfiguration, key string, logger *zap.SugaredLogger) error {
+	// this should never happen as the resources are not pointers in a KubermaticConfiguration
+	if settings == nil {
+		return nil
+	}
+
+	if len(settings.Versions) == 0 {
+		settings.Versions = defaults.Versions
+	}
+
+	if settings.Default == nil {
+		settings.Default = defaults.Default
+	}
+
+	if len(settings.Updates) == 0 {
+		settings.Updates = defaults.Updates
 	}
 
 	return nil
@@ -552,6 +853,56 @@ updates:
   type: openshift
 `
 
+const DefaultKubernetesAddons = `
+apiVersion: v1
+kind: List
+items:
+- apiVersion: kubermatic.k8s.io/v1
+  kind: Addon
+  metadata:
+    name: canal
+- apiVersion: kubermatic.k8s.io/v1
+  kind: Addon
+  metadata:
+    name: csi
+- apiVersion: kubermatic.k8s.io/v1
+  kind: Addon
+  metadata:
+    name: dns
+- apiVersion: kubermatic.k8s.io/v1
+  kind: Addon
+  metadata:
+    name: kube-proxy
+- apiVersion: kubermatic.k8s.io/v1
+  kind: Addon
+  metadata:
+    name: openvpn
+- apiVersion: kubermatic.k8s.io/v1
+  kind: Addon
+  metadata:
+    name: rbac
+- apiVersion: kubermatic.k8s.io/v1
+  kind: Addon
+  metadata:
+    name: kubelet-configmap
+- apiVersion: kubermatic.k8s.io/v1
+  kind: Addon
+  metadata:
+    name: default-storage-class
+- apiVersion: kubermatic.k8s.io/v1
+  kind: Addon
+  metadata:
+    name: nodelocal-dns-cache
+- apiVersion: kubermatic.k8s.io/v1
+  kind: Addon
+  metadata:
+    name: pod-security-policy
+- apiVersion: kubermatic.k8s.io/v1
+  kind: Addon
+  metadata:
+    name: logrotate
+`
+
 const DefaultOpenshiftAddons = `
 apiVersion: v1
 kind: List
@@ -595,3 +946,74 @@ items:
       Kind: CredentialsRequest
       Version: v1
 `
+
+type versionsYAML struct {
+	Versions []*version.Version `json:"versions"`
+}
+
+func CreateVersionsYAML(config *operatorv1alpha1.KubermaticVersionsConfiguration) (string, error) {
+	output := versionsYAML{
+		Versions: make([]*version.Version, 0),
+	}
+
+	appendOrchestrator := func(cfg *operatorv1alpha1.KubermaticVersioningConfiguration, kind string) {
+		for _, v := range cfg.Versions {
+			output.Versions = append(output.Versions, &version.Version{
+				Version: v,
+				Default: v.Equal(cfg.Default),
+				Type:    kind,
+			})
+		}
+	}
+
+	appendOrchestrator(&config.Kubernetes, kubermaticapiv1.KubernetesClusterType)
+	appendOrchestrator(&config.Openshift, kubermaticapiv1.OpenShiftClusterType)
+
+	return toYAML(output)
+}
+
+type updatesYAML struct {
+	Updates []*version.Update `json:"updates"`
+}
+
+func CreateUpdatesYAML(config *operatorv1alpha1.KubermaticVersionsConfiguration) (string, error) {
+	output := updatesYAML{
+		Updates: make([]*version.Update, 0),
+	}
+
+	appendOrchestrator := func(cfg *operatorv1alpha1.KubermaticVersioningConfiguration, kind string) {
+		for _, u := range cfg.Updates {
+			// AutomaticNodeUpdate implies automatic update, because nodes
+			// must not have a newer version than the control plane
+			automaticNodeUpdate := (u.AutomaticNodeUpdate != nil && *u.AutomaticNodeUpdate)
+			automatic := (u.Automatic != nil && *u.Automatic) || automaticNodeUpdate
+
+			output.Updates = append(output.Updates, &version.Update{
+				From:                u.From,
+				To:                  u.To,
+				Automatic:           automatic,
+				AutomaticNodeUpdate: automaticNodeUpdate,
+				Type:                kind,
+			})
+		}
+	}
+
+	appendOrchestrator(&config.Kubernetes, kubermaticapiv1.KubernetesClusterType)
+	appendOrchestrator(&config.Openshift, kubermaticapiv1.OpenShiftClusterType)
+
+	return toYAML(output)
+}
+
+func toYAML(data interface{}) (string, error) {
+	tmp, err := json.Marshal(data)
+	if err != nil {
+		return "", fmt.Errorf("failed to encode as JSON: %v", err)
+	}
+
+	res, err := yaml.JSONToYAML(tmp)
+	if err != nil {
+		return "", fmt.Errorf("failed to encode as YAML: %v", err)
+	}
+
+	return string(res), nil
+}

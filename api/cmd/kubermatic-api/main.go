@@ -24,11 +24,12 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"github.com/kubermatic/kubermatic/api/pkg/keycloak"
 	"log"
 	"net/http"
 	"os"
 	"time"
+
+	"github.com/kubermatic/kubermatic/api/pkg/keycloak"
 
 	"github.com/gorilla/handlers"
 	"github.com/gorilla/mux"
@@ -51,6 +52,7 @@ import (
 	kubernetesprovider "github.com/kubermatic/kubermatic/api/pkg/provider/kubernetes"
 	"github.com/kubermatic/kubermatic/api/pkg/serviceaccount"
 	"github.com/kubermatic/kubermatic/api/pkg/version"
+	kuberneteswatcher "github.com/kubermatic/kubermatic/api/pkg/watcher/kubernetes"
 	clusterv1alpha1 "github.com/kubermatic/machine-controller/pkg/apis/cluster/v1alpha1"
 
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -189,6 +191,7 @@ func createInitProviders(options serverRunOptions) (providers, error) {
 	if err != nil {
 		return providers{}, err
 	}
+	admissionPluginProvider := kubernetesprovider.NewAdmissionPluginsProvider(context.Background(), mgr.GetClient())
 	// Warm up the restMapper cache. Log but ignore errors encountered here, maybe there are stale seeds
 	go func() {
 		seeds, err := seedsGetter()
@@ -205,6 +208,10 @@ func createInitProviders(options serverRunOptions) (providers, error) {
 
 	userMasterLister := kubermaticMasterInformerFactory.Kubermatic().V1().Users().Lister()
 	sshKeyProvider := kubernetesprovider.NewSSHKeyProvider(defaultKubermaticImpersonationClient.CreateImpersonatedKubermaticClientSet, kubermaticMasterInformerFactory.Kubermatic().V1().UserSSHKeys().Lister())
+	privilegedSSHKeyProvider, err := kubernetesprovider.NewPrivilegedSSHKeyProvider(defaultKubermaticImpersonationClient.CreateImpersonatedKubermaticClientSet)
+	if err != nil {
+		return providers{}, fmt.Errorf("failed to create privileged SSH key provider due to %v", err)
+	}
 	userProvider := kubernetesprovider.NewUserProvider(kubermaticMasterClient, userMasterLister, kubernetesprovider.IsServiceAccount)
 	settingsProvider := kubernetesprovider.NewSettingsProvider(kubermaticMasterClient, kubermaticMasterInformerFactory.Kubermatic().V1().KubermaticSettings().Lister())
 	addonConfigProvider := kubernetesprovider.NewAddonConfigProvider(kubermaticMasterClient, kubermaticMasterInformerFactory.Kubermatic().V1().AddonConfigs().Lister())
@@ -243,8 +250,14 @@ func createInitProviders(options serverRunOptions) (providers, error) {
 
 	addonProviderGetter := kubernetesprovider.AddonProviderFactory(seedKubeconfigGetter, options.accessibleAddons)
 
+	settingsWatcher, err := kuberneteswatcher.NewSettingsWatcher(settingsProvider)
+	if err != nil {
+		return providers{}, fmt.Errorf("failed to create settings watcher due to %v", err)
+	}
+
 	return providers{
 		sshKey:                                sshKeyProvider,
+		privilegedSSHKeyProvider:              privilegedSSHKeyProvider,
 		user:                                  userProvider,
 		serviceAccountProvider:                serviceAccountProvider,
 		serviceAccountTokenProvider:           serviceAccountTokenProvider,
@@ -257,12 +270,16 @@ func createInitProviders(options serverRunOptions) (providers, error) {
 		clusterProviderGetter:                 clusterProviderGetter,
 		mdRequestProviderGetter:               machineDeploymentRequestProviderGetter,
 		seedsGetter:                           seedsGetter,
+		seedClientGetter:                      seedClientGetter,
 		addons:                                addonProviderGetter,
 		addonConfigProvider:                   addonConfigProvider,
 		userInfoGetter:                        userInfoGetter,
 		settingsProvider:                      settingsProvider,
 		adminProvider:                         adminProvider,
-		presetProvider:                        presetsProvider}, nil
+		presetProvider:                        presetsProvider,
+		admissionPluginProvider:               admissionPluginProvider,
+		settingsWatcher:                       settingsWatcher,
+	}, nil
 }
 
 func createOIDCClients(options serverRunOptions) (auth.OIDCIssuerVerifier, error) {
@@ -331,10 +348,12 @@ func createAPIHandler(options serverRunOptions, prov providers, oidcIssuerVerifi
 		kubermaticlog.New(options.log.Debug, options.log.Format).Sugar(),
 		prov.presetProvider,
 		prov.seedsGetter,
+		prov.seedClientGetter,
 		prov.clusterProviderGetter,
 		prov.addons,
 		prov.addonConfigProvider,
 		prov.sshKey,
+		prov.privilegedSSHKeyProvider,
 		prov.user,
 		prov.serviceAccountProvider,
 		prov.serviceAccountTokenProvider,
@@ -357,6 +376,8 @@ func createAPIHandler(options serverRunOptions, prov providers, oidcIssuerVerifi
 		prov.userInfoGetter,
 		prov.settingsProvider,
 		prov.adminProvider,
+		prov.admissionPluginProvider,
+		prov.settingsWatcher,
 	)
 
 	registerMetrics()
@@ -379,6 +400,7 @@ func createAPIHandler(options serverRunOptions, prov providers, oidcIssuerVerifi
 		mainRouter)
 	r.RegisterV1Admin(v1Router)
 	r.RegisterV1SysEleven(v1Router)
+	r.RegisterV1Websocket(v1Router)
 
 	mainRouter.Methods(http.MethodGet).
 		Path("/api/swagger.json").

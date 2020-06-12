@@ -39,12 +39,12 @@ func OpenshiftDNSOperatorFactory(data openshiftData) reconciling.NamedDeployment
 	return func() (string, reconciling.DeploymentCreator) {
 		return openshiftDNSOperatorDeploymentName, func(d *appsv1.Deployment) (*appsv1.Deployment, error) {
 
-			image, err := clusterDnsOperatorImage(data.Cluster().Spec.Version.String())
+			image, err := clusterDnsOperatorImage(data.Cluster().Spec.Version.String(), data.ImageRegistry(""))
 			if err != nil {
 				return nil, err
 			}
 
-			env, err := openshiftDNSOperatorEnv(data.Cluster().Spec.Version.String())
+			env, err := openshiftDNSOperatorEnv(data)
 			if err != nil {
 				return nil, err
 			}
@@ -54,7 +54,7 @@ func OpenshiftDNSOperatorFactory(data openshiftData) reconciling.NamedDeployment
 			})
 
 			d.Spec.Selector = &metav1.LabelSelector{
-				MatchLabels: resources.BaseAppLabel(openshiftDNSOperatorDeploymentName, nil),
+				MatchLabels: resources.BaseAppLabels(openshiftDNSOperatorDeploymentName, nil),
 			}
 			d.Spec.Template.Spec.ImagePullSecrets = []corev1.LocalObjectReference{
 				{Name: openshiftImagePullSecretName},
@@ -111,12 +111,13 @@ func OpenshiftDNSOperatorFactory(data openshiftData) reconciling.NamedDeployment
 	}
 }
 
-func openshiftDNSOperatorEnv(openshiftVersion string) ([]corev1.EnvVar, error) {
-	cliImageValue, err := cliImage(openshiftVersion)
+func openshiftDNSOperatorEnv(data openshiftData) ([]corev1.EnvVar, error) {
+	openshiftVersion := data.Cluster().Spec.Version.String()
+	cliImageValue, err := cliImage(openshiftVersion, data.ImageRegistry(""))
 	if err != nil {
 		return nil, err
 	}
-	coreDNSImageValue, err := corednsImage(openshiftVersion)
+	coreDNSImageValue, err := corednsImage(openshiftVersion, data.ImageRegistry(""))
 	if err != nil {
 		return nil, err
 	}

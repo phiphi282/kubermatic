@@ -6,12 +6,12 @@ package models
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
-	strfmt "github.com/go-openapi/strfmt"
-
+	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
 )
 
 // AWSSize AWSSize represents a object of AWS size.
+//
 // swagger:model AWSSize
 type AWSSize struct {
 
@@ -27,8 +27,8 @@ type AWSSize struct {
 	// price
 	Price float64 `json:"price,omitempty"`
 
-	// v cpus
-	VCpus int64 `json:"vcpus,omitempty"`
+	// v c p us
+	VCPUs int64 `json:"vcpus,omitempty"`
 }
 
 // Validate validates this a w s size

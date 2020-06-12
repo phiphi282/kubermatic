@@ -86,7 +86,7 @@ func APIDeploymentCreator(ctx context.Context, data openshiftData) reconciling.N
 		return resources.ApiserverDeploymentName, func(dep *appsv1.Deployment) (*appsv1.Deployment, error) {
 
 			dep.Name = resources.ApiserverDeploymentName
-			dep.Labels = resources.BaseAppLabel(legacyAppLabelValue, nil)
+			dep.Labels = resources.BaseAppLabels(legacyAppLabelValue, nil)
 
 			dep.Spec.Replicas = resources.Int32(1)
 			if data.Cluster().Spec.ComponentsOverride.Apiserver.Replicas != nil {
@@ -94,9 +94,9 @@ func APIDeploymentCreator(ctx context.Context, data openshiftData) reconciling.N
 			}
 
 			dep.Spec.Selector = &metav1.LabelSelector{
-				MatchLabels: resources.BaseAppLabel(legacyAppLabelValue, nil),
+				MatchLabels: resources.BaseAppLabels(legacyAppLabelValue, nil),
 			}
-			dep.Spec.Strategy.Type = appsv1.RollingUpdateStatefulSetStrategyType
+			dep.Spec.Strategy.Type = appsv1.RollingUpdateDeploymentStrategyType
 			dep.Spec.Strategy.RollingUpdate = &appsv1.RollingUpdateDeployment{
 				MaxSurge: &intstr.IntOrString{
 					Type:   intstr.Int,
@@ -162,7 +162,7 @@ func APIDeploymentCreator(ctx context.Context, data openshiftData) reconciling.N
 				return nil, err
 			}
 
-			image, err := hypershiftImage(data.Cluster().Spec.Version.String())
+			image, err := hypershiftImage(data.Cluster().Spec.Version.String(), data.ImageRegistry(""))
 			if err != nil {
 				return nil, err
 			}

@@ -6,14 +6,17 @@ package models
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
-	strfmt "github.com/go-openapi/strfmt"
-
+	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
 )
 
 // RoleUser RoleUser defines associated user with role
+//
 // swagger:model RoleUser
 type RoleUser struct {
+
+	// group
+	Group string `json:"group,omitempty"`
 
 	// user email
 	UserEmail string `json:"userEmail,omitempty"`

@@ -11,11 +11,9 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"go.uber.org/zap"
-	"k8s.io/apimachinery/pkg/util/httpstream"
-	"k8s.io/client-go/rest"
-	"k8s.io/client-go/tools/portforward"
-	"k8s.io/client-go/transport/spdy"
 
+	apiv1 "github.com/kubermatic/kubermatic/api/pkg/api/v1"
+	"github.com/kubermatic/kubermatic/api/pkg/controller/master-controller-manager/rbac"
 	kubermaticv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
 	"github.com/kubermatic/kubermatic/api/pkg/provider"
 	kubermaticerrors "github.com/kubermatic/kubermatic/api/pkg/util/errors"
@@ -24,7 +22,11 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/httpstream"
 	corev1interface "k8s.io/client-go/kubernetes/typed/core/v1"
+	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/portforward"
+	"k8s.io/client-go/transport/spdy"
 	ctrlruntimeclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -229,4 +231,61 @@ func ForwardPort(log *zap.SugaredLogger, forwarder *portforward.PortForwarder) e
 	}
 
 	return nil
+}
+
+func GetOwnersForProject(userInfo *provider.UserInfo, project *kubermaticv1.Project, memberProvider provider.ProjectMemberProvider, userProvider provider.UserProvider) ([]apiv1.User, error) {
+	allProjectMembers, err := memberProvider.List(userInfo, project, &provider.ProjectMemberListOptions{SkipPrivilegeVerification: true})
+	if err != nil {
+		return nil, err
+	}
+	projectOwners := []apiv1.User{}
+	for _, projectMember := range allProjectMembers {
+		if rbac.ExtractGroupPrefix(projectMember.Spec.Group) == rbac.OwnerGroupNamePrefix {
+			user, err := userProvider.UserByEmail(projectMember.Spec.UserEmail)
+			if err != nil {
+				continue
+			}
+			projectOwners = append(projectOwners, apiv1.User{
+				ObjectMeta: apiv1.ObjectMeta{
+					Name: user.Spec.Name,
+				},
+				Email: user.Spec.Email,
+			})
+		}
+	}
+	return projectOwners, nil
+}
+
+func GetProject(ctx context.Context, userInfoGetter provider.UserInfoGetter, projectProvider provider.ProjectProvider, privilegedProjectProvider provider.PrivilegedProjectProvider, projectID string) (*kubermaticv1.Project, error) {
+	adminUserInfo, err := userInfoGetter(ctx, "")
+	if err != nil {
+		return nil, err
+	}
+
+	if adminUserInfo.IsAdmin {
+		// get any project for admin
+		return privilegedProjectProvider.GetUnsecured(projectID, &provider.ProjectGetOptions{IncludeUninitialized: true})
+	}
+
+	userInfo, err := userInfoGetter(ctx, projectID)
+	if err != nil {
+		return nil, err
+	}
+	return projectProvider.Get(userInfo, projectID, &provider.ProjectGetOptions{IncludeUninitialized: true})
+}
+
+func GetClusterClient(ctx context.Context, userInfoGetter provider.UserInfoGetter, clusterProvider provider.ClusterProvider, cluster *kubermaticv1.Cluster, projectID string) (ctrlruntimeclient.Client, error) {
+	adminUserInfo, err := userInfoGetter(ctx, "")
+	if err != nil {
+		return nil, fmt.Errorf("failed to get user information: %v", err)
+	}
+	if adminUserInfo.IsAdmin {
+		return clusterProvider.GetAdminClientForCustomerCluster(cluster)
+	}
+
+	userInfo, err := userInfoGetter(ctx, projectID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get user information: %v", err)
+	}
+	return clusterProvider.GetClientForCustomerCluster(userInfo, cluster)
 }

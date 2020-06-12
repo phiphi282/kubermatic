@@ -6,16 +6,19 @@ package models
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
-	strfmt "github.com/go-openapi/strfmt"
-
 	"github.com/go-openapi/errors"
+	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
 	"github.com/go-openapi/validate"
 )
 
 // OpenstackNodeSpec OpenstackNodeSpec openstack node settings
+//
 // swagger:model OpenstackNodeSpec
 type OpenstackNodeSpec struct {
+
+	// if not set, the default AZ from the Datacenter spec will be used
+	AvailabilityZone string `json:"availabilityZone,omitempty"`
 
 	// instance flavor
 	// Required: true

@@ -6,17 +6,17 @@ package models
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
-	strfmt "github.com/go-openapi/strfmt"
-
+	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
 )
 
 // VSphereNodeSpec VSphereNodeSpec VSphere node settings
+//
 // swagger:model VSphereNodeSpec
 type VSphereNodeSpec struct {
 
-	// cpus
-	Cpus int64 `json:"cpus,omitempty"`
+	// c p us
+	CPUs int64 `json:"cpus,omitempty"`
 
 	// disk size g b
 	DiskSizeGB int64 `json:"diskSizeGB,omitempty"`

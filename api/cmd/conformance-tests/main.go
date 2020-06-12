@@ -37,6 +37,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	ctrlruntimeclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -62,6 +63,7 @@ type Opts struct {
 	clusterClientProvider        *clusterclient.Provider
 	repoRoot                     string
 	seed                         *kubermaticv1.Seed
+	seedRestConfig               *rest.Config
 	clusterParallelCount         int
 	workerName                   string
 	homeDir                      string
@@ -124,7 +126,11 @@ type secrets struct {
 	Kubevirt struct {
 		Kubeconfig string
 	}
-	kubermaticClient        *apiclient.MetaKube
+	kubermaticClient *apiclient.MetaKube
+	Alibaba          struct {
+		AccessKeyID     string
+		AccessKeySecret string
+	}
 	kubermaticAuthenticator runtime.ClientAuthInfoWriter
 }
 
@@ -212,6 +218,8 @@ func main() {
 	flag.StringVar(&opts.secrets.GCP.Network, "gcp-network", "", "GCP: Network")
 	flag.StringVar(&opts.secrets.GCP.Subnetwork, "gcp-subnetwork", "", "GCP: Subnetwork")
 	flag.StringVar(&opts.secrets.Kubevirt.Kubeconfig, "kubevirt-kubeconfig", "", "Kubevirt: Cluster Kubeconfig")
+	flag.StringVar(&opts.secrets.Alibaba.AccessKeyID, "alibaba-access-key-id", "", "Alibaba: AccessKeyID")
+	flag.StringVar(&opts.secrets.Alibaba.AccessKeySecret, "alibaba-access-key-secret", "", "Alibaba: AccessKeySecret")
 	flag.Parse()
 
 	defaultTimeout = time.Duration(defaultTimeoutMinutes) * time.Minute
@@ -233,6 +241,10 @@ func main() {
 				opts.excludeSelector.Distributions[providerconfig.OperatingSystemCentOS] = true
 			case "coreos":
 				opts.excludeSelector.Distributions[providerconfig.OperatingSystemCoreos] = true
+			case "sles":
+				opts.excludeSelector.Distributions[providerconfig.OperatingSystemSLES] = true
+			case "rhel":
+				opts.excludeSelector.Distributions[providerconfig.OperatingSystemRHEL] = true
 			default:
 				log.Fatalf("Unknown distribution '%s' in '-exclude-distributions' param", excludedDistribution)
 			}
@@ -360,6 +372,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	opts.seedRestConfig = config
 
 	if err := clusterv1alpha1.SchemeBuilder.AddToScheme(scheme.Scheme); err != nil {
 		log.Fatalf("failed to add clusterv1alpha1 to scheme: %v", err)
@@ -413,6 +426,8 @@ func getScenarios(opts Opts, log *zap.SugaredLogger) []testScenario {
 		opts.excludeSelector.Distributions[providerconfig.OperatingSystemUbuntu] = true
 		opts.excludeSelector.Distributions[providerconfig.OperatingSystemCoreos] = true
 		opts.excludeSelector.Distributions[providerconfig.OperatingSystemCentOS] = false
+		opts.excludeSelector.Distributions[providerconfig.OperatingSystemSLES] = true
+		opts.excludeSelector.Distributions[providerconfig.OperatingSystemRHEL] = true
 	}
 
 	scenarioOptions := strings.Split(opts.scenarioOptions, ",")
@@ -454,6 +469,10 @@ func getScenarios(opts Opts, log *zap.SugaredLogger) []testScenario {
 		log.Info("Adding Kubevirt scenarios")
 		scenarios = append(scenarios, getKubevirtScenarios(opts.versions, log)...)
 	}
+	if opts.providers.Has("alibaba") {
+		log.Info("Adding Alibaba scenarios")
+		scenarios = append(scenarios, getAlibabaScenarios(opts.versions)...)
+	}
 
 	var filteredScenarios []testScenario
 	for _, scenario := range scenarios {
@@ -470,6 +489,16 @@ func getScenarios(opts Opts, log *zap.SugaredLogger) []testScenario {
 		}
 		if osspec.Centos != nil {
 			if !opts.excludeSelector.Distributions[providerconfig.OperatingSystemCentOS] {
+				filteredScenarios = append(filteredScenarios, scenario)
+			}
+		}
+		if osspec.Sles != nil {
+			if !opts.excludeSelector.Distributions[providerconfig.OperatingSystemSLES] {
+				filteredScenarios = append(filteredScenarios, scenario)
+			}
+		}
+		if osspec.Rhel != nil {
+			if !opts.excludeSelector.Distributions[providerconfig.OperatingSystemRHEL] {
 				filteredScenarios = append(filteredScenarios, scenario)
 			}
 		}

@@ -6,14 +6,14 @@ package models
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
-	strfmt "github.com/go-openapi/strfmt"
-
 	"github.com/go-openapi/errors"
+	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
 	"github.com/go-openapi/validate"
 )
 
 // Event Event is a report of an event somewhere in the cluster.
+//
 // swagger:model Event
 type Event struct {
 
@@ -45,7 +45,7 @@ type Event struct {
 	Type string `json:"type,omitempty"`
 
 	// involved object
-	InvolvedObject *ObjectReference `json:"involvedObject,omitempty"`
+	InvolvedObject *ObjectReferenceResource `json:"involvedObject,omitempty"`
 }
 
 // Validate validates this event

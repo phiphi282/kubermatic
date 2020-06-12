@@ -6,12 +6,12 @@ package models
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
-	strfmt "github.com/go-openapi/strfmt"
-
+	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
 )
 
-// NodesMetric NodeMetric defines a metric for the given node
+// NodesMetric NodesMetric defines a metric for a group of nodes
+//
 // swagger:model NodesMetric
 type NodesMetric struct {
 
@@ -32,9 +32,6 @@ type NodesMetric struct {
 
 	// MemoryUsedPercentage in percentage
 	MemoryUsedPercentage int64 `json:"memoryUsedPercentage,omitempty"`
-
-	// name
-	Name string `json:"name,omitempty"`
 }
 
 // Validate validates this nodes metric

@@ -13,8 +13,7 @@ import (
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/runtime"
 	cr "github.com/go-openapi/runtime/client"
-
-	strfmt "github.com/go-openapi/strfmt"
+	"github.com/go-openapi/strfmt"
 )
 
 // NewGetNodeUpgradesParams creates a new GetNodeUpgradesParams object
@@ -136,14 +135,14 @@ func (o *GetNodeUpgradesParams) WriteToRequest(r runtime.ClientRequest, reg strf
 
 	if o.ControlPlaneVersion != nil {
 
-		// query param ControlPlaneVersion
+		// query param control_plane_version
 		var qrControlPlaneVersion string
 		if o.ControlPlaneVersion != nil {
 			qrControlPlaneVersion = *o.ControlPlaneVersion
 		}
 		qControlPlaneVersion := qrControlPlaneVersion
 		if qControlPlaneVersion != "" {
-			if err := r.SetQueryParam("ControlPlaneVersion", qControlPlaneVersion); err != nil {
+			if err := r.SetQueryParam("control_plane_version", qControlPlaneVersion); err != nil {
 				return err
 			}
 		}

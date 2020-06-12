@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"crypto/sha512"
 	"fmt"
-	"github.com/kubermatic/kubermatic/api/pkg/keycloak"
 	"io"
 	"io/ioutil"
 	"net/http"
@@ -14,6 +13,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/kubermatic/kubermatic/api/pkg/keycloak"
 
 	prometheusapi "github.com/prometheus/client_golang/api"
 
@@ -31,6 +32,8 @@ import (
 	"github.com/kubermatic/kubermatic/api/pkg/semver"
 	"github.com/kubermatic/kubermatic/api/pkg/serviceaccount"
 	"github.com/kubermatic/kubermatic/api/pkg/version"
+	"github.com/kubermatic/kubermatic/api/pkg/watcher"
+	kuberneteswatcher "github.com/kubermatic/kubermatic/api/pkg/watcher/kubernetes"
 	clusterv1alpha1 "github.com/kubermatic/machine-controller/pkg/apis/cluster/v1alpha1"
 
 	corev1 "k8s.io/api/core/v1"
@@ -121,10 +124,12 @@ type newRoutingFunc func(
 	settingsProvider provider.SettingsProvider,
 	userInfoGetter provider.UserInfoGetter,
 	seedsGetter provider.SeedsGetter,
+	seedClientGetter provider.SeedClientGetter,
 	clusterProviderGetter provider.ClusterProviderGetter,
 	addonProviderGetter provider.AddonProviderGetter,
 	addonConfigProvider provider.AddonConfigProvider,
 	newSSHKeyProvider provider.SSHKeyProvider,
+	privilegedSSHKeyProvider provider.PrivilegedSSHKeyProvider,
 	userProvider provider.UserProvider,
 	serviceAccountProvider provider.ServiceAccountProvider,
 	serviceAccountTokenProvider provider.ServiceAccountTokenProvider,
@@ -142,11 +147,13 @@ type newRoutingFunc func(
 	saTokenGenerator serviceaccount.TokenGenerator,
 	eventRecorderProvider provider.EventRecorderProvider,
 	keycloakFacade keycloak.Facade,
-	presetsProvider provider.PresetProvider) http.Handler
+	presetsProvider provider.PresetProvider,
+	admissionPluginProvider provider.AdmissionPluginsProvider,
+	settingsWatcher watcher.SettingsWatcher) http.Handler
 
 func initTestEndpoint(user apiv1.User, seedsGetter provider.SeedsGetter, kubeObjects, machineObjects, kubermaticObjects []runtime.Object, versions []*version.Version, updates []*version.Update, routingFunc newRoutingFunc) (http.Handler, *ClientsSets, error) {
 	if seedsGetter == nil {
-		seedsGetter = buildSeeds()
+		seedsGetter = BuildSeeds()
 	}
 	allObjects := kubeObjects
 	allObjects = append(allObjects, machineObjects...)
@@ -165,6 +172,10 @@ func initTestEndpoint(user apiv1.User, seedsGetter provider.SeedsGetter, kubeObj
 
 	userLister := kubermaticInformerFactory.Kubermatic().V1().Users().Lister()
 	sshKeyProvider := kubernetes.NewSSHKeyProvider(fakeKubermaticImpersonationClient, kubermaticInformerFactory.Kubermatic().V1().UserSSHKeys().Lister())
+	privilegedSSHKeyProvider, err := kubernetes.NewPrivilegedSSHKeyProvider(fakeKubermaticImpersonationClient)
+	if err != nil {
+		return nil, nil, err
+	}
 	userProvider := kubernetes.NewUserProvider(kubermaticClient, userLister, kubernetes.IsServiceAccount)
 	adminProvider := kubernetes.NewAdminProvider(kubermaticClient, userLister)
 	settingsProvider := kubernetes.NewSettingsProvider(kubermaticClient, kubermaticInformerFactory.Kubermatic().V1().KubermaticSettings().Lister())
@@ -264,6 +275,11 @@ func initTestEndpoint(user apiv1.User, seedsGetter provider.SeedsGetter, kubeObj
 	if err != nil {
 		return nil, nil, err
 	}
+	admissionPluginProvider := kubernetes.NewAdmissionPluginsProvider(context.Background(), fakeClient)
+
+	seedClientGetter := func(seed *kubermaticv1.Seed) (ctrlruntimeclient.Client, error) {
+		return fakeClient, nil
+	}
 
 	kubernetesInformerFactory.Start(wait.NeverStop)
 	kubernetesInformerFactory.WaitForCacheSync(wait.NeverStop)
@@ -273,6 +289,10 @@ func initTestEndpoint(user apiv1.User, seedsGetter provider.SeedsGetter, kubeObj
 	eventRecorderProvider := kubernetes.NewEventRecorder()
 
 	keycloakFacade := &testKeycloak{}
+	settingsWatcher, err := kuberneteswatcher.NewSettingsWatcher(settingsProvider)
+	if err != nil {
+		return nil, nil, err
+	}
 
 	// Disable the metrics endpoint in tests
 	var prometheusClient prometheusapi.Client
@@ -282,10 +302,13 @@ func initTestEndpoint(user apiv1.User, seedsGetter provider.SeedsGetter, kubeObj
 		settingsProvider,
 		userInfoGetter,
 		seedsGetter,
+		seedClientGetter,
+
 		clusterProviderGetter,
 		addonProviderGetter,
 		addonConfigProvider,
 		sshKeyProvider,
+		privilegedSSHKeyProvider,
 		userProvider,
 		serviceAccountProvider,
 		serviceAccountTokenProvider,
@@ -304,6 +327,8 @@ func initTestEndpoint(user apiv1.User, seedsGetter provider.SeedsGetter, kubeObj
 		eventRecorderProvider,
 		keycloakFacade,
 		credentialsManager,
+		admissionPluginProvider,
+		settingsWatcher,
 	)
 
 	return mainRouter, &ClientsSets{kubermaticClient, fakeClient, kubernetesClient, tokenAuth, tokenGenerator}, nil
@@ -331,62 +356,73 @@ func CreateTestEndpoint(user apiv1.User, kubeObjects, kubermaticObjects []runtim
 	return router, err
 }
 
-func buildSeeds() provider.SeedsGetter {
-	return func() (map[string]*kubermaticv1.Seed, error) {
-		return map[string]*kubermaticv1.Seed{
-			"us-central1": {
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "us-central1",
-				},
-				Spec: kubermaticv1.SeedSpec{
-					Location: "us-central",
-					Country:  "US",
-					Datacenters: map[string]kubermaticv1.Datacenter{
-						"private-do1": {
-							Country:  "NL",
-							Location: "US ",
-							Spec: kubermaticv1.DatacenterSpec{
-								Digitalocean: &kubermaticv1.DatacenterSpecDigitalocean{
-									Region: "ams2",
-								},
-							},
-						},
-						"regular-do1": {
-							Country:  "NL",
-							Location: "Amsterdam",
-							Spec: kubermaticv1.DatacenterSpec{
-								Digitalocean: &kubermaticv1.DatacenterSpecDigitalocean{
-									Region: "ams2",
-								},
-							},
-						},
-						"restricted-fake-dc": {
-							Country:  "NL",
-							Location: "Amsterdam",
-							Spec: kubermaticv1.DatacenterSpec{
-								Fake:                &kubermaticv1.DatacenterSpecFake{},
-								RequiredEmailDomain: "example.com",
-							},
-						},
-						"restricted-fake-dc2": {
-							Country:  "NL",
-							Location: "Amsterdam",
-							Spec: kubermaticv1.DatacenterSpec{
-								Fake:                 &kubermaticv1.DatacenterSpecFake{},
-								RequiredEmailDomains: []string{"23f67weuc.com", "example.com", "12noifsdsd.org"},
-							},
-						},
-						"fake-dc": {
-							Location: "Henriks basement",
-							Country:  "Germany",
-							Spec: kubermaticv1.DatacenterSpec{
-								Fake: &kubermaticv1.DatacenterSpecFake{},
-							},
+func GenTestSeed() *kubermaticv1.Seed {
+	return &kubermaticv1.Seed{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "us-central1",
+		},
+		Spec: kubermaticv1.SeedSpec{
+			Location: "us-central",
+			Country:  "US",
+			Datacenters: map[string]kubermaticv1.Datacenter{
+				"private-do1": {
+					Country:  "NL",
+					Location: "US ",
+					Spec: kubermaticv1.DatacenterSpec{
+						Digitalocean: &kubermaticv1.DatacenterSpecDigitalocean{
+							Region: "ams2",
 						},
 					},
 				},
+				"regular-do1": {
+					Country:  "NL",
+					Location: "Amsterdam",
+					Spec: kubermaticv1.DatacenterSpec{
+						Digitalocean: &kubermaticv1.DatacenterSpecDigitalocean{
+							Region: "ams2",
+						},
+					},
+				},
+				"restricted-fake-dc": {
+					Country:  "NL",
+					Location: "Amsterdam",
+					Spec: kubermaticv1.DatacenterSpec{
+						Fake:                &kubermaticv1.DatacenterSpecFake{},
+						RequiredEmailDomain: "example.com",
+					},
+				},
+				"restricted-fake-dc2": {
+					Country:  "NL",
+					Location: "Amsterdam",
+					Spec: kubermaticv1.DatacenterSpec{
+						Fake:                 &kubermaticv1.DatacenterSpecFake{},
+						RequiredEmailDomains: []string{"23f67weuc.com", "example.com", "12noifsdsd.org"},
+					},
+				},
+				"fake-dc": {
+					Location: "Henriks basement",
+					Country:  "Germany",
+					Spec: kubermaticv1.DatacenterSpec{
+						Fake: &kubermaticv1.DatacenterSpecFake{},
+					},
+				},
+				"audited-dc": {
+					Location: "Finanzamt Castle",
+					Country:  "Germany",
+					Spec: kubermaticv1.DatacenterSpec{
+						Fake:                &kubermaticv1.DatacenterSpecFake{},
+						EnforceAuditLogging: true,
+					},
+				},
 			},
-		}, nil
+		}}
+}
+
+func BuildSeeds() provider.SeedsGetter {
+	return func() (map[string]*kubermaticv1.Seed, error) {
+		seeds := make(map[string]*kubermaticv1.Seed)
+		seeds["us-central1"] = GenTestSeed()
+		return seeds, nil
 	}
 }
 

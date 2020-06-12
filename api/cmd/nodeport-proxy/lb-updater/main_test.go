@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/go-test/deep"
+	"go.uber.org/zap"
 
 	corev1 "k8s.io/api/core/v1"
 	apiequality "k8s.io/apimachinery/pkg/api/equality"
@@ -30,6 +31,10 @@ func TestReconciliation(t *testing.T) {
 			name: "Service without annotation gets ignored",
 			initialServices: []runtime.Object{
 				&corev1.Service{
+					TypeMeta: metav1.TypeMeta{
+						APIVersion: "v1",
+						Kind:       "Service",
+					},
 					Spec: corev1.ServiceSpec{
 						ClusterIP: "1.2.3.4",
 						Ports: []corev1.ServicePort{{
@@ -39,6 +44,10 @@ func TestReconciliation(t *testing.T) {
 					},
 				},
 				&corev1.Service{
+					TypeMeta: metav1.TypeMeta{
+						APIVersion: "v1",
+						Kind:       "Service",
+					},
 					ObjectMeta: metav1.ObjectMeta{
 						Namespace: "lb-ns",
 						Name:      "lb",
@@ -51,6 +60,10 @@ func TestReconciliation(t *testing.T) {
 			expectedServices: corev1.ServiceList{
 				Items: []corev1.Service{
 					{
+						TypeMeta: metav1.TypeMeta{
+							APIVersion: "v1",
+							Kind:       "Service",
+						},
 						Spec: corev1.ServiceSpec{
 							ClusterIP: "1.2.3.4",
 							Ports: []corev1.ServicePort{{
@@ -60,9 +73,14 @@ func TestReconciliation(t *testing.T) {
 						},
 					},
 					{
+						TypeMeta: metav1.TypeMeta{
+							APIVersion: "v1",
+							Kind:       "Service",
+						},
 						ObjectMeta: metav1.ObjectMeta{
-							Namespace: "lb-ns",
-							Name:      "lb",
+							Namespace:       "lb-ns",
+							Name:            "lb",
+							ResourceVersion: "1",
 						},
 						Spec: corev1.ServiceSpec{
 							ClusterIP: "1.2.3.4",
@@ -81,6 +99,10 @@ func TestReconciliation(t *testing.T) {
 			name: "Service without clusterIP gets ignored",
 			initialServices: []runtime.Object{
 				&corev1.Service{
+					TypeMeta: metav1.TypeMeta{
+						APIVersion: "v1",
+						Kind:       "Service",
+					},
 					ObjectMeta: metav1.ObjectMeta{
 						Annotations: map[string]string{"nodeport-proxy.k8s.io/expose": "true"},
 					},
@@ -92,6 +114,10 @@ func TestReconciliation(t *testing.T) {
 					},
 				},
 				&corev1.Service{
+					TypeMeta: metav1.TypeMeta{
+						APIVersion: "v1",
+						Kind:       "Service",
+					},
 					ObjectMeta: metav1.ObjectMeta{
 						Namespace: "lb-ns",
 						Name:      "lb",
@@ -104,6 +130,10 @@ func TestReconciliation(t *testing.T) {
 			expectedServices: corev1.ServiceList{
 				Items: []corev1.Service{
 					{
+						TypeMeta: metav1.TypeMeta{
+							APIVersion: "v1",
+							Kind:       "Service",
+						},
 						ObjectMeta: metav1.ObjectMeta{
 							Annotations: map[string]string{"nodeport-proxy.k8s.io/expose": "true"},
 						},
@@ -115,9 +145,14 @@ func TestReconciliation(t *testing.T) {
 						},
 					},
 					{
+						TypeMeta: metav1.TypeMeta{
+							APIVersion: "v1",
+							Kind:       "Service",
+						},
 						ObjectMeta: metav1.ObjectMeta{
-							Namespace: "lb-ns",
-							Name:      "lb",
+							Namespace:       "lb-ns",
+							Name:            "lb",
+							ResourceVersion: "1",
 						},
 						Spec: corev1.ServiceSpec{
 							ClusterIP: "1.2.3.4",
@@ -136,6 +171,10 @@ func TestReconciliation(t *testing.T) {
 			name: "Service without NodePort gets ignored",
 			initialServices: []runtime.Object{
 				&corev1.Service{
+					TypeMeta: metav1.TypeMeta{
+						APIVersion: "v1",
+						Kind:       "Service",
+					},
 					ObjectMeta: metav1.ObjectMeta{
 						Annotations: map[string]string{"nodeport-proxy.k8s.io/expose": "true"},
 					},
@@ -147,6 +186,10 @@ func TestReconciliation(t *testing.T) {
 					},
 				},
 				&corev1.Service{
+					TypeMeta: metav1.TypeMeta{
+						APIVersion: "v1",
+						Kind:       "Service",
+					},
 					ObjectMeta: metav1.ObjectMeta{
 						Namespace: "lb-ns",
 						Name:      "lb",
@@ -156,6 +199,10 @@ func TestReconciliation(t *testing.T) {
 			expectedServices: corev1.ServiceList{
 				Items: []corev1.Service{
 					{
+						TypeMeta: metav1.TypeMeta{
+							APIVersion: "v1",
+							Kind:       "Service",
+						},
 						ObjectMeta: metav1.ObjectMeta{
 							Annotations: map[string]string{"nodeport-proxy.k8s.io/expose": "true"},
 						},
@@ -167,9 +214,14 @@ func TestReconciliation(t *testing.T) {
 						},
 					},
 					{
+						TypeMeta: metav1.TypeMeta{
+							APIVersion: "v1",
+							Kind:       "Service",
+						},
 						ObjectMeta: metav1.ObjectMeta{
-							Namespace: "lb-ns",
-							Name:      "lb",
+							Namespace:       "lb-ns",
+							Name:            "lb",
+							ResourceVersion: "1",
 						},
 						Spec: corev1.ServiceSpec{
 							Ports: []corev1.ServicePort{{
@@ -187,6 +239,10 @@ func TestReconciliation(t *testing.T) {
 			name: "Reconciliation with existing port following old nameschema",
 			initialServices: []runtime.Object{
 				&corev1.Service{
+					TypeMeta: metav1.TypeMeta{
+						APIVersion: "v1",
+						Kind:       "Service",
+					},
 					ObjectMeta: metav1.ObjectMeta{
 						Namespace:   "cluster",
 						Name:        "apiserver",
@@ -201,6 +257,10 @@ func TestReconciliation(t *testing.T) {
 					},
 				},
 				&corev1.Service{
+					TypeMeta: metav1.TypeMeta{
+						APIVersion: "v1",
+						Kind:       "Service",
+					},
 					ObjectMeta: metav1.ObjectMeta{
 						Namespace: "lb-ns",
 						Name:      "lb",
@@ -218,6 +278,10 @@ func TestReconciliation(t *testing.T) {
 			expectedServices: corev1.ServiceList{
 				Items: []corev1.Service{
 					{
+						TypeMeta: metav1.TypeMeta{
+							APIVersion: "v1",
+							Kind:       "Service",
+						},
 						ObjectMeta: metav1.ObjectMeta{
 							Namespace:   "cluster",
 							Name:        "apiserver",
@@ -232,9 +296,14 @@ func TestReconciliation(t *testing.T) {
 						},
 					},
 					{
+						TypeMeta: metav1.TypeMeta{
+							APIVersion: "v1",
+							Kind:       "Service",
+						},
 						ObjectMeta: metav1.ObjectMeta{
-							Namespace: "lb-ns",
-							Name:      "lb",
+							Namespace:       "lb-ns",
+							Name:            "lb",
+							ResourceVersion: "1",
 						},
 						Spec: corev1.ServiceSpec{
 							Ports: []corev1.ServicePort{
@@ -261,6 +330,10 @@ func TestReconciliation(t *testing.T) {
 			name: "Reconciliation with exiting port following new nameschema",
 			initialServices: []runtime.Object{
 				&corev1.Service{
+					TypeMeta: metav1.TypeMeta{
+						APIVersion: "v1",
+						Kind:       "Service",
+					},
 					ObjectMeta: metav1.ObjectMeta{
 						Namespace:   "cluster",
 						Name:        "apiserver",
@@ -275,6 +348,10 @@ func TestReconciliation(t *testing.T) {
 					},
 				},
 				&corev1.Service{
+					TypeMeta: metav1.TypeMeta{
+						APIVersion: "v1",
+						Kind:       "Service",
+					},
 					ObjectMeta: metav1.ObjectMeta{
 						Namespace: "lb-ns",
 						Name:      "lb",
@@ -292,6 +369,10 @@ func TestReconciliation(t *testing.T) {
 			expectedServices: corev1.ServiceList{
 				Items: []corev1.Service{
 					{
+						TypeMeta: metav1.TypeMeta{
+							APIVersion: "v1",
+							Kind:       "Service",
+						},
 						ObjectMeta: metav1.ObjectMeta{
 							Namespace:   "cluster",
 							Name:        "apiserver",
@@ -306,9 +387,14 @@ func TestReconciliation(t *testing.T) {
 						},
 					},
 					{
+						TypeMeta: metav1.TypeMeta{
+							APIVersion: "v1",
+							Kind:       "Service",
+						},
 						ObjectMeta: metav1.ObjectMeta{
-							Namespace: "lb-ns",
-							Name:      "lb",
+							Namespace:       "lb-ns",
+							Name:            "lb",
+							ResourceVersion: "1",
 						},
 						Spec: corev1.ServiceSpec{
 							Ports: []corev1.ServicePort{
@@ -335,6 +421,10 @@ func TestReconciliation(t *testing.T) {
 			name: "Reconciliation without existing port uses new nameschema",
 			initialServices: []runtime.Object{
 				&corev1.Service{
+					TypeMeta: metav1.TypeMeta{
+						APIVersion: "v1",
+						Kind:       "Service",
+					},
 					ObjectMeta: metav1.ObjectMeta{
 						Namespace:   "cluster",
 						Name:        "apiserver",
@@ -349,6 +439,10 @@ func TestReconciliation(t *testing.T) {
 					},
 				},
 				&corev1.Service{
+					TypeMeta: metav1.TypeMeta{
+						APIVersion: "v1",
+						Kind:       "Service",
+					},
 					ObjectMeta: metav1.ObjectMeta{
 						Namespace: "lb-ns",
 						Name:      "lb",
@@ -358,6 +452,10 @@ func TestReconciliation(t *testing.T) {
 			expectedServices: corev1.ServiceList{
 				Items: []corev1.Service{
 					{
+						TypeMeta: metav1.TypeMeta{
+							APIVersion: "v1",
+							Kind:       "Service",
+						},
 						ObjectMeta: metav1.ObjectMeta{
 							Namespace:   "cluster",
 							Name:        "apiserver",
@@ -372,9 +470,14 @@ func TestReconciliation(t *testing.T) {
 						},
 					},
 					{
+						TypeMeta: metav1.TypeMeta{
+							APIVersion: "v1",
+							Kind:       "Service",
+						},
 						ObjectMeta: metav1.ObjectMeta{
-							Namespace: "lb-ns",
-							Name:      "lb",
+							Namespace:       "lb-ns",
+							Name:            "lb",
+							ResourceVersion: "1",
 						},
 						Spec: corev1.ServiceSpec{
 							Ports: []corev1.ServicePort{
@@ -398,17 +501,14 @@ func TestReconciliation(t *testing.T) {
 		},
 	}
 
-	var breakNow bool
 	for _, tc := range testCases {
-		if breakNow {
-			break
-		}
 		t.Run(tc.name, func(t *testing.T) {
 			client := fake.NewFakeClient(tc.initialServices...)
 			updater := &LBUpdater{
 				lbNamespace: "lb-ns",
 				lbName:      "lb",
 				client:      client,
+				log:         zap.NewNop().Sugar(),
 			}
 
 			if _, err := updater.Reconcile(reconcile.Request{}); err != nil {
@@ -420,10 +520,9 @@ func TestReconciliation(t *testing.T) {
 				t.Fatalf("failed to list services: %v", err)
 			}
 
-			if diff := deep.Equal(*resultingServices, tc.expectedServices); diff != nil {
-				expected, _ := json.Marshal(tc.expectedServices)
-				actual, _ := json.Marshal(*resultingServices)
-				breakNow = true
+			if diff := deep.Equal(resultingServices.Items, tc.expectedServices.Items); diff != nil {
+				expected, _ := json.Marshal(tc.expectedServices.Items)
+				actual, _ := json.Marshal(resultingServices.Items)
 				t.Fatalf("resulting services differ from expected services, diff:\n%v, expected:\n%s\nactual:\n%s", diff, expected, actual)
 			}
 		})

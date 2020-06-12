@@ -83,6 +83,18 @@ func (f *FakePrivilegedProjectProvider) GetUnsecured(projectInternalName string,
 	return nil, nil
 }
 
+// DeleteUnsecured deletes any given project
+// This function is unsafe in a sense that it uses privileged account to delete project with the given name
+func (f *FakePrivilegedProjectProvider) DeleteUnsecured(projectInternalName string) error {
+	return nil
+}
+
+// UpdateUnsecured update an existing project and returns it
+// This function is unsafe in a sense that it uses privileged account to update project
+func (f *FakePrivilegedProjectProvider) UpdateUnsecured(project *kubermaticapiv1.Project) (*kubermaticapiv1.Project, error) {
+	return project, nil
+}
+
 func createError(status int32, message string) error {
 	return &kerrors.StatusError{ErrStatus: metav1.Status{
 		Status:  metav1.StatusFailure,

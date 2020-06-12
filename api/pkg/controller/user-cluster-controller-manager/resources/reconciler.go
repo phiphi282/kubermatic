@@ -10,6 +10,7 @@ import (
 	controllermanager "github.com/kubermatic/kubermatic/api/pkg/controller/user-cluster-controller-manager/resources/resources/controller-manager"
 	dnatcontroller "github.com/kubermatic/kubermatic/api/pkg/controller/user-cluster-controller-manager/resources/resources/dnat-controller"
 	kubestatemetrics "github.com/kubermatic/kubermatic/api/pkg/controller/user-cluster-controller-manager/resources/resources/kube-state-metrics"
+	kubernetesdashboard "github.com/kubermatic/kubermatic/api/pkg/controller/user-cluster-controller-manager/resources/resources/kubernetes-dashboard"
 	machinecontroller "github.com/kubermatic/kubermatic/api/pkg/controller/user-cluster-controller-manager/resources/resources/machine-controller"
 	metricsserver "github.com/kubermatic/kubermatic/api/pkg/controller/user-cluster-controller-manager/resources/resources/metrics-server"
 	"github.com/kubermatic/kubermatic/api/pkg/controller/user-cluster-controller-manager/resources/resources/openshift"
@@ -304,6 +305,10 @@ func (r *reconciler) reconcileClusterRoles(ctx context.Context) error {
 		clusterautoscaler.ClusterRoleCreator(),
 	}
 
+	if !r.openshift {
+		creators = append(creators, kubernetesdashboard.ClusterRoleCreator())
+	}
+
 	if err := reconciling.ReconcileClusterRoles(ctx, creators, "", r.Client); err != nil {
 		return fmt.Errorf("failed to reconcile ClusterRoles: %v", err)
 	}
@@ -330,6 +335,8 @@ func (r *reconciler) reconcileClusterRoleBindings(ctx context.Context) error {
 
 	if r.openshift {
 		creators = append(creators, openshift.TokenOwnerServiceAccountClusterRoleBinding)
+	} else {
+		creators = append(creators, kubernetesdashboard.ClusterRoleBindingCreator())
 	}
 
 	if err := reconciling.ReconcileClusterRoleBindings(ctx, creators, "", r.Client); err != nil {

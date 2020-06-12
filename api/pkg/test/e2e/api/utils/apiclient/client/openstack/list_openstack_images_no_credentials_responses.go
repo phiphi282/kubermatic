@@ -10,10 +10,9 @@ import (
 	"io"
 
 	"github.com/go-openapi/runtime"
+	"github.com/go-openapi/strfmt"
 
-	strfmt "github.com/go-openapi/strfmt"
-
-	models "github.com/kubermatic/kubermatic/api/pkg/test/e2e/api/utils/apiclient/models"
+	"github.com/kubermatic/kubermatic/api/pkg/test/e2e/api/utils/apiclient/models"
 )
 
 // ListOpenstackImagesNoCredentialsReader is a Reader for the ListOpenstackImagesNoCredentials structure.
@@ -24,14 +23,12 @@ type ListOpenstackImagesNoCredentialsReader struct {
 // ReadResponse reads a server response into the received o.
 func (o *ListOpenstackImagesNoCredentialsReader) ReadResponse(response runtime.ClientResponse, consumer runtime.Consumer) (interface{}, error) {
 	switch response.Code() {
-
 	case 200:
 		result := NewListOpenstackImagesNoCredentialsOK()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return result, nil
-
 	default:
 		result := NewListOpenstackImagesNoCredentialsDefault(response.Code())
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
@@ -59,6 +56,10 @@ type ListOpenstackImagesNoCredentialsOK struct {
 
 func (o *ListOpenstackImagesNoCredentialsOK) Error() string {
 	return fmt.Sprintf("[GET /api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/providers/openstack/images][%d] listOpenstackImagesNoCredentialsOK  %+v", 200, o.Payload)
+}
+
+func (o *ListOpenstackImagesNoCredentialsOK) GetPayload() []*models.Image {
+	return o.Payload
 }
 
 func (o *ListOpenstackImagesNoCredentialsOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -95,6 +96,10 @@ func (o *ListOpenstackImagesNoCredentialsDefault) Code() int {
 
 func (o *ListOpenstackImagesNoCredentialsDefault) Error() string {
 	return fmt.Sprintf("[GET /api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/providers/openstack/images][%d] listOpenstackImagesNoCredentials default  %+v", o._statusCode, o.Payload)
+}
+
+func (o *ListOpenstackImagesNoCredentialsDefault) GetPayload() *models.ErrorResponse {
+	return o.Payload
 }
 
 func (o *ListOpenstackImagesNoCredentialsDefault) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
