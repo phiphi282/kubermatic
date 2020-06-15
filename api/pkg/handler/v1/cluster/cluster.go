@@ -63,14 +63,9 @@ func CreateEndpoint(sshKeyProvider provider.SSHKeyProvider, projectProvider prov
 	initNodeDeploymentFailures *prometheus.CounterVec, eventRecorderProvider provider.EventRecorderProvider, credentialManager provider.PresetProvider,
 	exposeStrategy corev1.ServiceType, userInfoGetter provider.UserInfoGetter, settingsProvider provider.SettingsProvider) endpoint.Endpoint {
 	return func(ctx context.Context, request interface{}) (interface{}, error) {
-		req := request.(CreateReq)
-		globalSettings, err := settingsProvider.GetGlobalSettings()
+		req, err := validateCreateReq(request, settingsProvider)
 		if err != nil {
-			return nil, common.KubernetesErrorToHTTPError(err)
-		}
-		err = req.Validate(globalSettings.Spec.ClusterTypeOptions)
-		if err != nil {
-			return nil, errors.NewBadRequest(err.Error())
+			return nil, err
 		}
 
 		clusterProvider := ctx.Value(middleware.ClusterProviderContextKey).(provider.ClusterProvider)
@@ -79,7 +74,6 @@ func CreateEndpoint(sshKeyProvider provider.SSHKeyProvider, projectProvider prov
 		if err != nil {
 			return nil, common.KubernetesErrorToHTTPError(err)
 		}
-		keycloakFacade := ctx.Value(middleware.KeycloakFacadeContextKey).(keycloak.Facade)
 		project, err := common.GetProject(ctx, userInfoGetter, projectProvider, privilegedProjectProvider, req.ProjectID, &provider.ProjectGetOptions{IncludeUninitialized: false})
 		if err != nil {
 			return nil, common.KubernetesErrorToHTTPError(err)
@@ -122,6 +116,7 @@ func CreateEndpoint(sshKeyProvider provider.SSHKeyProvider, projectProvider prov
 			return nil, errors.NewAlreadyExists("cluster", spec.HumanReadableName)
 		}
 
+		keycloakFacade := ctx.Value(middleware.KeycloakFacadeContextKey).(keycloak.Facade)
 		if err = validation.ValidateSys11AuthSettings(spec, keycloakFacade); err != nil {
 			return nil, common.KubernetesErrorToHTTPError(err)
 		}
@@ -129,6 +124,7 @@ func CreateEndpoint(sshKeyProvider provider.SSHKeyProvider, projectProvider prov
 		if err = validation.ValidateUpdateWindow(spec.UpdateWindow); err != nil {
 			return nil, common.KubernetesErrorToHTTPError(err)
 		}
+
 		partialCluster := &kubermaticv1.Cluster{}
 		partialCluster.Labels = req.Body.Cluster.Labels
 		partialCluster.Spec = *spec
@@ -220,6 +216,19 @@ func CreateEndpoint(sshKeyProvider provider.SSHKeyProvider, projectProvider prov
 
 		return convertInternalClusterToExternal(newCluster, true), nil
 	}
+}
+
+func validateCreateReq(request interface{}, settingsProvider provider.SettingsProvider) (CreateReq, error) {
+	req := request.(CreateReq)
+	globalSettings, err := settingsProvider.GetGlobalSettings()
+	if err != nil {
+		return req, common.KubernetesErrorToHTTPError(err)
+	}
+	err = req.Validate(globalSettings.Spec.ClusterTypeOptions)
+	if err != nil {
+		return req, errors.NewBadRequest(err.Error())
+	}
+	return req, nil
 }
 
 func createNewCluster(ctx context.Context, userInfoGetter provider.UserInfoGetter, clusterProvider provider.ClusterProvider, privilegedClusterProvider provider.PrivilegedClusterProvider, project *kubermaticv1.Project, cluster *kubermaticv1.Cluster) (*kubermaticv1.Cluster, error) {

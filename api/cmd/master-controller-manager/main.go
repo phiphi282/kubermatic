@@ -27,8 +27,9 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/klog"
 	ctrlruntimecache "sigs.k8s.io/controller-runtime/pkg/cache"
+	ctrlruntimelog "sigs.k8s.io/controller-runtime/pkg/log"
+	ctrlruntimelogzap "sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
-	ctrlruntimelog "sigs.k8s.io/controller-runtime/pkg/runtime/log"
 )
 
 const (
@@ -76,7 +77,7 @@ func main() {
 	addFlags(flag.CommandLine)
 	flag.Parse()
 
-	ctrlruntimelog.SetLogger(ctrlruntimelog.ZapLogger(false))
+	ctrlruntimelog.SetLogger(ctrlruntimelogzap.Logger(false))
 	rawLog := kubermaticlog.New(logOpts.Debug, logOpts.Format)
 	log := rawLog.Sugar()
 	defer func() {
