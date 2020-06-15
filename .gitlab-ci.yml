@@ -89,6 +89,7 @@ lint:
   image: golangci/golangci-lint:v1.23.8
   script:
   - cd api
+  - export KUBERMATIC_EDITION=ee
   - GOGC=5 make lint # TODO remove GOGC again once https://github.com/golangci/golangci-lint/issues/483 is resolved
   tags:
   - shared
