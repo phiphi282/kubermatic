@@ -41,7 +41,7 @@ var AllControllers = map[string]controllerCreator{
 	openshiftcontroller.ControllerName:            createOpenshiftController,
 	clustercomponentdefaulter.ControllerName:      createClusterComponentDefaulter,
 	seedresourcesuptodatecondition.ControllerName: createSeedConditionUpToDateController,
-	rancher.ControllerName:                        createrancherController,
+	rancher.ControllerName:                        createRancherController,
 }
 
 type controllerCreator func(*controllerContext) error
@@ -257,6 +257,7 @@ func createAddonController(ctrlCtx *controllerContext) error {
 		ctrlCtx.log,
 		ctrlCtx.runOptions.workerCount,
 		ctrlCtx.runOptions.workerName,
+		ctrlCtx.runOptions.addonEnforceInterval,
 		map[string]interface{}{ // addonVariables
 			"openvpn": map[string]interface{}{
 				"NodeAccessNetwork": ctrlCtx.runOptions.nodeAccessNetwork,
@@ -285,7 +286,7 @@ func createAddonInstallerController(ctrlCtx *controllerContext) error {
 		ctrlCtx.runOptions.openshiftAddons)
 }
 
-func createrancherController(ctrlCtx *controllerContext) error {
+func createRancherController(ctrlCtx *controllerContext) error {
 	return rancher.Add(
 		ctrlCtx.mgr,
 		ctrlCtx.log,

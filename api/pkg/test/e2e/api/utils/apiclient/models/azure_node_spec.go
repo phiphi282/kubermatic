@@ -6,19 +6,28 @@ package models
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
-	strfmt "github.com/go-openapi/strfmt"
-
 	"github.com/go-openapi/errors"
+	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
 	"github.com/go-openapi/validate"
 )
 
 // AzureNodeSpec AzureNodeSpec describes settings for an Azure node
+//
 // swagger:model AzureNodeSpec
 type AzureNodeSpec struct {
 
 	// should the machine have a publicly accessible IP address
 	AssignPublicIP bool `json:"assignPublicIP,omitempty"`
+
+	// Data disk size in GB
+	DataDiskSize int32 `json:"dataDiskSize,omitempty"`
+
+	// image ID
+	ImageID string `json:"imageID,omitempty"`
+
+	// OS disk size in GB
+	OSDiskSize int32 `json:"osDiskSize,omitempty"`
 
 	// VM size
 	// Required: true
@@ -26,6 +35,9 @@ type AzureNodeSpec struct {
 
 	// Additional metadata to set
 	Tags map[string]string `json:"tags,omitempty"`
+
+	// Zones represents the availability zones for azure vms
+	Zones []string `json:"zones"`
 }
 
 // Validate validates this azure node spec

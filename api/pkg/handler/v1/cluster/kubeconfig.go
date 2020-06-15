@@ -13,6 +13,7 @@ import (
 	"github.com/go-kit/kit/endpoint"
 	"github.com/gorilla/securecookie"
 
+	kubermaticv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
 	"github.com/kubermatic/kubermatic/api/pkg/handler/auth"
 	"github.com/kubermatic/kubermatic/api/pkg/handler/middleware"
 	"github.com/kubermatic/kubermatic/api/pkg/handler/v1/common"
@@ -31,34 +32,46 @@ const (
 
 var secureCookie *securecookie.SecureCookie
 
-func GetAdminKubeconfigEndpoint(projectProvider provider.ProjectProvider, userInfoGetter provider.UserInfoGetter) endpoint.Endpoint {
+func GetAdminKubeconfigEndpoint(projectProvider provider.ProjectProvider, privilegedProjectProvider provider.PrivilegedProjectProvider, userInfoGetter provider.UserInfoGetter) endpoint.Endpoint {
 	return func(ctx context.Context, request interface{}) (interface{}, error) {
 		req := request.(GetClusterKubeconfigRequest)
 		clusterProvider := ctx.Value(middleware.ClusterProviderContextKey).(provider.ClusterProvider)
-		userInfo, err := userInfoGetter(ctx, req.ProjectID)
+		cluster, err := GetCluster(ctx, projectProvider, privilegedProjectProvider, userInfoGetter, req.ProjectID, req.ClusterID, nil)
 		if err != nil {
-			return nil, common.KubernetesErrorToHTTPError(err)
+			return nil, err
 		}
 
-		project, err := projectProvider.Get(userInfo, req.ProjectID, &provider.ProjectGetOptions{})
-		if err != nil {
-			return nil, common.KubernetesErrorToHTTPError(err)
-		}
-
-		cluster, err := clusterProvider.Get(userInfo, req.ClusterID, &provider.ClusterGetOptions{})
+		project, err := common.GetProject(ctx, userInfoGetter, projectProvider, privilegedProjectProvider, req.ProjectID, &provider.ProjectGetOptions{IncludeUninitialized: false})
 		if err != nil {
 			return nil, common.KubernetesErrorToHTTPError(err)
 		}
 
 		filePrefix := "admin"
 		var adminClientCfg *clientcmdapi.Config
+
+		adminUserInfo, err := userInfoGetter(ctx, "")
+		if err != nil {
+			return nil, common.KubernetesErrorToHTTPError(err)
+		}
+
+		if adminUserInfo.IsAdmin {
+			adminClientCfg, err = clusterProvider.GetAdminKubeconfigForCustomerCluster(cluster)
+			if err != nil {
+				return nil, common.KubernetesErrorToHTTPError(err)
+			}
+			return &encodeKubeConifgResponse{clientCfg: adminClientCfg, filePrefix: filePrefix}, nil
+		}
+
+		userInfo, err := userInfoGetter(ctx, req.ProjectID)
+		if err != nil {
+			return nil, common.KubernetesErrorToHTTPError(err)
+		}
 		if strings.HasPrefix(userInfo.Group, "viewers") {
 			filePrefix = "viewer"
 			adminClientCfg, err = clusterProvider.GetViewerKubeconfigForCustomerCluster(cluster)
 		} else {
 			adminClientCfg, err = clusterProvider.GetAdminKubeconfigForCustomerCluster(cluster)
 		}
-
 		if err != nil {
 			return nil, common.KubernetesErrorToHTTPError(err)
 		}
@@ -75,26 +88,19 @@ func GetAdminKubeconfigEndpoint(projectProvider provider.ProjectProvider, userIn
 				clusterName: fmt.Sprintf("%s-%s", project.Spec.Name, cluster.Spec.HumanReadableName),
 			}, nil
 		}
+
 		return &encodeKubeConifgResponse{clientCfg: adminClientCfg, filePrefix: filePrefix}, nil
 	}
 }
 
-func GetOidcKubeconfigEndpoint(projectProvider provider.ProjectProvider, userInfoGetter provider.UserInfoGetter) endpoint.Endpoint {
+func GetOidcKubeconfigEndpoint(projectProvider provider.ProjectProvider, privilegedProjectProvider provider.PrivilegedProjectProvider, userInfoGetter provider.UserInfoGetter) endpoint.Endpoint {
 	return func(ctx context.Context, request interface{}) (interface{}, error) {
 		req := request.(common.GetClusterReq)
 		clusterProvider := ctx.Value(middleware.ClusterProviderContextKey).(provider.ClusterProvider)
-		userInfo, err := userInfoGetter(ctx, req.ProjectID)
-		if err != nil {
-			return nil, common.KubernetesErrorToHTTPError(err)
-		}
-		_, err = projectProvider.Get(userInfo, req.ProjectID, &provider.ProjectGetOptions{})
-		if err != nil {
-			return nil, common.KubernetesErrorToHTTPError(err)
-		}
 
-		cluster, err := clusterProvider.Get(userInfo, req.ClusterID, &provider.ClusterGetOptions{})
+		cluster, err := GetCluster(ctx, projectProvider, privilegedProjectProvider, userInfoGetter, req.ProjectID, req.ClusterID, nil)
 		if err != nil {
-			return nil, common.KubernetesErrorToHTTPError(err)
+			return nil, err
 		}
 		adminClientCfg, err := clusterProvider.GetAdminKubeconfigForCustomerCluster(cluster)
 		if err != nil {
@@ -121,23 +127,50 @@ func GetOidcKubeconfigEndpoint(projectProvider provider.ProjectProvider, userInf
 	}
 }
 
-func CreateOIDCKubeconfigEndpoint(projectProvider provider.ProjectProvider, oidcIssuerVerifier auth.OIDCIssuerVerifier, oidcCfg common.OIDCConfiguration) endpoint.Endpoint {
+func getClusterForOIDCEndpoint(ctx context.Context, projectProvider provider.ProjectProvider, privilegedProjectProvider provider.PrivilegedProjectProvider, projectID, clusterID string) (*kubermaticv1.Cluster, error) {
+	clusterProvider, ok := ctx.Value(middleware.ClusterProviderContextKey).(provider.ClusterProvider)
+	if !ok {
+		return nil, kcerrors.New(http.StatusInternalServerError, "no cluster provider in request")
+	}
+	privilegedClusterProvider, ok := ctx.Value(middleware.PrivilegedClusterProviderContextKey).(provider.PrivilegedClusterProvider)
+	if !ok {
+		return nil, kcerrors.New(http.StatusInternalServerError, "no privileged cluster provider in request")
+	}
+	userInfo := ctx.Value(middleware.UserInfoContextKey).(*provider.UserInfo)
+
+	project, err := getProjectForOIDCEndpoint(userInfo, projectProvider, privilegedProjectProvider, projectID)
+	if err != nil {
+		return nil, err
+	}
+
+	if userInfo.IsAdmin {
+		return privilegedClusterProvider.GetUnsecured(project, clusterID, nil)
+	}
+
+	return clusterProvider.Get(userInfo, clusterID, &provider.ClusterGetOptions{})
+}
+
+func getProjectForOIDCEndpoint(userInfo *provider.UserInfo, projectProvider provider.ProjectProvider, privilegedProjectProvider provider.PrivilegedProjectProvider, projectID string) (*kubermaticv1.Project, error) {
+	if userInfo.IsAdmin {
+		// get any project for admin
+		return privilegedProjectProvider.GetUnsecured(projectID, &provider.ProjectGetOptions{IncludeUninitialized: true})
+	}
+
+	return projectProvider.Get(userInfo, projectID, &provider.ProjectGetOptions{IncludeUninitialized: true})
+}
+
+func CreateOIDCKubeconfigEndpoint(projectProvider provider.ProjectProvider, privilegedProjectProvider provider.PrivilegedProjectProvider, oidcIssuerVerifier auth.OIDCIssuerVerifier, oidcCfg common.OIDCConfiguration) endpoint.Endpoint {
 	return func(ctx context.Context, request interface{}) (interface{}, error) {
 		oidcIssuer := oidcIssuerVerifier.(auth.OIDCIssuer)
 		oidcVerifier := oidcIssuerVerifier.(auth.TokenVerifier)
 		req := request.(CreateOIDCKubeconfigReq)
 		clusterProvider := ctx.Value(middleware.ClusterProviderContextKey).(provider.ClusterProvider)
-		userInfo := ctx.Value(middleware.UserInfoContextKey).(*provider.UserInfo)
 
 		if secureCookie == nil {
 			secureCookie = securecookie.New([]byte(oidcCfg.CookieHashKey), nil)
 		}
 
-		_, err := projectProvider.Get(userInfo, req.ProjectID, &provider.ProjectGetOptions{})
-		if err != nil {
-			return nil, common.KubernetesErrorToHTTPError(err)
-		}
-		cluster, err := clusterProvider.Get(userInfo, req.ClusterID, &provider.ClusterGetOptions{})
+		cluster, err := getClusterForOIDCEndpoint(ctx, projectProvider, privilegedProjectProvider, req.ProjectID, req.ClusterID)
 		if err != nil {
 			return nil, common.KubernetesErrorToHTTPError(err)
 		}
@@ -363,10 +396,10 @@ type OIDCState struct {
 // swagger:parameters createOIDCKubeconfig
 type CreateOIDCKubeconfigReq struct {
 	// in: query
-	ClusterID  string
-	ProjectID  string
-	UserID     string
-	Datacenter string
+	ClusterID  string `json:"cluster_id,omitempty"`
+	ProjectID  string `json:"project_id,omitempty"`
+	UserID     string `json:"user_id,omitempty"`
+	Datacenter string `json:"datacenter,omitempty"`
 
 	// not exported so that they don't leak to swagger spec.
 	code             string

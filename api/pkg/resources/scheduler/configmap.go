@@ -133,7 +133,7 @@ func ConfigMapCreator(data *resources.TemplateData) reconciling.NamedConfigMapCr
 				return nil, fmt.Errorf("failed to create scheduler policy: %v", err)
 			}
 
-			cm.Labels = resources.BaseAppLabel(name, nil)
+			cm.Labels = resources.BaseAppLabels(name, nil)
 			cm.Data[resources.SchedulerConfigFileName] = schedulerConfig
 			cm.Data[resources.SchedulerPolicyFileName] = policyConfig
 

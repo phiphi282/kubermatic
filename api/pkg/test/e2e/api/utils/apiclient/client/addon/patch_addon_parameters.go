@@ -13,10 +13,9 @@ import (
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/runtime"
 	cr "github.com/go-openapi/runtime/client"
+	"github.com/go-openapi/strfmt"
 
-	strfmt "github.com/go-openapi/strfmt"
-
-	models "github.com/kubermatic/kubermatic/api/pkg/test/e2e/api/utils/apiclient/models"
+	"github.com/kubermatic/kubermatic/api/pkg/test/e2e/api/utils/apiclient/models"
 )
 
 // NewPatchAddonParams creates a new PatchAddonParams object
@@ -70,7 +69,7 @@ type PatchAddonParams struct {
 	/*ClusterID*/
 	ClusterID string
 	/*Dc*/
-	Dc string
+	DC string
 	/*ProjectID*/
 	ProjectID string
 
@@ -145,15 +144,15 @@ func (o *PatchAddonParams) SetClusterID(clusterID string) {
 	o.ClusterID = clusterID
 }
 
-// WithDc adds the dc to the patch addon params
-func (o *PatchAddonParams) WithDc(dc string) *PatchAddonParams {
-	o.SetDc(dc)
+// WithDC adds the dc to the patch addon params
+func (o *PatchAddonParams) WithDC(dc string) *PatchAddonParams {
+	o.SetDC(dc)
 	return o
 }
 
-// SetDc adds the dc to the patch addon params
-func (o *PatchAddonParams) SetDc(dc string) {
-	o.Dc = dc
+// SetDC adds the dc to the patch addon params
+func (o *PatchAddonParams) SetDC(dc string) {
+	o.DC = dc
 }
 
 // WithProjectID adds the projectID to the patch addon params
@@ -192,7 +191,7 @@ func (o *PatchAddonParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Re
 	}
 
 	// path param dc
-	if err := r.SetPathParam("dc", o.Dc); err != nil {
+	if err := r.SetPathParam("dc", o.DC); err != nil {
 		return err
 	}
 

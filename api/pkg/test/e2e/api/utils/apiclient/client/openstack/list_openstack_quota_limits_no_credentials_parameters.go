@@ -13,8 +13,7 @@ import (
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/runtime"
 	cr "github.com/go-openapi/runtime/client"
-
-	strfmt "github.com/go-openapi/strfmt"
+	"github.com/go-openapi/strfmt"
 )
 
 // NewListOpenstackQuotaLimitsNoCredentialsParams creates a new ListOpenstackQuotaLimitsNoCredentialsParams object
@@ -64,7 +63,7 @@ type ListOpenstackQuotaLimitsNoCredentialsParams struct {
 	/*ClusterID*/
 	ClusterID string
 	/*Dc*/
-	Dc string
+	DC string
 	/*ProjectID*/
 	ProjectID string
 
@@ -117,15 +116,15 @@ func (o *ListOpenstackQuotaLimitsNoCredentialsParams) SetClusterID(clusterID str
 	o.ClusterID = clusterID
 }
 
-// WithDc adds the dc to the list openstack quota limits no credentials params
-func (o *ListOpenstackQuotaLimitsNoCredentialsParams) WithDc(dc string) *ListOpenstackQuotaLimitsNoCredentialsParams {
-	o.SetDc(dc)
+// WithDC adds the dc to the list openstack quota limits no credentials params
+func (o *ListOpenstackQuotaLimitsNoCredentialsParams) WithDC(dc string) *ListOpenstackQuotaLimitsNoCredentialsParams {
+	o.SetDC(dc)
 	return o
 }
 
-// SetDc adds the dc to the list openstack quota limits no credentials params
-func (o *ListOpenstackQuotaLimitsNoCredentialsParams) SetDc(dc string) {
-	o.Dc = dc
+// SetDC adds the dc to the list openstack quota limits no credentials params
+func (o *ListOpenstackQuotaLimitsNoCredentialsParams) SetDC(dc string) {
+	o.DC = dc
 }
 
 // WithProjectID adds the projectID to the list openstack quota limits no credentials params
@@ -153,7 +152,7 @@ func (o *ListOpenstackQuotaLimitsNoCredentialsParams) WriteToRequest(r runtime.C
 	}
 
 	// path param dc
-	if err := r.SetPathParam("dc", o.Dc); err != nil {
+	if err := r.SetPathParam("dc", o.DC); err != nil {
 		return err
 	}
 

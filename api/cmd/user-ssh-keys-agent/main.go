@@ -4,13 +4,14 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io/ioutil"
 	"os"
 	"syscall"
 
 	"github.com/go-logr/zapr"
-
 	"go.uber.org/zap"
 
+	cmdutil "github.com/kubermatic/kubermatic/api/cmd/util"
 	usersshkeys "github.com/kubermatic/kubermatic/api/pkg/controller/usersshkeysagent"
 	kubermaticlog "github.com/kubermatic/kubermatic/api/pkg/log"
 
@@ -27,6 +28,8 @@ func main() {
 
 	rawLog := kubermaticlog.New(logOpts.Debug, logOpts.Format)
 	log := rawLog.Sugar()
+
+	cmdutil.Hello(log, "User SSH-Key Agent", logOpts.Debug)
 
 	cfg, err := config.GetConfig()
 	if err != nil {
@@ -60,7 +63,12 @@ func main() {
 
 func availableUsersPaths() ([]string, error) {
 	var paths []string
-	for _, user := range []string{"root", "core", "ubuntu", "centos"} {
+	users, err := availableHomeUsers()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get users in the home dir: %v", err)
+	}
+
+	for _, user := range users {
 		path := fmt.Sprintf("/%v", user)
 		if user != "root" {
 			path = fmt.Sprintf("/home%v", path)
@@ -137,4 +145,22 @@ func createFileIfNotExist(path string, uid, gid int) error {
 	}
 
 	return nil
+}
+
+func availableHomeUsers() ([]string, error) {
+	files, err := ioutil.ReadDir("/home")
+	if err != nil {
+		return nil, err
+	}
+
+	var users = []string{"root"}
+	for _, file := range files {
+		if !file.IsDir() {
+			continue
+		}
+
+		users = append(users, file.Name())
+	}
+
+	return users, nil
 }

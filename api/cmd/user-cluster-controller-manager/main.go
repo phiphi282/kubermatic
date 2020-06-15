@@ -10,13 +10,12 @@ import (
 	"strings"
 	"time"
 
-	kubermaticv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
-
 	"github.com/go-logr/zapr"
 	"github.com/heptiolabs/healthcheck"
 	"github.com/oklog/run"
 	"go.uber.org/zap"
 
+	cmdutil "github.com/kubermatic/kubermatic/api/cmd/util"
 	sys11nodereadiness "github.com/kubermatic/kubermatic/api/pkg/controller/sys11-node-readiness"
 	clusterrolelabeler "github.com/kubermatic/kubermatic/api/pkg/controller/user-cluster-controller-manager/cluster-role-labeler"
 	containerlinux "github.com/kubermatic/kubermatic/api/pkg/controller/user-cluster-controller-manager/container-linux"
@@ -30,6 +29,7 @@ import (
 	usercluster "github.com/kubermatic/kubermatic/api/pkg/controller/user-cluster-controller-manager/resources"
 	machinecontrolerresources "github.com/kubermatic/kubermatic/api/pkg/controller/user-cluster-controller-manager/resources/resources/machine-controller"
 	rolecloner "github.com/kubermatic/kubermatic/api/pkg/controller/user-cluster-controller-manager/role-cloner"
+	kubermaticv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
 	kubermaticlog "github.com/kubermatic/kubermatic/api/pkg/log"
 	"github.com/kubermatic/kubermatic/api/pkg/pprof"
 	"github.com/kubermatic/kubermatic/api/pkg/resources/reconciling"
@@ -45,7 +45,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 	ctrlruntimelog "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
-	"sigs.k8s.io/controller-runtime/pkg/runtime/signals"
+	"sigs.k8s.io/controller-runtime/pkg/manager/signals"
 )
 
 type controllerRunOptions struct {
@@ -97,6 +97,8 @@ func main() {
 
 	rawLog := kubermaticlog.New(logOpts.Debug, logOpts.Format)
 	log := rawLog.Sugar()
+
+	cmdutil.Hello(log, "User-Cluster Controller-Manager", logOpts.Debug)
 
 	if runOp.ownerEmail == "" {
 		log.Fatal("-owner-email must be set")

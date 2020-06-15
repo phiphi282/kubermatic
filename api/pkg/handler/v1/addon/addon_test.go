@@ -3,16 +3,18 @@ package addon_test
 import (
 	"encoding/json"
 	"fmt"
-	apiv1 "github.com/kubermatic/kubermatic/api/pkg/api/v1"
-	kubermaticv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
-	"github.com/kubermatic/kubermatic/api/pkg/handler/test"
-	"github.com/kubermatic/kubermatic/api/pkg/handler/test/hack"
-	"k8s.io/apimachinery/pkg/runtime"
-	k8sjson "k8s.io/apimachinery/pkg/util/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	apiv1 "github.com/kubermatic/kubermatic/api/pkg/api/v1"
+	kubermaticv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
+	"github.com/kubermatic/kubermatic/api/pkg/handler/test"
+	"github.com/kubermatic/kubermatic/api/pkg/handler/test/hack"
+
+	"k8s.io/apimachinery/pkg/runtime"
+	k8sjson "k8s.io/apimachinery/pkg/util/json"
 )
 
 func TestGetAddon(t *testing.T) {
@@ -92,6 +94,29 @@ func TestGetAddon(t *testing.T) {
 			AddonToGet:         "addon3",
 			ExpectedHTTPStatus: http.StatusUnauthorized,
 			ExpectedResponse:   apiv1.Addon{},
+		},
+		// scenario 4
+		{
+			Name:                   "scenario 4: the admin John can get addon with variables that belongs to the Bob's cluster",
+			ClusterIDToSync:        test.GenDefaultCluster().Name,
+			ProjectIDToSync:        test.GenDefaultProject().Name,
+			ExistingKubermaticObjs: test.GenDefaultKubermaticObjects(test.GenDefaultCluster(), genUser("John", "john@acme.com", true)),
+			ExistingAPIUser:        test.GenAPIUser("John", "john@acme.com"),
+			ExistingAddons: []*kubermaticv1.Addon{
+				test.GenTestAddon("addon1", createRawVariables(t, testVariables), test.GenDefaultCluster(), creationTime),
+			},
+			AddonToGet:         "addon1",
+			ExpectedHTTPStatus: http.StatusOK,
+			ExpectedResponse: apiv1.Addon{
+				ObjectMeta: apiv1.ObjectMeta{
+					ID:                "addon1",
+					Name:              "addon1",
+					CreationTimestamp: apiv1.NewTime(creationTime),
+				},
+				Spec: apiv1.AddonSpec{
+					Variables: testVariables,
+				},
+			},
 		},
 	}
 
@@ -217,6 +242,44 @@ func TestListAddons(t *testing.T) {
 			},
 			ExistingAPIUser: test.GenAPIUser("john", "john@acme.com"),
 		},
+		// scenario 3
+		{
+			Name: "scenario 3: the admin Bob gets a list of addons added to any cluster",
+			ExpectedResponse: []apiv1.Addon{
+				{
+					ObjectMeta: apiv1.ObjectMeta{
+						ID:                "addon1",
+						Name:              "addon1",
+						CreationTimestamp: apiv1.NewTime(creationTime),
+					},
+				},
+				{
+					ObjectMeta: apiv1.ObjectMeta{
+						ID:                "addon2",
+						Name:              "addon2",
+						CreationTimestamp: apiv1.NewTime(creationTime),
+					},
+					Spec: apiv1.AddonSpec{
+						Variables: testVariables,
+					},
+				},
+			},
+			ExpectedHTTPStatus: http.StatusOK,
+			ExistingKubermaticObjs: []runtime.Object{
+				/*add projects*/
+				test.GenProject("my-first-project", kubermaticv1.ProjectActive, test.DefaultCreationTimestamp()),
+				/*add bindings*/
+				test.GenBinding("my-first-project-ID", "john@acme.com", "owners"),
+				/*add users*/
+				test.GenUser("", "john", "john@acme.com"),
+				/*add cluster*/
+				cluster,
+				test.GenTestAddon("addon1", nil, cluster, creationTime),
+				test.GenTestAddon("addon2", createRawVariables(t, testVariables), cluster, creationTime),
+				genUser("bob", "bob@acme.com", true),
+			},
+			ExistingAPIUser: test.GenAPIUser("bob", "bob@acme.com"),
+		},
 	}
 
 	for _, tc := range testcases {
@@ -309,6 +372,35 @@ func TestCreateAddon(t *testing.T) {
 			},
 			ExistingAPIUser: test.GenAPIUser("john", "john@acme.com"),
 		},
+		// scenario 3
+		{
+			Name: "scenario 3: the admin Bob can create addon for John's cluster",
+			Body: `{
+				"name": "addon1",
+				"spec": {
+					"variables": null
+				}
+			}`,
+			ExpectedResponse: apiv1.Addon{
+				ObjectMeta: apiv1.ObjectMeta{
+					ID:   "addon1",
+					Name: "addon1",
+				},
+			},
+			ExpectedHTTPStatus: http.StatusCreated,
+			ExistingKubermaticObjs: []runtime.Object{
+				/*add projects*/
+				test.GenProject("my-first-project", kubermaticv1.ProjectActive, test.DefaultCreationTimestamp()),
+				/*add bindings*/
+				test.GenBinding("my-first-project-ID", "john@acme.com", "owners"),
+				/*add users*/
+				test.GenUser("", "john", "john@acme.com"),
+				genUser("bob", "bob@acme.com", true),
+				/*add cluster*/
+				cluster,
+			},
+			ExistingAPIUser: test.GenAPIUser("bob", "bob@acme.com"),
+		},
 	}
 
 	for _, tc := range testcases {
@@ -399,6 +491,48 @@ func TestCreatePatchGetAddon(t *testing.T) {
 			},
 			ExistingAPIUser: test.GenAPIUser("john", "john@acme.com"),
 		},
+		// scenario 2
+		{
+			Name: "scenario 2: the admin Bob can patch, get an addon for Jonh cluster",
+			CreateBody: `{
+				"name": "addon1",
+				"spec": {
+					"variables": null
+				}
+			}`,
+			ExpectedCreateHTTPStatus: http.StatusCreated,
+			AddonToPatch:             "addon1",
+			PatchBody: `{
+				"name": "addon1",
+				"spec": {
+					"variables": {"foo": "bar"}
+				}
+			}`,
+			ExpectedPatchHTTPStatus: http.StatusOK,
+			AddonToGet:              "addon1",
+			ExpectedGetHTTPStatus:   http.StatusOK,
+			ExpectedGetResponse: apiv1.Addon{
+				ObjectMeta: apiv1.ObjectMeta{
+					ID:   "addon1",
+					Name: "addon1",
+				},
+				Spec: apiv1.AddonSpec{
+					Variables: map[string]interface{}{"foo": "bar"},
+				},
+			},
+			ExistingKubermaticObjs: []runtime.Object{
+				/*add projects*/
+				test.GenProject("my-first-project", kubermaticv1.ProjectActive, test.DefaultCreationTimestamp()),
+				/*add bindings*/
+				test.GenBinding("my-first-project-ID", "john@acme.com", "owners"),
+				/*add users*/
+				test.GenUser("", "john", "john@acme.com"),
+				genUser("bob", "bob@acme.com", true),
+				/*add cluster*/
+				cluster,
+			},
+			ExistingAPIUser: test.GenAPIUser("bob", "bob@acme.com"),
+		},
 	}
 
 	for _, tc := range testcases {
@@ -465,4 +599,10 @@ func createRawVariables(t *testing.T, in map[string]interface{}) *runtime.RawExt
 	}
 	result.Raw = raw
 	return result
+}
+
+func genUser(name, email string, isAdmin bool) *kubermaticv1.User {
+	user := test.GenUser("", name, email)
+	user.Spec.IsAdmin = isAdmin
+	return user
 }

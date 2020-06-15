@@ -13,8 +13,7 @@ import (
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/runtime"
 	cr "github.com/go-openapi/runtime/client"
-
-	strfmt "github.com/go-openapi/strfmt"
+	"github.com/go-openapi/strfmt"
 )
 
 // NewListNodeDeploymentNodesEventsParams creates a new ListNodeDeploymentNodesEventsParams object
@@ -61,16 +60,16 @@ for the list node deployment nodes events operation typically these are written 
 */
 type ListNodeDeploymentNodesEventsParams struct {
 
-	/*Type*/
-	Type *string
 	/*ClusterID*/
 	ClusterID string
 	/*Dc*/
-	Dc string
+	DC string
 	/*NodedeploymentID*/
-	NodedeploymentID string
+	NodeDeploymentID string
 	/*ProjectID*/
 	ProjectID string
+	/*Type*/
+	Type *string
 
 	timeout    time.Duration
 	Context    context.Context
@@ -110,17 +109,6 @@ func (o *ListNodeDeploymentNodesEventsParams) SetHTTPClient(client *http.Client)
 	o.HTTPClient = client
 }
 
-// WithType adds the typeVar to the list node deployment nodes events params
-func (o *ListNodeDeploymentNodesEventsParams) WithType(typeVar *string) *ListNodeDeploymentNodesEventsParams {
-	o.SetType(typeVar)
-	return o
-}
-
-// SetType adds the type to the list node deployment nodes events params
-func (o *ListNodeDeploymentNodesEventsParams) SetType(typeVar *string) {
-	o.Type = typeVar
-}
-
 // WithClusterID adds the clusterID to the list node deployment nodes events params
 func (o *ListNodeDeploymentNodesEventsParams) WithClusterID(clusterID string) *ListNodeDeploymentNodesEventsParams {
 	o.SetClusterID(clusterID)
@@ -132,26 +120,26 @@ func (o *ListNodeDeploymentNodesEventsParams) SetClusterID(clusterID string) {
 	o.ClusterID = clusterID
 }
 
-// WithDc adds the dc to the list node deployment nodes events params
-func (o *ListNodeDeploymentNodesEventsParams) WithDc(dc string) *ListNodeDeploymentNodesEventsParams {
-	o.SetDc(dc)
+// WithDC adds the dc to the list node deployment nodes events params
+func (o *ListNodeDeploymentNodesEventsParams) WithDC(dc string) *ListNodeDeploymentNodesEventsParams {
+	o.SetDC(dc)
 	return o
 }
 
-// SetDc adds the dc to the list node deployment nodes events params
-func (o *ListNodeDeploymentNodesEventsParams) SetDc(dc string) {
-	o.Dc = dc
+// SetDC adds the dc to the list node deployment nodes events params
+func (o *ListNodeDeploymentNodesEventsParams) SetDC(dc string) {
+	o.DC = dc
 }
 
-// WithNodedeploymentID adds the nodedeploymentID to the list node deployment nodes events params
-func (o *ListNodeDeploymentNodesEventsParams) WithNodedeploymentID(nodedeploymentID string) *ListNodeDeploymentNodesEventsParams {
-	o.SetNodedeploymentID(nodedeploymentID)
+// WithNodeDeploymentID adds the nodedeploymentID to the list node deployment nodes events params
+func (o *ListNodeDeploymentNodesEventsParams) WithNodeDeploymentID(nodedeploymentID string) *ListNodeDeploymentNodesEventsParams {
+	o.SetNodeDeploymentID(nodedeploymentID)
 	return o
 }
 
-// SetNodedeploymentID adds the nodedeploymentId to the list node deployment nodes events params
-func (o *ListNodeDeploymentNodesEventsParams) SetNodedeploymentID(nodedeploymentID string) {
-	o.NodedeploymentID = nodedeploymentID
+// SetNodeDeploymentID adds the nodedeploymentId to the list node deployment nodes events params
+func (o *ListNodeDeploymentNodesEventsParams) SetNodeDeploymentID(nodedeploymentID string) {
+	o.NodeDeploymentID = nodedeploymentID
 }
 
 // WithProjectID adds the projectID to the list node deployment nodes events params
@@ -165,6 +153,17 @@ func (o *ListNodeDeploymentNodesEventsParams) SetProjectID(projectID string) {
 	o.ProjectID = projectID
 }
 
+// WithType adds the typeVar to the list node deployment nodes events params
+func (o *ListNodeDeploymentNodesEventsParams) WithType(typeVar *string) *ListNodeDeploymentNodesEventsParams {
+	o.SetType(typeVar)
+	return o
+}
+
+// SetType adds the type to the list node deployment nodes events params
+func (o *ListNodeDeploymentNodesEventsParams) SetType(typeVar *string) {
+	o.Type = typeVar
+}
+
 // WriteToRequest writes these params to a swagger request
 func (o *ListNodeDeploymentNodesEventsParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
 
@@ -173,40 +172,40 @@ func (o *ListNodeDeploymentNodesEventsParams) WriteToRequest(r runtime.ClientReq
 	}
 	var res []error
 
-	if o.Type != nil {
-
-		// query param Type
-		var qrType string
-		if o.Type != nil {
-			qrType = *o.Type
-		}
-		qType := qrType
-		if qType != "" {
-			if err := r.SetQueryParam("Type", qType); err != nil {
-				return err
-			}
-		}
-
-	}
-
 	// path param cluster_id
 	if err := r.SetPathParam("cluster_id", o.ClusterID); err != nil {
 		return err
 	}
 
 	// path param dc
-	if err := r.SetPathParam("dc", o.Dc); err != nil {
+	if err := r.SetPathParam("dc", o.DC); err != nil {
 		return err
 	}
 
 	// path param nodedeployment_id
-	if err := r.SetPathParam("nodedeployment_id", o.NodedeploymentID); err != nil {
+	if err := r.SetPathParam("nodedeployment_id", o.NodeDeploymentID); err != nil {
 		return err
 	}
 
 	// path param project_id
 	if err := r.SetPathParam("project_id", o.ProjectID); err != nil {
 		return err
+	}
+
+	if o.Type != nil {
+
+		// query param type
+		var qrType string
+		if o.Type != nil {
+			qrType = *o.Type
+		}
+		qType := qrType
+		if qType != "" {
+			if err := r.SetQueryParam("type", qType); err != nil {
+				return err
+			}
+		}
+
 	}
 
 	if len(res) > 0 {

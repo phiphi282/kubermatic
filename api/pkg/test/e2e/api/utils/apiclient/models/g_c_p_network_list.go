@@ -8,13 +8,13 @@ package models
 import (
 	"strconv"
 
-	strfmt "github.com/go-openapi/strfmt"
-
 	"github.com/go-openapi/errors"
+	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
 )
 
 // GCPNetworkList GCPNetworkList represents an array of GCP networks.
+//
 // swagger:model GCPNetworkList
 type GCPNetworkList []*GCPNetwork
 

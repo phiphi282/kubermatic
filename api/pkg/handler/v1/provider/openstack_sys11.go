@@ -3,9 +3,10 @@ package provider
 import (
 	"context"
 	"fmt"
+	"net/http"
+
 	"github.com/kubermatic/kubermatic/api/pkg/handler/middleware"
 	"github.com/kubermatic/kubermatic/api/pkg/handler/v1/common"
-	"net/http"
 
 	v1 "github.com/kubermatic/kubermatic/api/pkg/api/v1"
 
@@ -68,10 +69,10 @@ func OpenstackQuotaLimitEndpoint(seedsGetter provider.SeedsGetter, presetsProvid
 	}
 }
 
-func OpenstackImageNoCredentialsEndpoint(projectProvider provider.ProjectProvider, seedsGetter provider.SeedsGetter, userInfoGetter provider.UserInfoGetter) endpoint.Endpoint {
+func OpenstackImageNoCredentialsEndpoint(projectProvider provider.ProjectProvider, privilegedProjectProvider provider.PrivilegedProjectProvider, seedsGetter provider.SeedsGetter, userInfoGetter provider.UserInfoGetter) endpoint.Endpoint {
 	return func(ctx context.Context, request interface{}) (interface{}, error) {
 		req := request.(OpenstackNoCredentialsReq)
-		cluster, err := getClusterForOpenstack(ctx, projectProvider, userInfoGetter, req.ProjectID, req.ClusterID)
+		cluster, err := getClusterForOpenstack(ctx, projectProvider, privilegedProjectProvider, userInfoGetter, req.ProjectID, req.ClusterID)
 		if err != nil {
 			return nil, err
 		}
@@ -103,10 +104,10 @@ func OpenstackImageNoCredentialsEndpoint(projectProvider provider.ProjectProvide
 	}
 }
 
-func OpenstackQuotaLimitNoCredentialsEndpoint(projectProvider provider.ProjectProvider, seedsGetter provider.SeedsGetter, userInfoGetter provider.UserInfoGetter) endpoint.Endpoint {
+func OpenstackQuotaLimitNoCredentialsEndpoint(projectProvider provider.ProjectProvider, privilegedProjectProvider provider.PrivilegedProjectProvider, seedsGetter provider.SeedsGetter, userInfoGetter provider.UserInfoGetter) endpoint.Endpoint {
 	return func(ctx context.Context, request interface{}) (interface{}, error) {
 		req := request.(OpenstackNoCredentialsReq)
-		cluster, err := getClusterForOpenstack(ctx, projectProvider, userInfoGetter, req.ProjectID, req.ClusterID)
+		cluster, err := getClusterForOpenstack(ctx, projectProvider, privilegedProjectProvider, userInfoGetter, req.ProjectID, req.ClusterID)
 		if err != nil {
 			return nil, err
 		}

@@ -6,12 +6,12 @@ package models
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
-	strfmt "github.com/go-openapi/strfmt"
-
+	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
 )
 
 // GCPNetwork GCPNetwork represents a object of GCP networks.
+//
 // swagger:model GCPNetwork
 type GCPNetwork struct {
 
@@ -26,6 +26,9 @@ type GCPNetwork struct {
 
 	// name
 	Name string `json:"name,omitempty"`
+
+	// path
+	Path string `json:"path,omitempty"`
 
 	// subnetworks
 	Subnetworks []string `json:"subnetworks"`

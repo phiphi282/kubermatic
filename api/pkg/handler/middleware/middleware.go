@@ -45,6 +45,9 @@ const (
 	// AddonProviderContextKey key under which the current AddonProvider is kept in the ctx
 	AddonProviderContextKey kubermaticcontext.Key = "addon-provider"
 
+	// PrivilegedAddonProviderContextKey key under which the current PrivilegedAddonProvider is kept in the ctx
+	PrivilegedAddonProviderContextKey kubermaticcontext.Key = "privileged-addon-provider"
+
 	UserCRContextKey = kubermaticcontext.UserCRContextKey
 )
 
@@ -137,6 +140,10 @@ func UserInfoUnauthorized(userProjectMapper provider.ProjectMemberMapper, userPr
 				return nil, common.KubernetesErrorToHTTPError(err)
 			}
 
+			if user.Spec.IsAdmin {
+				uInfo := &provider.UserInfo{Email: user.Spec.Email, IsAdmin: true}
+				return next(context.WithValue(ctx, UserInfoContextKey, uInfo), request)
+			}
 			uInfo, err := createUserInfo(user, projectID, userProjectMapper)
 			if err != nil {
 				return nil, common.KubernetesErrorToHTTPError(err)
@@ -201,17 +208,8 @@ func TokenVerifier(tokenVerifier auth.TokenVerifier) endpoint.Middleware {
 func Addons(addonProviderGetter provider.AddonProviderGetter, seedsGetter provider.SeedsGetter) endpoint.Middleware {
 	return func(next endpoint.Endpoint) endpoint.Endpoint {
 		return func(ctx context.Context, request interface{}) (response interface{}, err error) {
-			seeds, err := seedsGetter()
-			if err != nil {
-				return nil, err
-			}
 			seedName := request.(dCGetter).GetDC()
-			seed, found := seeds[seedName]
-			if !found {
-				return nil, fmt.Errorf("couldn't find seed %q", seedName)
-			}
-
-			addonProvider, err := addonProviderGetter(seed)
+			addonProvider, err := getAddonProvider(addonProviderGetter, seedsGetter, seedName)
 			if err != nil {
 				return nil, err
 			}
@@ -219,6 +217,36 @@ func Addons(addonProviderGetter provider.AddonProviderGetter, seedsGetter provid
 			return next(ctx, request)
 		}
 	}
+}
+
+// PrivilegedAddons is a middleware that injects the current PrivilegedAddonProvider into the ctx
+func PrivilegedAddons(addonProviderGetter provider.AddonProviderGetter, seedsGetter provider.SeedsGetter) endpoint.Middleware {
+	return func(next endpoint.Endpoint) endpoint.Endpoint {
+		return func(ctx context.Context, request interface{}) (response interface{}, err error) {
+			seedName := request.(dCGetter).GetDC()
+			addonProvider, err := getAddonProvider(addonProviderGetter, seedsGetter, seedName)
+			if err != nil {
+				return nil, err
+			}
+			privilegedAddonProvider := addonProvider.(provider.PrivilegedAddonProvider)
+			ctx = context.WithValue(ctx, PrivilegedAddonProviderContextKey, privilegedAddonProvider)
+			return next(ctx, request)
+		}
+	}
+}
+
+func getAddonProvider(addonProviderGetter provider.AddonProviderGetter, seedsGetter provider.SeedsGetter, seedName string) (provider.AddonProvider, error) {
+	seeds, err := seedsGetter()
+	if err != nil {
+		return nil, err
+	}
+
+	seed, found := seeds[seedName]
+	if !found {
+		return nil, fmt.Errorf("couldn't find seed %q", seedName)
+	}
+
+	return addonProviderGetter(seed)
 }
 
 // TokenExtractor knows how to extract a token from the incoming request

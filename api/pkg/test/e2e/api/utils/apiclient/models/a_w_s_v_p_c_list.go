@@ -8,13 +8,13 @@ package models
 import (
 	"strconv"
 
-	strfmt "github.com/go-openapi/strfmt"
-
 	"github.com/go-openapi/errors"
+	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
 )
 
 // AWSVPCList AWSVPCList represents an array of AWS VPC's.
+//
 // swagger:model AWSVPCList
 type AWSVPCList []*AWSVPC
 

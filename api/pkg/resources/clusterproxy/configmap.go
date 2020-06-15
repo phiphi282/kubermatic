@@ -57,7 +57,7 @@ func ConfigMapCreator(data *resources.TemplateData) reconciling.NamedConfigMapCr
 				return nil, fmt.Errorf("failed to render nginx config template: %v", err)
 			}
 
-			cm.Labels = resources.BaseAppLabel(name, nil)
+			cm.Labels = resources.BaseAppLabels(name, nil)
 			cm.Data["server.conf"] = configBuffer.String()
 
 			return cm, nil

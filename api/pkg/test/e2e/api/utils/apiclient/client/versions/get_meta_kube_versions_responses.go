@@ -10,10 +10,9 @@ import (
 	"io"
 
 	"github.com/go-openapi/runtime"
+	"github.com/go-openapi/strfmt"
 
-	strfmt "github.com/go-openapi/strfmt"
-
-	models "github.com/kubermatic/kubermatic/api/pkg/test/e2e/api/utils/apiclient/models"
+	"github.com/kubermatic/kubermatic/api/pkg/test/e2e/api/utils/apiclient/models"
 )
 
 // GetMetaKubeVersionsReader is a Reader for the GetMetaKubeVersions structure.
@@ -24,14 +23,12 @@ type GetMetaKubeVersionsReader struct {
 // ReadResponse reads a server response into the received o.
 func (o *GetMetaKubeVersionsReader) ReadResponse(response runtime.ClientResponse, consumer runtime.Consumer) (interface{}, error) {
 	switch response.Code() {
-
 	case 200:
 		result := NewGetMetaKubeVersionsOK()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return result, nil
-
 	default:
 		result := NewGetMetaKubeVersionsDefault(response.Code())
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
@@ -59,6 +56,10 @@ type GetMetaKubeVersionsOK struct {
 
 func (o *GetMetaKubeVersionsOK) Error() string {
 	return fmt.Sprintf("[GET /api/v1/version][%d] getMetaKubeVersionsOK  %+v", 200, o.Payload)
+}
+
+func (o *GetMetaKubeVersionsOK) GetPayload() *models.KubermaticVersions {
+	return o.Payload
 }
 
 func (o *GetMetaKubeVersionsOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -97,6 +98,10 @@ func (o *GetMetaKubeVersionsDefault) Code() int {
 
 func (o *GetMetaKubeVersionsDefault) Error() string {
 	return fmt.Sprintf("[GET /api/v1/version][%d] getMetaKubeVersions default  %+v", o._statusCode, o.Payload)
+}
+
+func (o *GetMetaKubeVersionsDefault) GetPayload() *models.ErrorResponse {
+	return o.Payload
 }
 
 func (o *GetMetaKubeVersionsDefault) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {

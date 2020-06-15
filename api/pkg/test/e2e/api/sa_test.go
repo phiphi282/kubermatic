@@ -83,6 +83,11 @@ func TestTokenAccessForProject(t *testing.T) {
 				t.Fatalf("can not create service account due error: %v", err)
 			}
 
+			sa, err = apiRunner.GetServiceAccount(sa.ID, project.ID)
+			if err != nil {
+				t.Fatalf("can not get service account due error: %v", err)
+			}
+
 			saToken, err := apiRunner.AddTokenToServiceAccount(rand.String(10), sa.ID, project.ID)
 			if err != nil {
 				t.Fatalf("can not create token due error: %v", err)
@@ -123,7 +128,7 @@ func TestTokenAccessForProject(t *testing.T) {
 			if err != nil {
 				t.Fatalf("can not create project due error: %v", GetErrorResponse(err))
 			}
-			teardownNotOwnedProject := cleanUpProject(notOwnedProject.ID, 1)
+			teardownNotOwnedProject := cleanUpProject(notOwnedProject.ID, 3)
 			defer teardownNotOwnedProject(t)
 
 			_, err = apiRunnerWithSAToken.GetProject(notOwnedProject.ID, 1)

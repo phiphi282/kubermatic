@@ -9,7 +9,7 @@ git fetch --tags
 
 # we only synchronize charts for tags
 if ! git tag -l | grep -q "^$PULL_BASE_REF\$"; then
-  echo "Base ref $PULL_BASE_REF is not a tag! Exitting..."
+  echo "Base ref $PULL_BASE_REF is not a tag! Exiting..."
   exit 1
 fi
 
@@ -20,7 +20,7 @@ if grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+.*' <<< "$PULL_BASE_REF"; then
 elif grep -E '^weekly-[0-9]{4}-.*' <<< "$PULL_BASE_REF"; then
   INSTALLER_BRANCH="weekly"
 else
-  echo "I don't know to which installer branch the tag '$PULL_BASE_REF' belongs to. Exitting..."
+  echo "I don't know to which installer branch the tag '$PULL_BASE_REF' belongs to. Exiting..."
   exit 1
 fi
 
@@ -35,7 +35,7 @@ ensure_github_host_pubkey
 
 export CHARTS='kubermatic cert-manager certs nginx-ingress-controller nodeport-proxy oauth minio iap s3-exporter'
 export MONITORING_CHARTS='alertmanager blackbox-exporter grafana kube-state-metrics node-exporter prometheus'
-export LOGGING_CHARTS='elasticsearch kibana fluentbit'
+export LOGGING_CHARTS='loki promtail elasticsearch kibana fluentbit'
 export BACKUP_CHARTS='velero'
 export CHARTS_DIR=$(pwd)/config
 export TARGET_DIR='sync_target'
@@ -145,6 +145,20 @@ while IFS= read LINE; do
 done < ${TARGET_VALUES_FILE} > ${TARGET_DIR}/values.example.tmp.yaml
 
 mv ${TARGET_DIR}/values.example.{tmp.,}yaml
+
+# assemble static manifests to make installing the Kubermatic Operator easier
+mkdir -p ${TARGET_DIR}/manifests
+
+CRDS_MANIFEST=${TARGET_DIR}/manifests/kubermatic-crds.yaml
+cat << EOF > ${CRDS_MANIFEST}
+# Kubermatic $PULL_BASE_REF CRDs
+
+EOF
+
+for file in ${CHARTS_DIR}/kubermatic/crd/*.yaml; do
+  cat "$file" >> ${CRDS_MANIFEST}
+  echo -e "\n---" >> ${CRDS_MANIFEST}
+done
 
 # commit and push
 cd ${TARGET_DIR}

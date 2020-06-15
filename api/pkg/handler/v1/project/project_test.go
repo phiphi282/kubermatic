@@ -11,6 +11,8 @@ import (
 	"time"
 
 	apiv1 "github.com/kubermatic/kubermatic/api/pkg/api/v1"
+	k8cuserclusterclient "github.com/kubermatic/kubermatic/api/pkg/cluster/client"
+	"github.com/kubermatic/kubermatic/api/pkg/controller/master-controller-manager/rbac"
 	kubermaticfakeclentset "github.com/kubermatic/kubermatic/api/pkg/crd/client/clientset/versioned/fake"
 	kubermaticclientv1 "github.com/kubermatic/kubermatic/api/pkg/crd/client/clientset/versioned/typed/kubermatic/v1"
 	kubermaticinformers "github.com/kubermatic/kubermatic/api/pkg/crd/client/informers/externalversions"
@@ -19,6 +21,7 @@ import (
 	"github.com/kubermatic/kubermatic/api/pkg/handler/test"
 	"github.com/kubermatic/kubermatic/api/pkg/handler/test/hack"
 	"github.com/kubermatic/kubermatic/api/pkg/handler/v1/project"
+	"github.com/kubermatic/kubermatic/api/pkg/provider"
 	"github.com/kubermatic/kubermatic/api/pkg/provider/kubernetes"
 	"github.com/kubermatic/kubermatic/api/pkg/util/errors"
 
@@ -26,7 +29,11 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
+	fakerestclient "k8s.io/client-go/kubernetes/fake"
+	"k8s.io/client-go/kubernetes/scheme"
 	restclient "k8s.io/client-go/rest"
+	ctrlruntimeclient "sigs.k8s.io/controller-runtime/pkg/client"
+	fakectrlruntimeclient "sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
 func TestRenameProjectEndpoint(t *testing.T) {
@@ -129,6 +136,44 @@ func TestRenameProjectEndpoint(t *testing.T) {
 			ExistingAPIUser:  *test.GenDefaultAPIUser(),
 			ExpectedResponse: `{"error":{"code":400,"message":"the name of the project cannot be empty"}}`,
 		},
+		{
+			Name:             "scenario 6: the admin Bob can update John's project",
+			Body:             `{"Name": "Super-Project"}`,
+			ProjectToRename:  "my-first-project-ID",
+			ExpectedResponse: `{"id":"my-first-project-ID","name":"Super-Project","creationTimestamp":"2013-02-03T19:54:00Z","status":"Active","owners":[{"name":"John","creationTimestamp":"0001-01-01T00:00:00Z","email":"john@acme.com"}]}`,
+			HTTPStatus:       http.StatusOK,
+			ExistingKubermaticObjects: []runtime.Object{
+				// add some projects
+				test.GenProject("my-first-project", kubermaticapiv1.ProjectActive, test.DefaultCreationTimestamp()),
+				test.GenProject("my-third-project", kubermaticapiv1.ProjectActive, test.DefaultCreationTimestamp().Add(2*time.Minute)),
+				// add John
+				test.GenUser("JohnID", "John", "john@acme.com"),
+				genUser("Bob", "bob@acme.com", true),
+				// make John the owner of the first project and the editor of the second
+				test.GenBinding("my-first-project-ID", "john@acme.com", "owners"),
+				test.GenBinding("my-third-project-ID", "bob@acme.com", "owners"),
+			},
+			ExistingAPIUser: *test.GenDefaultAPIUser(),
+		},
+		{
+			Name:             "scenario 7: the user John can't update Bob's project",
+			Body:             `{"Name": "Super-Project"}`,
+			ProjectToRename:  "my-third-project-ID",
+			ExpectedResponse: `{"error":{"code":403,"message":"forbidden: \"john@acme.com\" doesn't belong to the given project = my-third-project-ID"}}`,
+			HTTPStatus:       http.StatusForbidden,
+			ExistingKubermaticObjects: []runtime.Object{
+				// add some projects
+				test.GenProject("my-first-project", kubermaticapiv1.ProjectActive, test.DefaultCreationTimestamp()),
+				test.GenProject("my-third-project", kubermaticapiv1.ProjectActive, test.DefaultCreationTimestamp().Add(2*time.Minute)),
+				// add John
+				test.GenUser("JohnID", "John", "john@acme.com"),
+				genUser("Bob", "bob@acme.com", true),
+				// make John the owner of the first project and the editor of the second
+				test.GenBinding("my-first-project-ID", "john@acme.com", "owners"),
+				test.GenBinding("my-third-project-ID", "bob@acme.com", "owners"),
+			},
+			ExistingAPIUser: *test.GenAPIUser("John", "john@acme.com"),
+		},
 	}
 
 	for _, tc := range testcases {
@@ -160,7 +205,8 @@ func TestListProjectEndpoint(t *testing.T) {
 		ExpectedResponse          []apiv1.Project
 		HTTPStatus                int
 		ExistingKubermaticObjects []runtime.Object
-		ExistingAPIUser           apiv1.User
+		ExistingAPIUser           *apiv1.User
+		DisplayAll                bool
 	}{
 		{
 			Name:       "scenario 1: list projects that John is the member of",
@@ -177,10 +223,10 @@ func TestListProjectEndpoint(t *testing.T) {
 				test.GenBinding("my-first-project-ID", "john@acme.com", "owners"),
 				test.GenBinding("my-third-project-ID", "john@acme.com", "editors"),
 			},
-			ExistingAPIUser: func() apiv1.User {
+			ExistingAPIUser: func() *apiv1.User {
 				apiUser := test.GenDefaultAPIUser()
 				apiUser.Email = "john@acme.com"
-				return *apiUser
+				return apiUser
 			}(),
 			ExpectedResponse: []apiv1.Project{
 				{
@@ -209,14 +255,114 @@ func TestListProjectEndpoint(t *testing.T) {
 				},
 			},
 		},
+		{
+			Name:       "scenario 2: list all projects for the admin user",
+			Body:       ``,
+			DisplayAll: true,
+			HTTPStatus: http.StatusOK,
+			ExistingKubermaticObjects: []runtime.Object{
+				// add some projects
+				test.GenProject("my-first-project", kubermaticapiv1.ProjectActive, test.DefaultCreationTimestamp()),
+				test.GenProject("my-second-project", kubermaticapiv1.ProjectActive, test.DefaultCreationTimestamp().Add(time.Minute)),
+				test.GenProject("my-third-project", kubermaticapiv1.ProjectActive, test.DefaultCreationTimestamp().Add(2*time.Minute)),
+				// add John
+				test.GenUser("JohnID", "John", "john@acme.com"),
+				genUser("Bob", "bob@acme.com", true),
+				// make John the owner of the first project and the editor of the second
+				test.GenBinding("my-first-project-ID", "john@acme.com", "owners"),
+				test.GenBinding("my-second-project-ID", "john@acme.com", "editors"),
+				test.GenBinding("my-third-project-ID", "bob@acme.com", "owners"),
+			},
+			ExistingAPIUser: test.GenDefaultAPIUser(),
+			ExpectedResponse: []apiv1.Project{
+				{
+					Status: "Active",
+					ObjectMeta: apiv1.ObjectMeta{
+						ID:                "my-first-project-ID",
+						Name:              "my-first-project",
+						CreationTimestamp: apiv1.Date(2013, 02, 03, 19, 54, 0, 0, time.UTC),
+					},
+					Owners: []apiv1.User{
+						{
+							ObjectMeta: apiv1.ObjectMeta{
+								Name: "John",
+							},
+							Email: "john@acme.com",
+						},
+					},
+				},
+				{
+					Status: "Active",
+					ObjectMeta: apiv1.ObjectMeta{
+						ID:                "my-second-project-ID",
+						Name:              "my-second-project",
+						CreationTimestamp: apiv1.Date(2013, 02, 03, 19, 55, 0, 0, time.UTC),
+					},
+				},
+				{
+					Status: "Active",
+					ObjectMeta: apiv1.ObjectMeta{
+						ID:                "my-third-project-ID",
+						Name:              "my-third-project",
+						CreationTimestamp: apiv1.Date(2013, 02, 03, 19, 56, 0, 0, time.UTC),
+					},
+					Owners: []apiv1.User{
+						{
+							ObjectMeta: apiv1.ObjectMeta{
+								Name: "Bob",
+							},
+							Email: "bob@acme.com",
+						},
+					},
+				},
+			},
+		},
+		{
+			Name:       "scenario 3: regular user can not list all projects",
+			Body:       ``,
+			DisplayAll: true,
+			HTTPStatus: http.StatusOK,
+			ExistingKubermaticObjects: []runtime.Object{
+				// add some projects
+				test.GenProject("my-first-project", kubermaticapiv1.ProjectActive, test.DefaultCreationTimestamp()),
+				test.GenProject("my-second-project", kubermaticapiv1.ProjectActive, test.DefaultCreationTimestamp().Add(time.Minute)),
+				test.GenProject("my-third-project", kubermaticapiv1.ProjectActive, test.DefaultCreationTimestamp().Add(2*time.Minute)),
+				// add John
+				test.GenUser("JohnID", "John", "john@acme.com"),
+				genUser("Bob", "bob@acme.com", false),
+				// make John the owner of the first project and the editor of the second
+				test.GenBinding("my-first-project-ID", "john@acme.com", "owners"),
+				test.GenBinding("my-second-project-ID", "john@acme.com", "editors"),
+				test.GenBinding("my-third-project-ID", "bob@acme.com", "owners"),
+			},
+			ExistingAPIUser: test.GenDefaultAPIUser(),
+			ExpectedResponse: []apiv1.Project{
+				{
+					Status: "Active",
+					ObjectMeta: apiv1.ObjectMeta{
+						ID:                "my-third-project-ID",
+						Name:              "my-third-project",
+						CreationTimestamp: apiv1.Date(2013, 02, 03, 19, 56, 0, 0, time.UTC),
+					},
+					Owners: []apiv1.User{
+						{
+							ObjectMeta: apiv1.ObjectMeta{
+								Name: "Bob",
+							},
+							Email: "bob@acme.com",
+						},
+					},
+				},
+			},
+		},
 	}
 
 	for _, tc := range testcases {
 		t.Run(tc.Name, func(t *testing.T) {
 			// test data
-			req := httptest.NewRequest("GET", "/api/v1/projects", strings.NewReader(tc.Body))
+			req := httptest.NewRequest("GET", fmt.Sprintf("/api/v1/projects?displayAll=%v", tc.DisplayAll), strings.NewReader(tc.Body))
 			res := httptest.NewRecorder()
-			ep, err := test.CreateTestEndpoint(tc.ExistingAPIUser, []runtime.Object{}, tc.ExistingKubermaticObjects, nil, nil, hack.NewTestRouting)
+			ep, err := test.CreateTestEndpoint(*tc.ExistingAPIUser, []runtime.Object{}, tc.ExistingKubermaticObjects, nil, nil, hack.NewTestRouting)
 			if err != nil {
 				t.Fatalf("failed to create test endpoint due to %v", err)
 			}
@@ -320,14 +466,39 @@ func TestListProjectMethod(t *testing.T) {
 			projectMemberProvider := kubernetes.NewProjectMemberProvider(fakeImpersonationClient, projectBindingLister, userLister, kubernetes.IsServiceAccount)
 			userProvider := kubernetes.NewUserProvider(kubermaticClient, kubermaticInformerFactory.Kubermatic().V1().Users().Lister(), kubernetes.IsServiceAccount)
 
+			userInfoGetter, err := provider.UserInfoGetterFactory(projectMemberProvider)
+			if err != nil {
+				t.Fatal(err)
+			}
+			fakeClient := fakectrlruntimeclient.NewFakeClientWithScheme(scheme.Scheme, []runtime.Object{}...)
+			fUserClusterConnection := &fakeUserClusterConnection{fakeClient}
+			kubernetesClient := fakerestclient.NewSimpleClientset([]runtime.Object{}...)
+			clusterProvider := kubernetes.NewClusterProvider(
+				&restclient.Config{},
+				fakeImpersonationClient,
+				fUserClusterConnection,
+				"",
+				rbac.ExtractGroupPrefix,
+				fakeClient,
+				kubernetesClient,
+				false,
+			)
+			clusterProviders := map[string]provider.ClusterProvider{"us-central1": clusterProvider}
+			clusterProviderGetter := func(seed *kubermaticapiv1.Seed) (provider.ClusterProvider, error) {
+				if clusterProvider, exists := clusterProviders[seed.Name]; exists {
+					return clusterProvider, nil
+				}
+				return nil, fmt.Errorf("can not find clusterprovider for cluster %q", seed.Name)
+			}
+
 			kubermaticInformerFactory.Start(wait.NeverStop)
 			kubermaticInformerFactory.WaitForCacheSync(wait.NeverStop)
 
-			endpointFun := project.ListEndpoint(test.NewFakeProjectProvider(), test.NewFakePrivilegedProjectProvider(), projectMemberProvider, projectMemberProvider, userProvider)
+			endpointFun := project.ListEndpoint(userInfoGetter, test.NewFakeProjectProvider(), test.NewFakePrivilegedProjectProvider(), projectMemberProvider, projectMemberProvider, userProvider, clusterProviderGetter, test.BuildSeeds())
 
 			ctx := context.WithValue(context.TODO(), middleware.UserCRContextKey, tc.ExistingAPIUser)
 
-			projectsRaw, err := endpointFun(ctx, nil)
+			projectsRaw, err := endpointFun(ctx, project.ListReq{})
 			resultProjectList := make([]apiv1.Project, 0)
 
 			if len(tc.ExpectedErrorMsg) > 0 {
@@ -365,6 +536,14 @@ func TestListProjectMethod(t *testing.T) {
 	}
 }
 
+type fakeUserClusterConnection struct {
+	fakeDynamicClient ctrlruntimeclient.Client
+}
+
+func (f *fakeUserClusterConnection) GetClient(_ *kubermaticapiv1.Cluster, _ ...k8cuserclusterclient.ConfigOption) (ctrlruntimeclient.Client, error) {
+	return f.fakeDynamicClient, nil
+}
+
 func TestGetProjectEndpoint(t *testing.T) {
 	t.Parallel()
 	testcases := []struct {
@@ -385,6 +564,44 @@ func TestGetProjectEndpoint(t *testing.T) {
 			HTTPStatus:                http.StatusOK,
 			ExistingKubermaticObjects: test.GenDefaultKubermaticObjects(),
 			ExistingAPIUser:           test.GenDefaultAPIUser(),
+		},
+		{
+			Name:             "scenario 2: the admin Bob can get John's project",
+			Body:             ``,
+			ProjectToSync:    "my-first-project-ID",
+			ExpectedResponse: `{"id":"my-first-project-ID","name":"my-first-project","creationTimestamp":"2013-02-03T19:54:00Z","status":"Active","owners":[{"name":"John","creationTimestamp":"0001-01-01T00:00:00Z","email":"john@acme.com"}]}`,
+			HTTPStatus:       http.StatusOK,
+			ExistingKubermaticObjects: []runtime.Object{
+				// add some projects
+				test.GenProject("my-first-project", kubermaticapiv1.ProjectActive, test.DefaultCreationTimestamp()),
+				test.GenProject("my-third-project", kubermaticapiv1.ProjectActive, test.DefaultCreationTimestamp().Add(2*time.Minute)),
+				// add John
+				test.GenUser("JohnID", "John", "john@acme.com"),
+				genUser("Bob", "bob@acme.com", true),
+				// make John the owner of the first project and the editor of the second
+				test.GenBinding("my-first-project-ID", "john@acme.com", "owners"),
+				test.GenBinding("my-third-project-ID", "bob@acme.com", "owners"),
+			},
+			ExistingAPIUser: test.GenDefaultAPIUser(),
+		},
+		{
+			Name:             "scenario 3: the user John can't get Bob's project",
+			Body:             ``,
+			ProjectToSync:    "my-third-project-ID",
+			ExpectedResponse: `{"error":{"code":403,"message":"forbidden: \"john@acme.com\" doesn't belong to the given project = my-third-project-ID"}}`,
+			HTTPStatus:       http.StatusForbidden,
+			ExistingKubermaticObjects: []runtime.Object{
+				// add some projects
+				test.GenProject("my-first-project", kubermaticapiv1.ProjectActive, test.DefaultCreationTimestamp()),
+				test.GenProject("my-third-project", kubermaticapiv1.ProjectActive, test.DefaultCreationTimestamp().Add(2*time.Minute)),
+				// add John
+				test.GenUser("JohnID", "John", "john@acme.com"),
+				genUser("Bob", "bob@acme.com", true),
+				// make John the owner of the first project and the editor of the second
+				test.GenBinding("my-first-project-ID", "john@acme.com", "owners"),
+				test.GenBinding("my-third-project-ID", "bob@acme.com", "owners"),
+			},
+			ExistingAPIUser: test.GenAPIUser("John", "john@acme.com"),
 		},
 	}
 
@@ -494,6 +711,40 @@ func TestDeleteProjectEndpoint(t *testing.T) {
 			ExistingKubermaticObjects: test.GenDefaultKubermaticObjects(),
 			ExistingAPIUser:           test.GenDefaultAPIUser(),
 		},
+		{
+			Name:          "scenario 2: the admin Bob can delete John's project",
+			ProjectToSync: "my-first-project-ID",
+			HTTPStatus:    http.StatusOK,
+			ExistingKubermaticObjects: []runtime.Object{
+				// add some projects
+				test.GenProject("my-first-project", kubermaticapiv1.ProjectActive, test.DefaultCreationTimestamp()),
+				test.GenProject("my-third-project", kubermaticapiv1.ProjectActive, test.DefaultCreationTimestamp().Add(2*time.Minute)),
+				// add John
+				test.GenUser("JohnID", "John", "john@acme.com"),
+				genUser("Bob", "bob@acme.com", true),
+				// make John the owner of the first project and the editor of the second
+				test.GenBinding("my-first-project-ID", "john@acme.com", "owners"),
+				test.GenBinding("my-third-project-ID", "bob@acme.com", "owners"),
+			},
+			ExistingAPIUser: test.GenDefaultAPIUser(),
+		},
+		{
+			Name:          "scenario 3: the user John can't delete Bob's project",
+			ProjectToSync: "my-third-project-ID",
+			HTTPStatus:    http.StatusForbidden,
+			ExistingKubermaticObjects: []runtime.Object{
+				// add some projects
+				test.GenProject("my-first-project", kubermaticapiv1.ProjectActive, test.DefaultCreationTimestamp()),
+				test.GenProject("my-third-project", kubermaticapiv1.ProjectActive, test.DefaultCreationTimestamp().Add(2*time.Minute)),
+				// add John
+				test.GenUser("JohnID", "John", "john@acme.com"),
+				genUser("Bob", "bob@acme.com", true),
+				// make John the owner of the first project and the editor of the second
+				test.GenBinding("my-first-project-ID", "john@acme.com", "owners"),
+				test.GenBinding("my-third-project-ID", "bob@acme.com", "owners"),
+			},
+			ExistingAPIUser: test.GenAPIUser("John", "john@acme.com"),
+		},
 	}
 
 	for _, tc := range testcases {
@@ -515,4 +766,10 @@ func TestDeleteProjectEndpoint(t *testing.T) {
 			}
 		})
 	}
+}
+
+func genUser(name, email string, isAdmin bool) *kubermaticapiv1.User {
+	user := test.GenUser("", name, email)
+	user.Spec.IsAdmin = isAdmin
+	return user
 }

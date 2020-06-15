@@ -3,7 +3,6 @@ package main
 import (
 	"flag"
 	"fmt"
-	"io/ioutil"
 	"log"
 	"os"
 	"path/filepath"
@@ -11,6 +10,7 @@ import (
 	"strings"
 
 	"go.uber.org/zap"
+	"gopkg.in/yaml.v3"
 
 	"github.com/kubermatic/kubermatic/api/pkg/controller/operator/common"
 	kubermaticv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
@@ -62,17 +62,21 @@ func main() {
 	}
 
 	for name, data := range examples {
-		yaml, err := cm.GenYaml(data)
+		filename := filepath.Join(target, fmt.Sprintf("zz_generated.%s.yaml", name))
+
+		f, err := os.Create(filename)
 		if err != nil {
-			log.Fatalf("Failed to create YAML: %v", err)
+			log.Fatalf("Failed to create %s: %v", filename, err)
 		}
 
-		// reduce indentation
-		yaml = strings.Replace(yaml, "    ", "  ", -1)
+		encoder := yaml.NewEncoder(f)
+		encoder.SetIndent(2)
 
-		filename := filepath.Join(target, fmt.Sprintf("zz_generated.%s.yaml", name))
-		if err := ioutil.WriteFile(filename, []byte(yaml), 0644); err != nil {
-			log.Fatalf("Failed to write %s: %v", filename, err)
+		err = cm.EncodeYaml(data, encoder)
+		f.Close()
+
+		if err != nil {
+			log.Fatalf("Failed to write YAML: %v", err)
 		}
 	}
 }
@@ -130,6 +134,7 @@ func createExampleSeed() *kubermaticv1.Seed {
 							ZoneSuffixes: []string{},
 						},
 						Kubevirt: &kubermaticv1.DatacenterSpecKubevirt{},
+						Alibaba:  &kubermaticv1.DatacenterSpecAlibaba{},
 					},
 				},
 			},
@@ -137,11 +142,16 @@ func createExampleSeed() *kubermaticv1.Seed {
 		},
 	}
 
-	if err := validateAllFieldsAreDefined(&seed.Spec); err != nil {
+	defaulted, err := common.DefaultSeed(seed, zap.NewNop().Sugar())
+	if err != nil {
+		log.Fatalf("Failed to default Seed: %v", err)
+	}
+
+	if err := validateAllFieldsAreDefined(&defaulted.Spec); err != nil {
 		log.Fatalf("Seed struct is incomplete: %v", err)
 	}
 
-	return seed
+	return defaulted
 }
 
 func createExampleKubermaticConfiguration() *operatorv1alpha1.KubermaticConfiguration {
@@ -169,6 +179,23 @@ func createExampleKubermaticConfiguration() *operatorv1alpha1.KubermaticConfigur
 	if err != nil {
 		log.Fatalf("Failed to default KubermaticConfiguration: %v", err)
 	}
+
+	// ensure that all fields for updates are documented, even though we explicitly
+	// omit them in all but the first array item
+	setUpdateDefaults := func(cfg *operatorv1alpha1.KubermaticVersioningConfiguration) {
+		if len(cfg.Updates) > 0 {
+			if cfg.Updates[0].Automatic == nil {
+				cfg.Updates[0].Automatic = pointer.BoolPtr(false)
+			}
+
+			if cfg.Updates[0].AutomaticNodeUpdate == nil {
+				cfg.Updates[0].AutomaticNodeUpdate = pointer.BoolPtr(false)
+			}
+		}
+	}
+
+	setUpdateDefaults(&defaulted.Spec.Versions.Kubernetes)
+	setUpdateDefaults(&defaulted.Spec.Versions.Openshift)
 
 	return defaulted
 }

@@ -62,7 +62,7 @@ func DeploymentCreator(data openVPNDeploymentCreatorData) reconciling.NamedDeplo
 	return func() (string, reconciling.DeploymentCreator) {
 		return resources.OpenVPNServerDeploymentName, func(dep *appsv1.Deployment) (*appsv1.Deployment, error) {
 			dep.Name = resources.OpenVPNServerDeploymentName
-			dep.Labels = resources.BaseAppLabel(name, nil)
+			dep.Labels = resources.BaseAppLabels(name, nil)
 
 			dep.Spec.Replicas = resources.Int32(1)
 			dep.Spec.Selector = &metav1.LabelSelector{
@@ -70,7 +70,7 @@ func DeploymentCreator(data openVPNDeploymentCreatorData) reconciling.NamedDeplo
 					resources.AppLabelKey: name,
 				},
 			}
-			dep.Spec.Strategy.Type = appsv1.RollingUpdateStatefulSetStrategyType
+			dep.Spec.Strategy.Type = appsv1.RollingUpdateDeploymentStrategyType
 			dep.Spec.Strategy.RollingUpdate = &appsv1.RollingUpdateDeployment{
 				MaxSurge: &intstr.IntOrString{
 					Type:   intstr.Int,

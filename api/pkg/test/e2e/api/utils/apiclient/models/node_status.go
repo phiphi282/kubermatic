@@ -8,13 +8,13 @@ package models
 import (
 	"strconv"
 
-	strfmt "github.com/go-openapi/strfmt"
-
 	"github.com/go-openapi/errors"
+	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
 )
 
 // NodeStatus NodeStatus is information about the current status of a node.
+//
 // swagger:model NodeStatus
 type NodeStatus struct {
 

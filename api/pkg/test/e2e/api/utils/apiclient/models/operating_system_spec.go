@@ -6,13 +6,13 @@ package models
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
-	strfmt "github.com/go-openapi/strfmt"
-
 	"github.com/go-openapi/errors"
+	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
 )
 
 // OperatingSystemSpec OperatingSystemSpec represents the collection of os specific settings. Only one must be set at a time.
+//
 // swagger:model OperatingSystemSpec
 type OperatingSystemSpec struct {
 
@@ -21,6 +21,12 @@ type OperatingSystemSpec struct {
 
 	// container linux
 	ContainerLinux *ContainerLinuxSpec `json:"containerLinux,omitempty"`
+
+	// rhel
+	Rhel *RHELSpec `json:"rhel,omitempty"`
+
+	// sles
+	Sles *SLESSpec `json:"sles,omitempty"`
 
 	// ubuntu
 	Ubuntu *UbuntuSpec `json:"ubuntu,omitempty"`
@@ -35,6 +41,14 @@ func (m *OperatingSystemSpec) Validate(formats strfmt.Registry) error {
 	}
 
 	if err := m.validateContainerLinux(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateRhel(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateSles(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -76,6 +90,42 @@ func (m *OperatingSystemSpec) validateContainerLinux(formats strfmt.Registry) er
 		if err := m.ContainerLinux.Validate(formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
 				return ve.ValidateName("containerLinux")
+			}
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (m *OperatingSystemSpec) validateRhel(formats strfmt.Registry) error {
+
+	if swag.IsZero(m.Rhel) { // not required
+		return nil
+	}
+
+	if m.Rhel != nil {
+		if err := m.Rhel.Validate(formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("rhel")
+			}
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (m *OperatingSystemSpec) validateSles(formats strfmt.Registry) error {
+
+	if swag.IsZero(m.Sles) { // not required
+		return nil
+	}
+
+	if m.Sles != nil {
+		if err := m.Sles.Validate(formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("sles")
 			}
 			return err
 		}

@@ -13,8 +13,7 @@ import (
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/runtime"
 	cr "github.com/go-openapi/runtime/client"
-
-	strfmt "github.com/go-openapi/strfmt"
+	"github.com/go-openapi/strfmt"
 )
 
 // NewRevokeClusterAdminTokenParams creates a new RevokeClusterAdminTokenParams object
@@ -64,7 +63,7 @@ type RevokeClusterAdminTokenParams struct {
 	/*ClusterID*/
 	ClusterID string
 	/*Dc*/
-	Dc string
+	DC string
 	/*ProjectID*/
 	ProjectID string
 
@@ -117,15 +116,15 @@ func (o *RevokeClusterAdminTokenParams) SetClusterID(clusterID string) {
 	o.ClusterID = clusterID
 }
 
-// WithDc adds the dc to the revoke cluster admin token params
-func (o *RevokeClusterAdminTokenParams) WithDc(dc string) *RevokeClusterAdminTokenParams {
-	o.SetDc(dc)
+// WithDC adds the dc to the revoke cluster admin token params
+func (o *RevokeClusterAdminTokenParams) WithDC(dc string) *RevokeClusterAdminTokenParams {
+	o.SetDC(dc)
 	return o
 }
 
-// SetDc adds the dc to the revoke cluster admin token params
-func (o *RevokeClusterAdminTokenParams) SetDc(dc string) {
-	o.Dc = dc
+// SetDC adds the dc to the revoke cluster admin token params
+func (o *RevokeClusterAdminTokenParams) SetDC(dc string) {
+	o.DC = dc
 }
 
 // WithProjectID adds the projectID to the revoke cluster admin token params
@@ -153,7 +152,7 @@ func (o *RevokeClusterAdminTokenParams) WriteToRequest(r runtime.ClientRequest, 
 	}
 
 	// path param dc
-	if err := r.SetPathParam("dc", o.Dc); err != nil {
+	if err := r.SetPathParam("dc", o.DC); err != nil {
 		return err
 	}
 

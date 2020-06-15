@@ -13,8 +13,7 @@ import (
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/runtime"
 	cr "github.com/go-openapi/runtime/client"
-
-	strfmt "github.com/go-openapi/strfmt"
+	"github.com/go-openapi/strfmt"
 )
 
 // NewListGCPZonesParams creates a new ListGCPZonesParams object
@@ -66,7 +65,7 @@ type ListGCPZonesParams struct {
 	/*ServiceAccount*/
 	ServiceAccount *string
 	/*Dc*/
-	Dc string
+	DC string
 
 	timeout    time.Duration
 	Context    context.Context
@@ -128,15 +127,15 @@ func (o *ListGCPZonesParams) SetServiceAccount(serviceAccount *string) {
 	o.ServiceAccount = serviceAccount
 }
 
-// WithDc adds the dc to the list g c p zones params
-func (o *ListGCPZonesParams) WithDc(dc string) *ListGCPZonesParams {
-	o.SetDc(dc)
+// WithDC adds the dc to the list g c p zones params
+func (o *ListGCPZonesParams) WithDC(dc string) *ListGCPZonesParams {
+	o.SetDC(dc)
 	return o
 }
 
-// SetDc adds the dc to the list g c p zones params
-func (o *ListGCPZonesParams) SetDc(dc string) {
-	o.Dc = dc
+// SetDC adds the dc to the list g c p zones params
+func (o *ListGCPZonesParams) SetDC(dc string) {
+	o.DC = dc
 }
 
 // WriteToRequest writes these params to a swagger request
@@ -166,7 +165,7 @@ func (o *ListGCPZonesParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.
 	}
 
 	// path param dc
-	if err := r.SetPathParam("dc", o.Dc); err != nil {
+	if err := r.SetPathParam("dc", o.DC); err != nil {
 		return err
 	}
 

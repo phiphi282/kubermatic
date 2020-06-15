@@ -13,10 +13,9 @@ import (
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/runtime"
 	cr "github.com/go-openapi/runtime/client"
+	"github.com/go-openapi/strfmt"
 
-	strfmt "github.com/go-openapi/strfmt"
-
-	models "github.com/kubermatic/kubermatic/api/pkg/test/e2e/api/utils/apiclient/models"
+	"github.com/kubermatic/kubermatic/api/pkg/test/e2e/api/utils/apiclient/models"
 )
 
 // NewCreateClusterRoleParams creates a new CreateClusterRoleParams object
@@ -68,7 +67,7 @@ type CreateClusterRoleParams struct {
 	/*ClusterID*/
 	ClusterID string
 	/*Dc*/
-	Dc string
+	DC string
 	/*ProjectID*/
 	ProjectID string
 
@@ -132,15 +131,15 @@ func (o *CreateClusterRoleParams) SetClusterID(clusterID string) {
 	o.ClusterID = clusterID
 }
 
-// WithDc adds the dc to the create cluster role params
-func (o *CreateClusterRoleParams) WithDc(dc string) *CreateClusterRoleParams {
-	o.SetDc(dc)
+// WithDC adds the dc to the create cluster role params
+func (o *CreateClusterRoleParams) WithDC(dc string) *CreateClusterRoleParams {
+	o.SetDC(dc)
 	return o
 }
 
-// SetDc adds the dc to the create cluster role params
-func (o *CreateClusterRoleParams) SetDc(dc string) {
-	o.Dc = dc
+// SetDC adds the dc to the create cluster role params
+func (o *CreateClusterRoleParams) SetDC(dc string) {
+	o.DC = dc
 }
 
 // WithProjectID adds the projectID to the create cluster role params
@@ -174,7 +173,7 @@ func (o *CreateClusterRoleParams) WriteToRequest(r runtime.ClientRequest, reg st
 	}
 
 	// path param dc
-	if err := r.SetPathParam("dc", o.Dc); err != nil {
+	if err := r.SetPathParam("dc", o.DC); err != nil {
 		return err
 	}
 

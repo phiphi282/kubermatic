@@ -4,16 +4,18 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"github.com/kubermatic/kubermatic/api/pkg/keycloak"
 	"io/ioutil"
 	"log"
 	"os"
+
+	"github.com/kubermatic/kubermatic/api/pkg/keycloak"
 
 	"github.com/go-logr/zapr"
 	"github.com/oklog/run"
 	"github.com/prometheus/client_golang/prometheus"
 	"go.uber.org/zap"
 
+	cmdutil "github.com/kubermatic/kubermatic/api/cmd/util"
 	"github.com/kubermatic/kubermatic/api/pkg/cluster/client"
 	"github.com/kubermatic/kubermatic/api/pkg/collectors"
 	kubermaticv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
@@ -23,7 +25,6 @@ import (
 	"github.com/kubermatic/kubermatic/api/pkg/metrics"
 	metricserver "github.com/kubermatic/kubermatic/api/pkg/metrics/server"
 	"github.com/kubermatic/kubermatic/api/pkg/pprof"
-	"github.com/kubermatic/kubermatic/api/pkg/provider"
 	"github.com/kubermatic/kubermatic/api/pkg/signals"
 	"github.com/kubermatic/kubermatic/api/pkg/util/restmapper"
 	clusterv1alpha1 "github.com/kubermatic/machine-controller/pkg/apis/cluster/v1alpha1"
@@ -67,6 +68,8 @@ func main() {
 			fmt.Println(err)
 		}
 	}()
+
+	cmdutil.Hello(log, "Seed Controller-Manager", logOpts.Debug)
 
 	config, err := clientcmd.BuildConfigFromFlags(options.masterURL, options.kubeconfig)
 	if err != nil {
@@ -115,7 +118,7 @@ Please install the VerticalPodAutoscaler according to the documentation: https:/
 	}
 
 	rootCtx, rootCancel := context.WithCancel(context.Background())
-	seedGetter, err := provider.SeedGetterFactory(rootCtx, mgr.GetClient(), options.dc, options.dcFile, options.namespace, options.dynamicDatacenters)
+	seedGetter, err := seedGetterFactory(rootCtx, mgr.GetClient(), options)
 	if err != nil {
 		log.Fatalw("Unable to create the seed factory", zap.Error(err))
 	}
@@ -130,7 +133,7 @@ Please install the VerticalPodAutoscaler according to the documentation: https:/
 		log.Fatalw("Failed to get clientProvider", zap.Error(err))
 	}
 
-	if options.dynamicDatacenters && options.seedValidationHook.CertFile != "" && options.seedValidationHook.KeyFile != "" {
+	if options.seedValidationHook.CertFile != "" && options.seedValidationHook.KeyFile != "" {
 		restMapperCache := restmapper.New()
 		seedValidationWebhookServer, err := options.seedValidationHook.Server(
 			rootCtx,
@@ -236,9 +239,12 @@ Please install the VerticalPodAutoscaler according to the documentation: https:/
 
 	// This group is running the actual controller logic
 	{
+		leaderCtx, stopLeaderElection := context.WithCancel(rootCtx)
+		defer stopLeaderElection()
+
 		runner := func(ctx context.Context) error {
 			log.Info("Executing migrations...")
-			if err := seedmigrations.RunAll(ctrlCtx.mgr.GetConfig(), options.workerName); err != nil {
+			if err := seedmigrations.RunAll(leaderCtx, ctrlCtx.mgr.GetConfig(), options.workerName); err != nil {
 				return fmt.Errorf("failed to run migrations: %v", err)
 			}
 			log.Info("Migrations executed successfully")
@@ -261,9 +267,6 @@ Please install the VerticalPodAutoscaler according to the documentation: https:/
 			})
 
 		} else {
-			leaderCtx, stopLeaderElection := context.WithCancel(rootCtx)
-			defer stopLeaderElection()
-
 			g.Add(func() error {
 				electionName := controllerName
 				if options.workerName != "" {

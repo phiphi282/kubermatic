@@ -20,6 +20,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apiextensionsv1beta1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1beta1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	corev1lister "k8s.io/client-go/listers/core/v1"
@@ -348,21 +349,6 @@ const (
 	// InternalUserClusterAdminKubeconfigCertUsername is the name of the user coming from kubeconfig cert
 	InternalUserClusterAdminKubeconfigCertUsername = "kubermatic-controllers"
 
-	// DefaultKubermaticImage defines the default Docker repository containing the Kubermatic API image.
-	DefaultKubermaticImage = "quay.io/kubermatic/api"
-
-	// DefaultDNATControllerImage defines the default Docker repository containing the DNAT controller image.
-	DefaultDNATControllerImage = "quay.io/kubermatic/kubeletdnat-controller"
-
-	// DefaultDashboardAddonImage defines the default Docker repository containing the dashboard image.
-	DefaultDashboardImage = "quay.io/kubermatic/ui-v2"
-
-	// DefaultKubernetesAddonImage defines the default Docker repository containing the Kubernetes addons.
-	DefaultKubernetesAddonImage = "quay.io/kubermatic/addons"
-
-	// DefaultOpenshiftAddonImage defines the default Docker repository containing the Openshift addons.
-	DefaultOpenshiftAddonImage = "quay.io/kubermatic/openshift-addons"
-
 	// IPVSProxyMode defines the ipvs kube-proxy mode.
 	IPVSProxyMode = "ipvs"
 	// IPTablesProxyMode defines the iptables kube-proxy mode.
@@ -477,6 +463,9 @@ const (
 	VspherePassword                    = "password"
 	VsphereInfraManagementUserUsername = "infraManagementUserUsername"
 	VsphereInfraManagementUserPassword = "infraManagementUserPassword"
+
+	AlibabaAccessKeyID     = "accessKeyId"
+	AlibabaAccessKeySecret = "accessKeySecret"
 
 	UserSSHKeys = "usersshkeys"
 )
@@ -603,8 +592,8 @@ func UserClusterDNSPolicyAndConfig(d userClusterDNSPolicyAndConfigData) (corev1.
 	}, nil
 }
 
-// BaseAppLabel returns the minimum required labels
-func BaseAppLabel(name string, additionalLabels map[string]string) map[string]string {
+// BaseAppLabels returns the minimum required labels
+func BaseAppLabels(name string, additionalLabels map[string]string) map[string]string {
 	labels := map[string]string{
 		AppLabelKey: name,
 	}
@@ -614,9 +603,9 @@ func BaseAppLabel(name string, additionalLabels map[string]string) map[string]st
 	return labels
 }
 
-// AppClusterLabel returns the base app label + the cluster label. Additional labels can be included as well
-func AppClusterLabel(appName, clusterName string, additionalLabels map[string]string) map[string]string {
-	podLabels := BaseAppLabel(appName, additionalLabels)
+// AppClusterLabels returns the base app label + the cluster label. Additional labels can be included as well
+func AppClusterLabels(appName, clusterName string, additionalLabels map[string]string) map[string]string {
+	podLabels := BaseAppLabels(appName, additionalLabels)
 	podLabels["cluster"] = clusterName
 
 	return podLabels
@@ -869,7 +858,7 @@ func GetPodTemplateLabels(
 	volumes []corev1.Volume,
 	additionalLabels map[string]string,
 ) (map[string]string, error) {
-	podLabels := AppClusterLabel(appName, clusterName, additionalLabels)
+	podLabels := AppClusterLabels(appName, clusterName, additionalLabels)
 
 	volumeLabels, err := VolumeRevisionLabels(ctx, client, namespace, volumes)
 	if err != nil {
@@ -970,4 +959,26 @@ func GetOverrides(componentSettings kubermaticv1.ComponentSettings) map[string]*
 	}
 
 	return r
+}
+
+// SupportsFailureDomainZoneAntiAffinity checks if there are any nodes with the
+// TopologyKeyFailureDomainZone label.
+func SupportsFailureDomainZoneAntiAffinity(ctx context.Context, client ctrlruntimeclient.Client) (bool, error) {
+	selector, err := labels.Parse(TopologyKeyFailureDomainZone)
+	if err != nil {
+		return false, fmt.Errorf("failed to parse selector: %v", err)
+	}
+	opts := &ctrlruntimeclient.ListOptions{
+		LabelSelector: selector,
+		Raw: &metav1.ListOptions{
+			Limit: 1,
+		},
+	}
+
+	nodeList := &corev1.NodeList{}
+	if err := client.List(ctx, nodeList, opts); err != nil {
+		return false, fmt.Errorf("failed to list nodes having the %s label: %v", TopologyKeyFailureDomainZone, err)
+	}
+
+	return len(nodeList.Items) != 0, nil
 }

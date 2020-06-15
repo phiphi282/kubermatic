@@ -6,12 +6,12 @@ package models
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
-	strfmt "github.com/go-openapi/strfmt"
-
+	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
 )
 
 // Sys11AuthSettings sys11 auth settings
+//
 // swagger:model Sys11AuthSettings
 type Sys11AuthSettings struct {
 

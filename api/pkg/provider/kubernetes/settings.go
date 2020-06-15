@@ -2,6 +2,7 @@ package kubernetes
 
 import (
 	"fmt"
+	"k8s.io/apimachinery/pkg/watch"
 
 	kubermaticclientset "github.com/kubermatic/kubermatic/api/pkg/crd/client/clientset/versioned"
 	kubermaticv1lister "github.com/kubermatic/kubermatic/api/pkg/crd/client/listers/kubermatic/v1"
@@ -38,6 +39,10 @@ func (s *SettingsProvider) GetGlobalSettings() (*kubermaticv1.KubermaticSetting,
 	return settings, nil
 }
 
+func (s *SettingsProvider) WatchGlobalSettings() (watch.Interface, error) {
+	return s.client.KubermaticV1().KubermaticSettings().Watch(v1.ListOptions{})
+}
+
 func (s *SettingsProvider) UpdateGlobalSettings(userInfo *provider.UserInfo, settings *kubermaticv1.KubermaticSetting) (*kubermaticv1.KubermaticSetting, error) {
 	if !userInfo.IsAdmin {
 		return nil, kerrors.NewForbidden(schema.GroupResource{}, userInfo.Email, fmt.Errorf("%q doesn't have admin rights", userInfo.Email))
@@ -57,7 +62,7 @@ func (s *SettingsProvider) createDefaultGlobalSettings() (*kubermaticv1.Kubermat
 				Enforced: false,
 			},
 			DefaultNodeCount:      10,
-			ClusterTypeOptions:    10,
+			ClusterTypeOptions:    kubermaticv1.ClusterTypeAll,
 			DisplayDemoInfo:       false,
 			DisplayAPIDocs:        false,
 			DisplayTermsOfService: false,

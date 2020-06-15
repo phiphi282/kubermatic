@@ -2,9 +2,10 @@ package apiserver
 
 import (
 	"fmt"
+	"strings"
+
 	"github.com/kubermatic/kubermatic/api/pkg/keycloak"
 	"k8s.io/klog"
-	"strings"
 
 	kubermaticv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
 	"github.com/kubermatic/kubermatic/api/pkg/resources"
@@ -18,6 +19,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	"k8s.io/apimachinery/pkg/util/sets"
 )
 
 var (
@@ -56,11 +58,11 @@ rules:
 }
 
 // DeploymentCreator returns the function to create and update the API server deployment
-func DeploymentCreator(data *resources.TemplateData, enableDexCA bool) reconciling.NamedDeploymentCreatorGetter {
+func DeploymentCreator(data *resources.TemplateData, enableOIDCAuthentication bool) reconciling.NamedDeploymentCreatorGetter {
 	return func() (string, reconciling.DeploymentCreator) {
 		return resources.ApiserverDeploymentName, func(dep *appsv1.Deployment) (*appsv1.Deployment, error) {
 			dep.Name = resources.ApiserverDeploymentName
-			dep.Labels = resources.BaseAppLabel(name, nil)
+			dep.Labels = resources.BaseAppLabels(name, nil)
 
 			dep.Spec.Replicas = resources.Int32(2)
 			if data.Cluster().Spec.ComponentsOverride.Apiserver.Replicas != nil {
@@ -68,14 +70,20 @@ func DeploymentCreator(data *resources.TemplateData, enableDexCA bool) reconcili
 			}
 
 			dep.Spec.Selector = &metav1.LabelSelector{
-				MatchLabels: resources.BaseAppLabel(name, nil),
+				MatchLabels: resources.BaseAppLabels(name, nil),
 			}
 			dep.Spec.Template.Spec.ImagePullSecrets = []corev1.LocalObjectReference{{Name: resources.ImagePullSecretName}}
 
 			volumes := getVolumes()
+			volumeMounts := getVolumeMounts()
 
-			if len(data.OIDCCAFile()) > 0 {
+			if enableOIDCAuthentication && len(data.OIDCCAFile()) > 0 {
 				volumes = append(volumes, getDexCASecretVolume())
+				volumeMounts = append(volumeMounts, corev1.VolumeMount{
+					Name:      resources.DexCASecretName,
+					MountPath: "/etc/kubernetes/dex/ca",
+					ReadOnly:  true,
+				})
 			}
 
 			podLabels, err := data.GetPodTemplateLabels(name, volumes, nil)
@@ -122,7 +130,7 @@ func DeploymentCreator(data *resources.TemplateData, enableDexCA bool) reconcili
 			if data.Cluster().Spec.ComponentsOverride.Apiserver.EndpointReconcilingDisabled != nil {
 				endpointReconcilingDisabled = *data.Cluster().Spec.ComponentsOverride.Apiserver.EndpointReconcilingDisabled
 			}
-			flags, err := getApiserverFlags(data, etcdEndpoints, enableDexCA, auditLogEnabled, endpointReconcilingDisabled, data.KeycloakFacade)
+			flags, err := getApiserverFlags(data, etcdEndpoints, enableOIDCAuthentication, auditLogEnabled, endpointReconcilingDisabled, data.KeycloakFacade)
 			if err != nil {
 				return nil, err
 			}
@@ -174,7 +182,7 @@ func DeploymentCreator(data *resources.TemplateData, enableDexCA bool) reconcili
 						SuccessThreshold:    1,
 						TimeoutSeconds:      15,
 					},
-					VolumeMounts: getVolumeMounts(enableDexCA),
+					VolumeMounts: volumeMounts,
 				},
 			}
 
@@ -223,13 +231,13 @@ func DeploymentCreator(data *resources.TemplateData, enableDexCA bool) reconcili
 	}
 }
 
-func getApiserverFlags(data *resources.TemplateData, etcdEndpoints []string, enableDexCA, auditLogEnabled, endpointReconcilingDisabled bool, keycloakFacade keycloak.Facade) ([]string, error) {
+func getApiserverFlags(data *resources.TemplateData, etcdEndpoints []string, enableOIDCAuthentication, auditLogEnabled, endpointReconcilingDisabled bool, keycloakFacade keycloak.Facade) ([]string, error) {
 	nodePortRange := data.NodePortRange()
 	if nodePortRange == "" {
 		nodePortRange = defaultNodePortRange
 	}
 
-	admissionPlugins := []string{
+	admissionPlugins := sets.NewString(
 		"NamespaceLifecycle",
 		"LimitRanger",
 		"ServiceAccount",
@@ -239,11 +247,15 @@ func getApiserverFlags(data *resources.TemplateData, etcdEndpoints []string, ena
 		"ValidatingAdmissionWebhook",
 		"Priority",
 		"ResourceQuota",
+	)
+	if data.Cluster().Spec.UsePodSecurityPolicyAdmissionPlugin {
+		admissionPlugins.Insert("PodSecurityPolicy")
+	}
+	if data.Cluster().Spec.UsePodNodeSelectorAdmissionPlugin {
+		admissionPlugins.Insert("PodNodeSelector")
 	}
 
-	if data.Cluster().Spec.UsePodSecurityPolicyAdmissionPlugin {
-		admissionPlugins = append(admissionPlugins, "PodSecurityPolicy")
-	}
+	admissionPlugins.Insert(data.Cluster().Spec.AdmissionPlugins...)
 
 	flags := []string{
 		"--advertise-address", data.Cluster().Address.IP,
@@ -254,7 +266,7 @@ func getApiserverFlags(data *resources.TemplateData, etcdEndpoints []string, ena
 		"--etcd-certfile", "/etc/etcd/pki/client/apiserver-etcd-client.crt",
 		"--etcd-keyfile", "/etc/etcd/pki/client/apiserver-etcd-client.key",
 		"--storage-backend", "etcd3",
-		"--enable-admission-plugins", strings.Join(admissionPlugins, ","),
+		"--enable-admission-plugins", strings.Join(admissionPlugins.List(), ","),
 		"--authorization-mode", "Node,RBAC",
 		"--external-hostname", data.Cluster().Address.ExternalName,
 		"--token-auth-file", "/etc/kubernetes/tokens/tokens.csv",
@@ -296,16 +308,6 @@ func getApiserverFlags(data *resources.TemplateData, etcdEndpoints []string, ena
 		flags = append(flags, "--kubelet-preferred-address-types", "ExternalIP,InternalIP")
 	}
 
-	var featureGates []string
-
-	if data.Cluster().Spec.Version.Semver().Minor() == 10 {
-		featureGates = append(featureGates, "CustomResourceSubresources=true")
-	}
-	if len(featureGates) > 0 {
-		flags = append(flags, "--feature-gates")
-		flags = append(flags, strings.Join(featureGates, ","))
-	}
-
 	cloudProviderName := data.GetKubernetesCloudProviderName()
 	if cloudProviderName != "" && cloudProviderName != "external" {
 		flags = append(flags, "--cloud-provider", cloudProviderName)
@@ -342,7 +344,7 @@ func getApiserverFlags(data *resources.TemplateData, etcdEndpoints []string, ena
 		if oidcSettings.RequiredClaim != "" {
 			flags = append(flags, "--oidc-required-claim", oidcSettings.RequiredClaim)
 		}
-	} else if enableDexCA {
+	} else if enableOIDCAuthentication {
 		flags = append(flags,
 			"--oidc-issuer-url", data.OIDCIssuerURL(),
 			"--oidc-client-id", data.OIDCIssuerClientID(),
@@ -358,8 +360,8 @@ func getApiserverFlags(data *resources.TemplateData, etcdEndpoints []string, ena
 	return flags, nil
 }
 
-func getVolumeMounts(enableDexCA bool) []corev1.VolumeMount {
-	volumesMounts := []corev1.VolumeMount{
+func getVolumeMounts() []corev1.VolumeMount {
+	return []corev1.VolumeMount{
 		{
 			MountPath: "/etc/kubernetes/tls",
 			Name:      resources.ApiserverTLSSecretName,
@@ -416,16 +418,6 @@ func getVolumeMounts(enableDexCA bool) []corev1.VolumeMount {
 			ReadOnly:  false,
 		},
 	}
-
-	if enableDexCA {
-		volumesMounts = append(volumesMounts, corev1.VolumeMount{
-			Name:      resources.DexCASecretName,
-			MountPath: "/etc/kubernetes/dex/ca",
-			ReadOnly:  true,
-		})
-	}
-
-	return volumesMounts
 }
 
 func getVolumes() []corev1.Volume {

@@ -6,14 +6,14 @@ package models
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
-	strfmt "github.com/go-openapi/strfmt"
-
 	"github.com/go-openapi/errors"
+	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
 )
 
 // GlobalObjectKeySelector GlobalObjectKeySelector is needed as we can not use v1.SecretKeySelector
 // because it is not cross namespace
+//
 // swagger:model GlobalObjectKeySelector
 type GlobalObjectKeySelector struct {
 
@@ -36,7 +36,7 @@ type GlobalObjectKeySelector struct {
 	Key string `json:"key,omitempty"`
 
 	// Kind of the referent.
-	// More info: https://git.k8s.io/community/contributors/devel/api-conventions.md#types-kinds
+	// More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
 	// +optional
 	Kind string `json:"kind,omitempty"`
 
@@ -51,7 +51,7 @@ type GlobalObjectKeySelector struct {
 	Namespace string `json:"namespace,omitempty"`
 
 	// Specific resourceVersion to which this reference is made, if any.
-	// More info: https://git.k8s.io/community/contributors/devel/api-conventions.md#concurrency-control-and-consistency
+	// More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#concurrency-control-and-consistency
 	// +optional
 	ResourceVersion string `json:"resourceVersion,omitempty"`
 

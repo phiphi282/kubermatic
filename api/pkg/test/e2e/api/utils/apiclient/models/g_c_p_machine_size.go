@@ -6,12 +6,12 @@ package models
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
-	strfmt "github.com/go-openapi/strfmt"
-
+	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
 )
 
 // GCPMachineSize GCPMachineSize represents a object of GCP machine size.
+//
 // swagger:model GCPMachineSize
 type GCPMachineSize struct {
 
@@ -24,8 +24,8 @@ type GCPMachineSize struct {
 	// name
 	Name string `json:"name,omitempty"`
 
-	// v cpus
-	VCpus int64 `json:"vcpus,omitempty"`
+	// v c p us
+	VCPUs int64 `json:"vcpus,omitempty"`
 }
 
 // Validate validates this g c p machine size

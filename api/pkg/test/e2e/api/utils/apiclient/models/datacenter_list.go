@@ -8,13 +8,13 @@ package models
 import (
 	"strconv"
 
-	strfmt "github.com/go-openapi/strfmt"
-
 	"github.com/go-openapi/errors"
+	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
 )
 
 // DatacenterList DatacenterList represents a list of datacenters
+//
 // swagger:model DatacenterList
 type DatacenterList []*Datacenter
 

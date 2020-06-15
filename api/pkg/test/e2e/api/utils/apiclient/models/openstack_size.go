@@ -6,12 +6,12 @@ package models
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
-	strfmt "github.com/go-openapi/strfmt"
-
+	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
 )
 
 // OpenstackSize OpenstackSize is the object representing openstack's sizes.
+//
 // swagger:model OpenstackSize
 type OpenstackSize struct {
 
@@ -34,7 +34,7 @@ type OpenstackSize struct {
 	Swap int64 `json:"swap,omitempty"`
 
 	// VCPUs indicates how many (virtual) CPUs are available for this flavor
-	VCpus int64 `json:"vcpus,omitempty"`
+	VCPUs int64 `json:"vcpus,omitempty"`
 }
 
 // Validate validates this openstack size

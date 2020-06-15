@@ -6,12 +6,12 @@ package models
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
-	strfmt "github.com/go-openapi/strfmt"
-
+	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
 )
 
 // DigitaloceanSize DigitaloceanSize is the object representing digitalocean sizes.
+//
 // swagger:model DigitaloceanSize
 type DigitaloceanSize struct {
 
@@ -39,8 +39,8 @@ type DigitaloceanSize struct {
 	// transfer
 	Transfer float64 `json:"transfer,omitempty"`
 
-	// v cpus
-	VCpus int64 `json:"vcpus,omitempty"`
+	// v c p us
+	VCPUs int64 `json:"vcpus,omitempty"`
 }
 
 // Validate validates this digitalocean size

@@ -8,13 +8,13 @@ package models
 import (
 	"strconv"
 
-	strfmt "github.com/go-openapi/strfmt"
-
 	"github.com/go-openapi/errors"
+	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
 )
 
 // ClusterRoleBinding ClusterRoleBinding references a cluster role, but does not contain it.
+//
 // swagger:model ClusterRoleBinding
 type ClusterRoleBinding struct {
 

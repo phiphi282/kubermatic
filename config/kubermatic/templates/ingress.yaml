@@ -10,7 +10,8 @@ metadata:
 {{- end }}
 spec:
   tls:
-  - hosts:
+  - secretName: kubermatic-tls
+    hosts:
     - {{ .Values.kubermatic.domain }}
   backend:
     serviceName: kubermatic-ui

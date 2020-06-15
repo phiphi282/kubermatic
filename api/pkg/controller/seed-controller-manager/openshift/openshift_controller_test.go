@@ -24,8 +24,9 @@ import (
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	ctrlruntimelog "sigs.k8s.io/controller-runtime/pkg/log"
+	ctrlruntimelogzap "sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-	ctrlruntimelog "sigs.k8s.io/controller-runtime/pkg/runtime/log"
 	"sigs.k8s.io/yaml"
 )
 
@@ -73,6 +74,10 @@ func TestResources(t *testing.T) {
 				concurrentClusterUpdates: 10,
 			},
 			object: &appsv1.Deployment{
+				TypeMeta: metav1.TypeMeta{
+					APIVersion: "apps/v1",
+					Kind:       "Deployment",
+				},
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "usercluster-controller",
 				},
@@ -91,7 +96,7 @@ func TestResources(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			ctrlruntimelog.SetLogger(ctrlruntimelog.ZapLogger(true))
+			ctrlruntimelog.SetLogger(ctrlruntimelogzap.Logger(true))
 			if err := autoscalingv1beta2.AddToScheme(scheme.Scheme); err != nil {
 				t.Fatalf("failed to add the autoscaling.k8s.io scheme to mgr: %v", err)
 			}

@@ -216,6 +216,12 @@ func getProviderConfig(c *kubermaticv1.Cluster, nd *apiv1.NodeDeployment, dc *ku
 		if err != nil {
 			return nil, err
 		}
+	case nd.Spec.Template.Cloud.Alibaba != nil:
+		config.CloudProvider = providerconfig.CloudProviderAlibaba
+		cloudExt, err = getAlibabaProviderSpec(c, nd.Spec.Template, dc)
+		if err != nil {
+			return nil, err
+		}
 	default:
 		return nil, errors.New("unknown cloud provider")
 	}
@@ -250,6 +256,18 @@ func getProviderOS(config *providerconfig.Config, nd *apiv1.NodeDeployment) erro
 		if err != nil {
 			return err
 		}
+	case nd.Spec.Template.OperatingSystem.SLES != nil:
+		config.OperatingSystem = providerconfig.OperatingSystemSLES
+		osExt, err = getSLESOperatingSystemSpec(nd.Spec.Template)
+		if err != nil {
+			return err
+		}
+	case nd.Spec.Template.OperatingSystem.RHEL != nil:
+		config.OperatingSystem = providerconfig.OperatingSystemRHEL
+		osExt, err = getRHELOperatingSystemSpec(nd.Spec.Template)
+		if err != nil {
+			return err
+		}
 	default:
 		return errors.New("no machine os was provided")
 	}
@@ -269,7 +287,8 @@ func Validate(nd *apiv1.NodeDeployment, controlPlaneVersion *semver.Version) (*a
 		nd.Spec.Template.Cloud.Azure == nil &&
 		nd.Spec.Template.Cloud.Packet == nil &&
 		nd.Spec.Template.Cloud.GCP == nil &&
-		nd.Spec.Template.Cloud.Kubevirt == nil {
+		nd.Spec.Template.Cloud.Kubevirt == nil &&
+		nd.Spec.Template.Cloud.Alibaba == nil {
 		return nil, fmt.Errorf("node deployment needs to have cloud provider data")
 	}
 

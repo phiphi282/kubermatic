@@ -8,16 +8,19 @@ package models
 import (
 	"strconv"
 
-	strfmt "github.com/go-openapi/strfmt"
-
 	"github.com/go-openapi/errors"
+	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
 	"github.com/go-openapi/validate"
 )
 
 // Project Project is a top-level container for a set of resources
+//
 // swagger:model Project
 type Project struct {
+
+	// clusters number
+	ClustersNumber int64 `json:"clustersNumber,omitempty"`
 
 	// CreationTimestamp is a timestamp representing the server time when this object was created.
 	// Format: date-time

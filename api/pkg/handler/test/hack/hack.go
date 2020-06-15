@@ -1,8 +1,9 @@
 package hack
 
 import (
-	"github.com/kubermatic/kubermatic/api/pkg/keycloak"
 	"net/http"
+
+	"github.com/kubermatic/kubermatic/api/pkg/keycloak"
 
 	"github.com/gorilla/mux"
 	prometheusapi "github.com/prometheus/client_golang/api"
@@ -17,6 +18,7 @@ import (
 	"github.com/kubermatic/kubermatic/api/pkg/provider/kubernetes"
 	"github.com/kubermatic/kubermatic/api/pkg/serviceaccount"
 	"github.com/kubermatic/kubermatic/api/pkg/version"
+	"github.com/kubermatic/kubermatic/api/pkg/watcher"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -29,13 +31,17 @@ func NewTestRouting(
 	settingsProvider provider.SettingsProvider,
 	userInfoGetter provider.UserInfoGetter,
 	seedsGetter provider.SeedsGetter,
+	seedClientGetter provider.SeedClientGetter,
 	clusterProvidersGetter provider.ClusterProviderGetter,
 	addonProviderGetter provider.AddonProviderGetter,
 	addonConfigProvider provider.AddonConfigProvider,
 	sshKeyProvider provider.SSHKeyProvider,
+	privilegedSSHKeyProvider provider.PrivilegedSSHKeyProvider,
 	userProvider provider.UserProvider,
 	serviceAccountProvider provider.ServiceAccountProvider,
+	privilegedServiceAccountProvider provider.PrivilegedServiceAccountProvider,
 	serviceAccountTokenProvider provider.ServiceAccountTokenProvider,
+	privilegedServiceAccountTokenProvider provider.PrivilegedServiceAccountTokenProvider,
 	projectProvider provider.ProjectProvider,
 	mdRequestProviderGetter provider.MachineDeploymentRequestProviderGetter,
 	privilegedProjectProvider provider.PrivilegedProjectProvider,
@@ -44,26 +50,33 @@ func NewTestRouting(
 	tokenExtractors auth.TokenExtractor,
 	prometheusClient prometheusapi.Client,
 	projectMemberProvider *kubernetes.ProjectMemberProvider,
+	privilegedProjectMemberProvider provider.PrivilegedProjectMemberProvider,
 	versions []*version.Version,
 	updates []*version.Update,
 	saTokenAuthenticator serviceaccount.TokenAuthenticator,
 	saTokenGenerator serviceaccount.TokenGenerator,
 	eventRecorderProvider provider.EventRecorderProvider,
 	keycloakFacade keycloak.Facade,
-	presetsProvider provider.PresetProvider) http.Handler {
+	presetsProvider provider.PresetProvider,
+	admissionPluginProvider provider.AdmissionPluginsProvider,
+	settingsWatcher watcher.SettingsWatcher) http.Handler {
 
 	updateManager := version.New(versions, updates)
 	r := handler.NewRouting(
 		kubermaticlog.Logger,
 		presetsProvider,
 		seedsGetter,
+		seedClientGetter,
 		clusterProvidersGetter,
 		addonProviderGetter,
 		addonConfigProvider,
 		sshKeyProvider,
+		privilegedSSHKeyProvider,
 		userProvider,
 		serviceAccountProvider,
+		privilegedServiceAccountProvider,
 		serviceAccountTokenProvider,
+		privilegedServiceAccountTokenProvider,
 		projectProvider,
 		mdRequestProviderGetter,
 		privilegedProjectProvider,
@@ -73,6 +86,7 @@ func NewTestRouting(
 		updateManager,
 		prometheusClient,
 		projectMemberProvider,
+		privilegedProjectMemberProvider,
 		projectMemberProvider, /*satisfies also a different interface*/
 		saTokenAuthenticator,
 		saTokenGenerator,
@@ -83,6 +97,8 @@ func NewTestRouting(
 		userInfoGetter,
 		settingsProvider,
 		adminProvider,
+		admissionPluginProvider,
+		settingsWatcher,
 	)
 
 	mainRouter := mux.NewRouter()

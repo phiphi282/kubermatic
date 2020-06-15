@@ -6,25 +6,25 @@ package models
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
-	strfmt "github.com/go-openapi/strfmt"
-
 	"github.com/go-openapi/errors"
+	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
 	"github.com/go-openapi/validate"
 )
 
 // NodeDeploymentSpec NodeDeploymentSpec node deployment specification
+//
 // swagger:model NodeDeploymentSpec
 type NodeDeploymentSpec struct {
+
+	// dynamic config
+	DynamicConfig bool `json:"dynamicConfig,omitempty"`
 
 	// max replicas
 	MaxReplicas int32 `json:"maxReplicas,omitempty"`
 
 	// min replicas
 	MinReplicas int32 `json:"minReplicas,omitempty"`
-
-	// dynamic config
-	DynamicConfig bool `json:"dynamicConfig,omitempty"`
 
 	// paused
 	Paused bool `json:"paused,omitempty"`

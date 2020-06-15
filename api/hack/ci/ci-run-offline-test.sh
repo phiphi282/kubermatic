@@ -230,7 +230,7 @@ retry 3 helm upgrade --install --force --wait --timeout 300 \
   --namespace ${NAMESPACE} \
   kubermatic-${BUILD_ID} ./../config/kubermatic/
 
-go build github.com/kubermatic/kubermatic/api/cmd/conformance-tests
+go build --tags "$KUBERMATIC_EDITION" github.com/kubermatic/kubermatic/api/cmd/conformance-tests
 
 cp ${KUBECONFIG} /tmp/kubeconfig-remote
 kubectl --kubeconfig /tmp/kubeconfig-remote config set-cluster kubernetes --server=https://${KUBERNETES_CONTROLLER_ADDR}:6443;
@@ -253,7 +253,7 @@ ssh ${SSH_OPTS} root@${PROXY_EXTERNAL_ADDR} << EOF
     -reports-root=/tmp/${BUILD_ID}/reports \
     -versions="v1.13.5" \
     -providers=gcp \
-    -exclude-distributions="centos,ubuntu" \
+    -exclude-distributions="centos,ubuntu,sles,rhel" \
     -kubermatic-delete-cluster=false \
     -only-test-creation=true \
     -gcp-service-account="${GOOGLE_SERVICE_ACCOUNT}" \

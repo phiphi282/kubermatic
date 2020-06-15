@@ -8,11 +8,11 @@ package client
 import (
 	"github.com/go-openapi/runtime"
 	httptransport "github.com/go-openapi/runtime/client"
-
-	strfmt "github.com/go-openapi/strfmt"
+	"github.com/go-openapi/strfmt"
 
 	"github.com/kubermatic/kubermatic/api/pkg/test/e2e/api/utils/apiclient/client/addon"
 	"github.com/kubermatic/kubermatic/api/pkg/test/e2e/api/utils/apiclient/client/admin"
+	"github.com/kubermatic/kubermatic/api/pkg/test/e2e/api/utils/apiclient/client/alibaba"
 	"github.com/kubermatic/kubermatic/api/pkg/test/e2e/api/utils/apiclient/client/aws"
 	"github.com/kubermatic/kubermatic/api/pkg/test/e2e/api/utils/apiclient/client/azure"
 	"github.com/kubermatic/kubermatic/api/pkg/test/e2e/api/utils/apiclient/client/credentials"
@@ -75,47 +75,27 @@ func New(transport runtime.ClientTransport, formats strfmt.Registry) *MetaKube {
 
 	cli := new(MetaKube)
 	cli.Transport = transport
-
 	cli.Addon = addon.New(transport, formats)
-
 	cli.Admin = admin.New(transport, formats)
-
+	cli.Alibaba = alibaba.New(transport, formats)
 	cli.Aws = aws.New(transport, formats)
-
 	cli.Azure = azure.New(transport, formats)
-
 	cli.Credentials = credentials.New(transport, formats)
-
 	cli.Datacenter = datacenter.New(transport, formats)
-
 	cli.Digitalocean = digitalocean.New(transport, formats)
-
 	cli.Gcp = gcp.New(transport, formats)
-
 	cli.Hetzner = hetzner.New(transport, formats)
-
 	cli.Metric = metric.New(transport, formats)
-
 	cli.Openstack = openstack.New(transport, formats)
-
 	cli.Operations = operations.New(transport, formats)
-
 	cli.Packet = packet.New(transport, formats)
-
 	cli.Project = project.New(transport, formats)
-
 	cli.Serviceaccounts = serviceaccounts.New(transport, formats)
-
 	cli.Settings = settings.New(transport, formats)
-
 	cli.Tokens = tokens.New(transport, formats)
-
 	cli.Users = users.New(transport, formats)
-
 	cli.Versions = versions.New(transport, formats)
-
 	cli.Vsphere = vsphere.New(transport, formats)
-
 	return cli
 }
 
@@ -160,45 +140,47 @@ func (cfg *TransportConfig) WithSchemes(schemes []string) *TransportConfig {
 
 // MetaKube is a client for meta kube
 type MetaKube struct {
-	Addon *addon.Client
+	Addon addon.ClientService
 
-	Admin *admin.Client
+	Admin admin.ClientService
 
-	Aws *aws.Client
+	Alibaba alibaba.ClientService
 
-	Azure *azure.Client
+	Aws aws.ClientService
 
-	Credentials *credentials.Client
+	Azure azure.ClientService
 
-	Datacenter *datacenter.Client
+	Credentials credentials.ClientService
 
-	Digitalocean *digitalocean.Client
+	Datacenter datacenter.ClientService
 
-	Gcp *gcp.Client
+	Digitalocean digitalocean.ClientService
 
-	Hetzner *hetzner.Client
+	Gcp gcp.ClientService
 
-	Metric *metric.Client
+	Hetzner hetzner.ClientService
 
-	Openstack *openstack.Client
+	Metric metric.ClientService
 
-	Operations *operations.Client
+	Openstack openstack.ClientService
 
-	Packet *packet.Client
+	Operations operations.ClientService
 
-	Project *project.Client
+	Packet packet.ClientService
 
-	Serviceaccounts *serviceaccounts.Client
+	Project project.ClientService
 
-	Settings *settings.Client
+	Serviceaccounts serviceaccounts.ClientService
 
-	Tokens *tokens.Client
+	Settings settings.ClientService
 
-	Users *users.Client
+	Tokens tokens.ClientService
 
-	Versions *versions.Client
+	Users users.ClientService
 
-	Vsphere *vsphere.Client
+	Versions versions.ClientService
+
+	Vsphere vsphere.ClientService
 
 	Transport runtime.ClientTransport
 }
@@ -206,45 +188,25 @@ type MetaKube struct {
 // SetTransport changes the transport on the client and all its subresources
 func (c *MetaKube) SetTransport(transport runtime.ClientTransport) {
 	c.Transport = transport
-
 	c.Addon.SetTransport(transport)
-
 	c.Admin.SetTransport(transport)
-
+	c.Alibaba.SetTransport(transport)
 	c.Aws.SetTransport(transport)
-
 	c.Azure.SetTransport(transport)
-
 	c.Credentials.SetTransport(transport)
-
 	c.Datacenter.SetTransport(transport)
-
 	c.Digitalocean.SetTransport(transport)
-
 	c.Gcp.SetTransport(transport)
-
 	c.Hetzner.SetTransport(transport)
-
 	c.Metric.SetTransport(transport)
-
 	c.Openstack.SetTransport(transport)
-
 	c.Operations.SetTransport(transport)
-
 	c.Packet.SetTransport(transport)
-
 	c.Project.SetTransport(transport)
-
 	c.Serviceaccounts.SetTransport(transport)
-
 	c.Settings.SetTransport(transport)
-
 	c.Tokens.SetTransport(transport)
-
 	c.Users.SetTransport(transport)
-
 	c.Versions.SetTransport(transport)
-
 	c.Vsphere.SetTransport(transport)
-
 }

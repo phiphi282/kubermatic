@@ -193,7 +193,7 @@ func (r *Reconciler) reconcileSecrets(config *operatorv1alpha1.KubermaticConfigu
 		common.DockercfgSecretCreator(config),
 		common.SeedWebhookServingCASecretCreator(config),
 		common.SeedWebhookServingCertSecretCreator(config, r.Client),
-		common.MasterFilesSecretCreator(config),
+		common.ExtraFilesSecretCreator(config),
 	}
 
 	if config.Spec.Auth.CABundle != "" {
@@ -228,7 +228,7 @@ func (r *Reconciler) reconcileClusterRoleBindings(config *operatorv1alpha1.Kuber
 		kubermatic.ClusterRoleBindingCreator(config),
 	}
 
-	if err := reconciling.ReconcileClusterRoleBindings(r.ctx, creators, "", r.Client, common.OwnershipModifierFactory(config, r.scheme)); err != nil {
+	if err := reconciling.ReconcileClusterRoleBindings(r.ctx, creators, "", r.Client); err != nil {
 		return fmt.Errorf("failed to reconcile ClusterRoleBindings: %v", err)
 	}
 

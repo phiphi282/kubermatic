@@ -7,7 +7,7 @@ source ./api/hack/lib.sh
 
 ### Defaults
 export VERSIONS=${VERSIONS_TO_TEST:-"v1.12.4"}
-export EXCLUDE_DISTRIBUTIONS=${EXCLUDE_DISTRIBUTIONS:-ubuntu,centos}
+export EXCLUDE_DISTRIBUTIONS=${EXCLUDE_DISTRIBUTIONS:-ubuntu,centos,sles,rhel}
 export ONLY_TEST_CREATION=${ONLY_TEST_CREATION:-false}
 provider=${PROVIDER:-"aws"}
 export WORKER_NAME=${BUILD_ID}
@@ -54,6 +54,9 @@ elif [[ $provider == "vsphere" ]]; then
     -vsphere-password=${VSPHERE_E2E_PASSWORD}"
 elif [[ $provider == "kubevirt" ]]; then
   EXTRA_ARGS="-kubevirt-kubeconfig=${KUBEVIRT_E2E_TESTS_KUBECONFIG}"
+elif [[ $provider == "alibaba" ]]; then
+  EXTRA_ARGS="-alibaba-access-key-id=${ALIBABA_E2E_TESTS_KEY_ID}
+     -alibaba-secret-access-key=${ALIBABA_E2E_TESTS_SECRET}"
 fi
 
 # TODO(2.13): Remove after 2.13 release, only needed for upgrade tests
@@ -90,4 +93,5 @@ timeout -s 9 90m ./api/_build/conformance-tests ${EXTRA_ARGS:-} \
   -exclude-distributions="${EXCLUDE_DISTRIBUTIONS}" \
   ${OPENSHIFT_ARG:-} \
   -kubermatic-delete-cluster=${kubermatic_delete_cluster} \
-  -print-ginkgo-logs=true
+  -print-ginkgo-logs=true \
+  -pushgateway-endpoint="pushgateway.monitoring.svc.cluster.local.:9091"

@@ -7,12 +7,11 @@ package azure
 
 import (
 	"github.com/go-openapi/runtime"
-
-	strfmt "github.com/go-openapi/strfmt"
+	"github.com/go-openapi/strfmt"
 )
 
 // New creates a new azure API client.
-func New(transport runtime.ClientTransport, formats strfmt.Registry) *Client {
+func New(transport runtime.ClientTransport, formats strfmt.Registry) ClientService {
 	return &Client{transport: transport, formats: formats}
 }
 
@@ -24,8 +23,89 @@ type Client struct {
 	formats   strfmt.Registry
 }
 
+// ClientService is the interface for Client methods
+type ClientService interface {
+	ListAzureAvailabilityZones(params *ListAzureAvailabilityZonesParams, authInfo runtime.ClientAuthInfoWriter) (*ListAzureAvailabilityZonesOK, error)
+
+	ListAzureAvailabilityZonesNoCredentials(params *ListAzureAvailabilityZonesNoCredentialsParams, authInfo runtime.ClientAuthInfoWriter) (*ListAzureAvailabilityZonesNoCredentialsOK, error)
+
+	ListAzureSizes(params *ListAzureSizesParams, authInfo runtime.ClientAuthInfoWriter) (*ListAzureSizesOK, error)
+
+	ListAzureSizesNoCredentials(params *ListAzureSizesNoCredentialsParams, authInfo runtime.ClientAuthInfoWriter) (*ListAzureSizesNoCredentialsOK, error)
+
+	SetTransport(transport runtime.ClientTransport)
+}
+
 /*
-ListAzureSizes Lists available VM sizes in an Azure region
+  ListAzureAvailabilityZones Lists VM availability zones in an Azure region
+*/
+func (a *Client) ListAzureAvailabilityZones(params *ListAzureAvailabilityZonesParams, authInfo runtime.ClientAuthInfoWriter) (*ListAzureAvailabilityZonesOK, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewListAzureAvailabilityZonesParams()
+	}
+
+	result, err := a.transport.Submit(&runtime.ClientOperation{
+		ID:                 "listAzureAvailabilityZones",
+		Method:             "GET",
+		PathPattern:        "/api/v1/providers/azure/availabilityzones",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json"},
+		Schemes:            []string{"https"},
+		Params:             params,
+		Reader:             &ListAzureAvailabilityZonesReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	})
+	if err != nil {
+		return nil, err
+	}
+	success, ok := result.(*ListAzureAvailabilityZonesOK)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	unexpectedSuccess := result.(*ListAzureAvailabilityZonesDefault)
+	return nil, runtime.NewAPIError("unexpected success response: content available as default response in error", unexpectedSuccess, unexpectedSuccess.Code())
+}
+
+/*
+  ListAzureAvailabilityZonesNoCredentials Lists available VM availability zones in an Azure region
+*/
+func (a *Client) ListAzureAvailabilityZonesNoCredentials(params *ListAzureAvailabilityZonesNoCredentialsParams, authInfo runtime.ClientAuthInfoWriter) (*ListAzureAvailabilityZonesNoCredentialsOK, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewListAzureAvailabilityZonesNoCredentialsParams()
+	}
+
+	result, err := a.transport.Submit(&runtime.ClientOperation{
+		ID:                 "listAzureAvailabilityZonesNoCredentials",
+		Method:             "GET",
+		PathPattern:        "/api/v1/projects/{project_id}/dc/{dc}/clusters/{cluster_id}/providers/azure/availabilityzones",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json"},
+		Schemes:            []string{"https"},
+		Params:             params,
+		Reader:             &ListAzureAvailabilityZonesNoCredentialsReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	})
+	if err != nil {
+		return nil, err
+	}
+	success, ok := result.(*ListAzureAvailabilityZonesNoCredentialsOK)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	unexpectedSuccess := result.(*ListAzureAvailabilityZonesNoCredentialsDefault)
+	return nil, runtime.NewAPIError("unexpected success response: content available as default response in error", unexpectedSuccess, unexpectedSuccess.Code())
+}
+
+/*
+  ListAzureSizes Lists available VM sizes in an Azure region
 */
 func (a *Client) ListAzureSizes(params *ListAzureSizesParams, authInfo runtime.ClientAuthInfoWriter) (*ListAzureSizesOK, error) {
 	// TODO: Validate the params before sending
@@ -49,12 +129,17 @@ func (a *Client) ListAzureSizes(params *ListAzureSizesParams, authInfo runtime.C
 	if err != nil {
 		return nil, err
 	}
-	return result.(*ListAzureSizesOK), nil
-
+	success, ok := result.(*ListAzureSizesOK)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	unexpectedSuccess := result.(*ListAzureSizesDefault)
+	return nil, runtime.NewAPIError("unexpected success response: content available as default response in error", unexpectedSuccess, unexpectedSuccess.Code())
 }
 
 /*
-ListAzureSizesNoCredentials Lists available VM sizes in an Azure region
+  ListAzureSizesNoCredentials Lists available VM sizes in an Azure region
 */
 func (a *Client) ListAzureSizesNoCredentials(params *ListAzureSizesNoCredentialsParams, authInfo runtime.ClientAuthInfoWriter) (*ListAzureSizesNoCredentialsOK, error) {
 	// TODO: Validate the params before sending
@@ -78,8 +163,13 @@ func (a *Client) ListAzureSizesNoCredentials(params *ListAzureSizesNoCredentials
 	if err != nil {
 		return nil, err
 	}
-	return result.(*ListAzureSizesNoCredentialsOK), nil
-
+	success, ok := result.(*ListAzureSizesNoCredentialsOK)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	unexpectedSuccess := result.(*ListAzureSizesNoCredentialsDefault)
+	return nil, runtime.NewAPIError("unexpected success response: content available as default response in error", unexpectedSuccess, unexpectedSuccess.Code())
 }
 
 // SetTransport changes the transport on the client

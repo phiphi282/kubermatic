@@ -13,8 +13,7 @@ import (
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/runtime"
 	cr "github.com/go-openapi/runtime/client"
-
-	strfmt "github.com/go-openapi/strfmt"
+	"github.com/go-openapi/strfmt"
 )
 
 // NewListGCPNetworksNoCredentialsParams creates a new ListGCPNetworksNoCredentialsParams object
@@ -64,7 +63,7 @@ type ListGCPNetworksNoCredentialsParams struct {
 	/*ClusterID*/
 	ClusterID string
 	/*Dc*/
-	Dc string
+	DC string
 	/*ProjectID*/
 	ProjectID string
 
@@ -117,15 +116,15 @@ func (o *ListGCPNetworksNoCredentialsParams) SetClusterID(clusterID string) {
 	o.ClusterID = clusterID
 }
 
-// WithDc adds the dc to the list g c p networks no credentials params
-func (o *ListGCPNetworksNoCredentialsParams) WithDc(dc string) *ListGCPNetworksNoCredentialsParams {
-	o.SetDc(dc)
+// WithDC adds the dc to the list g c p networks no credentials params
+func (o *ListGCPNetworksNoCredentialsParams) WithDC(dc string) *ListGCPNetworksNoCredentialsParams {
+	o.SetDC(dc)
 	return o
 }
 
-// SetDc adds the dc to the list g c p networks no credentials params
-func (o *ListGCPNetworksNoCredentialsParams) SetDc(dc string) {
-	o.Dc = dc
+// SetDC adds the dc to the list g c p networks no credentials params
+func (o *ListGCPNetworksNoCredentialsParams) SetDC(dc string) {
+	o.DC = dc
 }
 
 // WithProjectID adds the projectID to the list g c p networks no credentials params
@@ -153,7 +152,7 @@ func (o *ListGCPNetworksNoCredentialsParams) WriteToRequest(r runtime.ClientRequ
 	}
 
 	// path param dc
-	if err := r.SetPathParam("dc", o.Dc); err != nil {
+	if err := r.SetPathParam("dc", o.DC); err != nil {
 		return err
 	}
 

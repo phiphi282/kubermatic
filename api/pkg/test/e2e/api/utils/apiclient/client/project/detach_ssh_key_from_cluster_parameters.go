@@ -13,8 +13,7 @@ import (
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/runtime"
 	cr "github.com/go-openapi/runtime/client"
-
-	strfmt "github.com/go-openapi/strfmt"
+	"github.com/go-openapi/strfmt"
 )
 
 // NewDetachSSHKeyFromClusterParams creates a new DetachSSHKeyFromClusterParams object
@@ -64,7 +63,7 @@ type DetachSSHKeyFromClusterParams struct {
 	/*ClusterID*/
 	ClusterID string
 	/*Dc*/
-	Dc string
+	DC string
 	/*KeyID*/
 	KeyID string
 	/*ProjectID*/
@@ -119,15 +118,15 @@ func (o *DetachSSHKeyFromClusterParams) SetClusterID(clusterID string) {
 	o.ClusterID = clusterID
 }
 
-// WithDc adds the dc to the detach SSH key from cluster params
-func (o *DetachSSHKeyFromClusterParams) WithDc(dc string) *DetachSSHKeyFromClusterParams {
-	o.SetDc(dc)
+// WithDC adds the dc to the detach SSH key from cluster params
+func (o *DetachSSHKeyFromClusterParams) WithDC(dc string) *DetachSSHKeyFromClusterParams {
+	o.SetDC(dc)
 	return o
 }
 
-// SetDc adds the dc to the detach SSH key from cluster params
-func (o *DetachSSHKeyFromClusterParams) SetDc(dc string) {
-	o.Dc = dc
+// SetDC adds the dc to the detach SSH key from cluster params
+func (o *DetachSSHKeyFromClusterParams) SetDC(dc string) {
+	o.DC = dc
 }
 
 // WithKeyID adds the keyID to the detach SSH key from cluster params
@@ -166,7 +165,7 @@ func (o *DetachSSHKeyFromClusterParams) WriteToRequest(r runtime.ClientRequest, 
 	}
 
 	// path param dc
-	if err := r.SetPathParam("dc", o.Dc); err != nil {
+	if err := r.SetPathParam("dc", o.DC); err != nil {
 		return err
 	}
 

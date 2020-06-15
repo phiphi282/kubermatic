@@ -61,18 +61,19 @@ servingInfo:
 `
 )
 
-func OpenshiftControllerManagerConfigMapCreator(openshiftVersion string) reconciling.NamedConfigMapCreatorGetter {
+func OpenshiftControllerManagerConfigMapCreator(data openshiftData) reconciling.NamedConfigMapCreatorGetter {
+	openshiftVersion := data.Cluster().Spec.Version.String()
 	return func() (string, reconciling.ConfigMapCreator) {
 		return openshiftControllerManagerConfigMapName, func(cm *corev1.ConfigMap) (*corev1.ConfigMap, error) {
 			if cm.Data == nil {
 				cm.Data = map[string]string{}
 			}
 
-			buildImageTemplateFormatImage, err := dockerBuilderImage(openshiftVersion)
+			buildImageTemplateFormatImage, err := dockerBuilderImage(openshiftVersion, data.ImageRegistry(""))
 			if err != nil {
 				return nil, err
 			}
-			deployerImageTemplateFormatImage, err := deployerImage(openshiftVersion)
+			deployerImageTemplateFormatImage, err := deployerImage(openshiftVersion, data.ImageRegistry(""))
 			if err != nil {
 				return nil, err
 			}
@@ -109,7 +110,7 @@ func OpenshiftControllerManagerDeploymentCreator(ctx context.Context, data opens
 	return func() (string, reconciling.DeploymentCreator) {
 		return OpenshiftControllerManagerDeploymentName, func(dep *appsv1.Deployment) (*appsv1.Deployment, error) {
 			dep.Name = resources.ControllerManagerDeploymentName
-			dep.Labels = resources.BaseAppLabel(OpenshiftControllerManagerDeploymentName, nil)
+			dep.Labels = resources.BaseAppLabels(OpenshiftControllerManagerDeploymentName, nil)
 
 			dep.Spec.Replicas = resources.Int32(1)
 			if data.Cluster().Spec.ComponentsOverride.ControllerManager.Replicas != nil {
@@ -118,7 +119,7 @@ func OpenshiftControllerManagerDeploymentCreator(ctx context.Context, data opens
 			dep.Spec.Template.Spec.AutomountServiceAccountToken = utilpointer.BoolPtr(false)
 
 			dep.Spec.Selector = &metav1.LabelSelector{
-				MatchLabels: resources.BaseAppLabel(OpenshiftControllerManagerDeploymentName, nil),
+				MatchLabels: resources.BaseAppLabels(OpenshiftControllerManagerDeploymentName, nil),
 			}
 			dep.Spec.Template.Spec.ImagePullSecrets = []corev1.LocalObjectReference{{Name: openshiftImagePullSecretName}}
 
@@ -145,7 +146,7 @@ func OpenshiftControllerManagerDeploymentCreator(ctx context.Context, data opens
 
 			dep.Spec.Template.Spec.Volumes = volumes
 
-			image, err := hypershiftImage(data.Cluster().Spec.Version.String())
+			image, err := hypershiftImage(data.Cluster().Spec.Version.String(), data.ImageRegistry(""))
 			if err != nil {
 				return nil, err
 			}

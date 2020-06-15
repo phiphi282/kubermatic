@@ -8,13 +8,13 @@ package models
 import (
 	"strconv"
 
-	strfmt "github.com/go-openapi/strfmt"
-
 	"github.com/go-openapi/errors"
+	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
 )
 
 // GCPZoneList GCPZoneList represents an array of GCP zones.
+//
 // swagger:model GCPZoneList
 type GCPZoneList []*GCPZone
 

@@ -8,6 +8,7 @@ import (
 
 	apiv1 "github.com/kubermatic/kubermatic/api/pkg/api/v1"
 	kubermaticv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
+	alibaba "github.com/kubermatic/machine-controller/pkg/cloudprovider/provider/alibaba/types"
 	aws "github.com/kubermatic/machine-controller/pkg/cloudprovider/provider/aws/types"
 	azure "github.com/kubermatic/machine-controller/pkg/cloudprovider/provider/azure/types"
 	digitalocean "github.com/kubermatic/machine-controller/pkg/cloudprovider/provider/digitalocean/types"
@@ -20,6 +21,8 @@ import (
 	providerconfig "github.com/kubermatic/machine-controller/pkg/providerconfig/types"
 	"github.com/kubermatic/machine-controller/pkg/userdata/centos"
 	"github.com/kubermatic/machine-controller/pkg/userdata/coreos"
+	"github.com/kubermatic/machine-controller/pkg/userdata/rhel"
+	"github.com/kubermatic/machine-controller/pkg/userdata/sles"
 	"github.com/kubermatic/machine-controller/pkg/userdata/ubuntu"
 
 	"k8s.io/apimachinery/pkg/runtime"
@@ -36,6 +39,12 @@ func getOsName(nodeSpec apiv1.NodeSpec) (providerconfig.OperatingSystem, error) 
 	}
 	if nodeSpec.OperatingSystem.ContainerLinux != nil {
 		return providerconfig.OperatingSystemCoreos, nil
+	}
+	if nodeSpec.OperatingSystem.SLES != nil {
+		return providerconfig.OperatingSystemSLES, nil
+	}
+	if nodeSpec.OperatingSystem.RHEL != nil {
+		return providerconfig.OperatingSystemRHEL, nil
 	}
 
 	return "", errors.New("unknown operating system")
@@ -98,14 +107,18 @@ func getAzureProviderSpec(c *kubermaticv1.Cluster, nodeSpec apiv1.NodeSpec, dc *
 		Location:          providerconfig.ConfigVarString{Value: dc.Spec.Azure.Location},
 		ResourceGroup:     providerconfig.ConfigVarString{Value: c.Spec.Cloud.Azure.ResourceGroup},
 		VMSize:            providerconfig.ConfigVarString{Value: nodeSpec.Cloud.Azure.Size},
+		OSDiskSize:        nodeSpec.Cloud.Azure.OSDiskSize,
+		DataDiskSize:      nodeSpec.Cloud.Azure.DataDiskSize,
 		VNetName:          providerconfig.ConfigVarString{Value: c.Spec.Cloud.Azure.VNetName},
 		SubnetName:        providerconfig.ConfigVarString{Value: c.Spec.Cloud.Azure.SubnetName},
 		RouteTableName:    providerconfig.ConfigVarString{Value: c.Spec.Cloud.Azure.RouteTableName},
 		AvailabilitySet:   providerconfig.ConfigVarString{Value: c.Spec.Cloud.Azure.AvailabilitySet},
 		SecurityGroupName: providerconfig.ConfigVarString{Value: c.Spec.Cloud.Azure.SecurityGroup},
+		Zones:             nodeSpec.Cloud.Azure.Zones,
+		ImageID:           providerconfig.ConfigVarString{Value: nodeSpec.Cloud.Azure.ImageID},
 
-		// Revisit when we have the DNAT topic complete and we can use private machines. Then we can use: node.Spec.Cloud.Azure.AssignPublicIP
-		AssignPublicIP: providerconfig.ConfigVarBool{Value: true},
+		// https://github.com/kubermatic/kubermatic/issues/5013#issuecomment-580357280
+		AssignPublicIP: providerconfig.ConfigVarBool{Value: nodeSpec.Cloud.Azure.AssignPublicIP},
 	}
 	config.Tags = map[string]string{}
 	for key, value := range nodeSpec.Cloud.Azure.Tags {
@@ -175,6 +188,13 @@ func getOpenstackProviderSpec(c *kubermaticv1.Cluster, nodeSpec apiv1.NodeSpec, 
 
 	if dc.Spec.Openstack.TrustDevicePath != nil {
 		config.TrustDevicePath = providerconfig.ConfigVarBool{Value: *dc.Spec.Openstack.TrustDevicePath}
+	}
+
+	if multiAZ := c.Spec.Features[kubermaticv1.ClusterFeatureOpenstackMultiAZ]; multiAZ {
+		// Use the nodeDeployment spec AvailabilityZone if set, otherwise we stick to the default from the datacenter
+		if nodeSpec.Cloud.Openstack.AvailabilityZone != "" {
+			config.AvailabilityZone = providerconfig.ConfigVarString{Value: nodeSpec.Cloud.Openstack.AvailabilityZone}
+		}
 	}
 
 	config.Tags = map[string]string{}
@@ -288,6 +308,7 @@ func getGCPProviderSpec(c *kubermaticv1.Cluster, nodeSpec apiv1.NodeSpec, dc *ku
 		Network:               providerconfig.ConfigVarString{Value: c.Spec.Cloud.GCP.Network},
 		Subnetwork:            providerconfig.ConfigVarString{Value: c.Spec.Cloud.GCP.Subnetwork},
 		AssignPublicIPAddress: &providerconfig.ConfigVarBool{Value: true},
+		CustomImage:           providerconfig.ConfigVarString{Value: nodeSpec.Cloud.GCP.CustomImage},
 	}
 
 	tags := sets.NewString(nodeSpec.Cloud.GCP.Tags...)
@@ -321,6 +342,32 @@ func getKubevirtProviderSpec(nodeSpec apiv1.NodeSpec) (*runtime.RawExtension, er
 		SourceURL:        providerconfig.ConfigVarString{Value: nodeSpec.Cloud.Kubevirt.SourceURL},
 		Namespace:        providerconfig.ConfigVarString{Value: nodeSpec.Cloud.Kubevirt.Namespace},
 		Memory:           providerconfig.ConfigVarString{Value: nodeSpec.Cloud.Kubevirt.Memory},
+	}
+
+	ext := &runtime.RawExtension{}
+	b, err := json.Marshal(config)
+	if err != nil {
+		return nil, err
+	}
+
+	ext.Raw = b
+	return ext, nil
+}
+
+func getAlibabaProviderSpec(c *kubermaticv1.Cluster, nodeSpec apiv1.NodeSpec, dc *kubermaticv1.Datacenter) (*runtime.RawExtension, error) {
+	config := alibaba.RawConfig{
+		InstanceType:            providerconfig.ConfigVarString{Value: nodeSpec.Cloud.Alibaba.InstanceType},
+		DiskSize:                providerconfig.ConfigVarString{Value: nodeSpec.Cloud.Alibaba.DiskSize},
+		DiskType:                providerconfig.ConfigVarString{Value: nodeSpec.Cloud.Alibaba.DiskType},
+		VSwitchID:               providerconfig.ConfigVarString{Value: nodeSpec.Cloud.Alibaba.VSwitchID},
+		RegionID:                providerconfig.ConfigVarString{Value: dc.Spec.Alibaba.Region},
+		InternetMaxBandwidthOut: providerconfig.ConfigVarString{Value: nodeSpec.Cloud.Alibaba.InternetMaxBandwidthOut},
+		ZoneID:                  providerconfig.ConfigVarString{Value: nodeSpec.Cloud.Alibaba.ZoneID},
+	}
+
+	config.Labels = map[string]string{}
+	for key, value := range nodeSpec.Cloud.Alibaba.Labels {
+		config.Labels[key] = value
 	}
 
 	ext := &runtime.RawExtension{}
@@ -369,6 +416,39 @@ func getCoreosOperatingSystemSpec(nodeSpec apiv1.NodeSpec) (*runtime.RawExtensio
 func getUbuntuOperatingSystemSpec(nodeSpec apiv1.NodeSpec) (*runtime.RawExtension, error) {
 	config := ubuntu.Config{
 		DistUpgradeOnBoot: nodeSpec.OperatingSystem.Ubuntu.DistUpgradeOnBoot,
+	}
+
+	ext := &runtime.RawExtension{}
+	b, err := json.Marshal(config)
+	if err != nil {
+		return nil, err
+	}
+
+	ext.Raw = b
+	return ext, nil
+}
+
+func getSLESOperatingSystemSpec(nodeSpec apiv1.NodeSpec) (*runtime.RawExtension, error) {
+	config := sles.Config{
+		DistUpgradeOnBoot: nodeSpec.OperatingSystem.SLES.DistUpgradeOnBoot,
+	}
+
+	ext := &runtime.RawExtension{}
+	b, err := json.Marshal(config)
+	if err != nil {
+		return nil, err
+	}
+
+	ext.Raw = b
+	return ext, nil
+}
+
+func getRHELOperatingSystemSpec(nodeSpec apiv1.NodeSpec) (*runtime.RawExtension, error) {
+	config := rhel.Config{
+		DistUpgradeOnBoot:               nodeSpec.OperatingSystem.RHEL.DistUpgradeOnBoot,
+		RHELSubscriptionManagerUser:     nodeSpec.OperatingSystem.RHEL.RHELSubscriptionManagerUser,
+		RHELSubscriptionManagerPassword: nodeSpec.OperatingSystem.RHEL.RHELSubscriptionManagerPassword,
+		RHSMOfflineToken:                nodeSpec.OperatingSystem.RHEL.RHSMOfflineToken,
 	}
 
 	ext := &runtime.RawExtension{}

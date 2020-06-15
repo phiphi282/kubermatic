@@ -21,13 +21,17 @@ export KUBECONFIG=/tmp/kubeconfig
 export VALUES_FILE=/tmp/values.yaml
 export DOCKER_CONFIG=/tmp/dockercfg
 export KUBERMATIC_CONFIG=/tmp/kubermatic.yaml
+export USE_KUBERMATIC_OPERATOR=true
 
 # deploy to dev
 vault kv get -field=kubeconfig dev/seed-clusters/dev.kubermatic.io > ${KUBECONFIG}
-vault kv get -field=values.yaml dev/seed-clusters/dev.kubermatic.io > ${VALUES_FILE}
+vault kv get -field=europe-west3-c-values.yaml dev/seed-clusters/dev.kubermatic.io > ${VALUES_FILE}
 vault kv get -field=.dockerconfigjson dev/seed-clusters/dev.kubermatic.io > ${DOCKER_CONFIG}
 vault kv get -field=kubermatic.yaml dev/seed-clusters/dev.kubermatic.io > ${KUBERMATIC_CONFIG}
 echodate "Successfully got secrets for dev from Vault"
+
+# deploy Loki as beta
+export DEPLOY_LOKI=true
 
 echodate "Deploying ${DEPLOY_STACK} stack to dev"
 TILLER_NAMESPACE=kubermatic-installer ./api/hack/deploy.sh master ${VALUES_FILE}

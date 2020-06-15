@@ -13,8 +13,7 @@ import (
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/runtime"
 	cr "github.com/go-openapi/runtime/client"
-
-	strfmt "github.com/go-openapi/strfmt"
+	"github.com/go-openapi/strfmt"
 )
 
 // NewListVSphereFoldersNoCredentialsParams creates a new ListVSphereFoldersNoCredentialsParams object
@@ -64,7 +63,7 @@ type ListVSphereFoldersNoCredentialsParams struct {
 	/*ClusterID*/
 	ClusterID string
 	/*Dc*/
-	Dc string
+	DC string
 	/*ProjectID*/
 	ProjectID string
 
@@ -117,15 +116,15 @@ func (o *ListVSphereFoldersNoCredentialsParams) SetClusterID(clusterID string) {
 	o.ClusterID = clusterID
 }
 
-// WithDc adds the dc to the list v sphere folders no credentials params
-func (o *ListVSphereFoldersNoCredentialsParams) WithDc(dc string) *ListVSphereFoldersNoCredentialsParams {
-	o.SetDc(dc)
+// WithDC adds the dc to the list v sphere folders no credentials params
+func (o *ListVSphereFoldersNoCredentialsParams) WithDC(dc string) *ListVSphereFoldersNoCredentialsParams {
+	o.SetDC(dc)
 	return o
 }
 
-// SetDc adds the dc to the list v sphere folders no credentials params
-func (o *ListVSphereFoldersNoCredentialsParams) SetDc(dc string) {
-	o.Dc = dc
+// SetDC adds the dc to the list v sphere folders no credentials params
+func (o *ListVSphereFoldersNoCredentialsParams) SetDC(dc string) {
+	o.DC = dc
 }
 
 // WithProjectID adds the projectID to the list v sphere folders no credentials params
@@ -153,7 +152,7 @@ func (o *ListVSphereFoldersNoCredentialsParams) WriteToRequest(r runtime.ClientR
 	}
 
 	// path param dc
-	if err := r.SetPathParam("dc", o.Dc); err != nil {
+	if err := r.SetPathParam("dc", o.DC); err != nil {
 		return err
 	}
 

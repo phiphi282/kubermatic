@@ -8,18 +8,24 @@ package models
 import (
 	"strconv"
 
-	strfmt "github.com/go-openapi/strfmt"
-
 	"github.com/go-openapi/errors"
+	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
 )
 
 // ClusterSpec ClusterSpec defines the cluster specification
+//
 // swagger:model ClusterSpec
 type ClusterSpec struct {
 
+	// Additional Admission Controller plugins
+	AdmissionPlugins []string `json:"admissionPlugins"`
+
 	// MachineNetworks optionally specifies the parameters for IPAM.
 	MachineNetworks []*MachineNetworkingConfig `json:"machineNetworks"`
+
+	// If active the PodNodeSelector admission plugin is configured at the apiserver
+	UsePodNodeSelectorAdmissionPlugin bool `json:"usePodNodeSelectorAdmissionPlugin,omitempty"`
 
 	// If active the PodSecurityPolicy admission plugin is configured at the apiserver
 	UsePodSecurityPolicyAdmissionPlugin bool `json:"usePodSecurityPolicyAdmissionPlugin,omitempty"`

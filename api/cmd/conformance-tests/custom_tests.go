@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"net"
@@ -11,12 +12,15 @@ import (
 
 	"go.uber.org/zap"
 
+	kubermaticv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
+
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
 	ctrlruntimeclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -108,7 +112,7 @@ func (r *testRunner) testPVC(log *zap.SugaredLogger, userClusterClient ctrlrunti
 		currentSet := &appsv1.StatefulSet{}
 		name := types.NamespacedName{Namespace: ns.Name, Name: set.Name}
 		if err := userClusterClient.Get(context.Background(), name, currentSet); err != nil {
-			log.Warnf("failed to load StatefulSet %s/%s from API server during PVC test: %v", ns.Name, set.Name, err)
+			log.Warnf("Failed to load StatefulSet %s/%s from API server during PVC test: %v", ns.Name, set.Name, err)
 			return false, nil
 		}
 
@@ -191,7 +195,7 @@ func (r *testRunner) testLB(log *zap.SugaredLogger, userClusterClient ctrlruntim
 	err := wait.Poll(10*time.Second, defaultTimeout, func() (done bool, err error) {
 		currentService := &corev1.Service{}
 		if err := userClusterClient.Get(context.Background(), types.NamespacedName{Namespace: ns.Name, Name: service.Name}, currentService); err != nil {
-			log.Warnf("failed to load Service %s/%s from API server during LB test: %v", ns.Name, service.Name, err)
+			log.Warnf("Failed to load Service %s/%s from API server during LB test: %v", ns.Name, service.Name, err)
 			return false, nil
 		}
 		if len(currentService.Status.LoadBalancer.Ingress) > 0 {
@@ -215,22 +219,22 @@ func (r *testRunner) testLB(log *zap.SugaredLogger, userClusterClient ctrlruntim
 	}
 	log.Debug("The Service has an external IP/Name")
 
-	url := fmt.Sprintf("http://%s:80", host)
+	hostURL := fmt.Sprintf("http://%s:80", host)
 	log.Debug("Waiting until the pod is available via the LB...")
 	err = wait.Poll(30*time.Second, defaultTimeout, func() (done bool, err error) {
-		resp, err := http.Get(url)
+		resp, err := http.Get(hostURL)
 		if err != nil {
-			log.Warnf("Failed to call Pod via LB(%s) during LB test: %v", url, err)
+			log.Warnf("Failed to call Pod via LB (%s) during LB test: %v", hostURL, err)
 			return false, nil
 		}
 		defer func() {
 			if err := resp.Body.Close(); err != nil {
-				log.Warnf("Failed to close response body from Hello-Kubernetes Pod during LB test (%s): %v", url, err)
+				log.Warnf("Failed to close response body from Hello-Kubernetes Pod during LB test (%s): %v", hostURL, err)
 			}
 		}()
 		contents, err := ioutil.ReadAll(resp.Body)
 		if err != nil {
-			log.Warnf("Failed to read response body from Hello-Kubernetes Pod during LB test (%s): %v", url, err)
+			log.Warnf("Failed to read response body from Hello-Kubernetes Pod during LB test (%s): %v", hostURL, err)
 			return false, nil
 		}
 
@@ -244,5 +248,71 @@ func (r *testRunner) testLB(log *zap.SugaredLogger, userClusterClient ctrlruntim
 	}
 
 	log.Info("Successfully validated LB support")
+	return nil
+}
+
+type metricsData struct {
+	Status string   `json:"status"`
+	Data   []string `json:"data"`
+}
+
+// testUserClusterMetrics ensures all expected metrics are actually collected
+// in Prometheus. Note that this assumes that some time has passed between
+// Prometheus' eployment and this test, so it can scrape all targets. This
+// includes kubelets, so nodes must have been ready for at least 30 seconds
+// before this can succeed.
+func (r *testRunner) testUserClusterMetrics(log *zap.SugaredLogger, cluster *kubermaticv1.Cluster, seedClient ctrlruntimeclient.Client) error {
+	log.Info("Testing user cluster metrics availability...")
+
+	res := r.seedGeneratedClient.CoreV1().RESTClient().Get().
+		Namespace(cluster.Status.NamespaceName).
+		Resource("pods").
+		Name("prometheus-0:9090").
+		SubResource("proxy").
+		Suffix("api/v1/label/__name__/values").
+		Do()
+
+	if err := res.Error(); err != nil {
+		return fmt.Errorf("request to Prometheus failed: %v", err)
+	}
+
+	code := 0
+	res.StatusCode(&code)
+	if code != http.StatusOK {
+		return fmt.Errorf("Prometheus returned HTTP %d", code)
+	}
+
+	body, err := res.Raw()
+	if err != nil {
+		return fmt.Errorf("failed to read response body: %v", err)
+	}
+
+	data := &metricsData{}
+	if err := json.Unmarshal(body, data); err != nil {
+		return fmt.Errorf("failed to unmarshal metrics response: %v", err)
+	}
+
+	if data.Status != "success" {
+		return fmt.Errorf("failed to get prometheus metrics with data status: %s", data.Status)
+	}
+
+	expected := sets.NewString(
+		"etcd_disk_backend_defrag_duration_seconds_sum",
+		"kube_daemonset_labels",
+		"kubelet_runtime_operations_duration_seconds_count",
+		"machine_controller_machines",
+		"replicaset_controller_rate_limiter_use",
+		"scheduler_e2e_scheduling_duration_seconds_count",
+		"ssh_tunnel_open_count",
+		"workqueue_retries_total",
+	)
+	fetched := sets.NewString(data.Data...)
+	missing := expected.Difference(fetched)
+
+	if missing.Len() > 0 {
+		return fmt.Errorf("failed to get all expected metrics: got: %v, %v are missing", fetched.List(), missing.List())
+	}
+
+	log.Info("Successfully validated user cluster metrics.")
 	return nil
 }

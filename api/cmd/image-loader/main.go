@@ -39,7 +39,7 @@ import (
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/klog"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
-	"sigs.k8s.io/controller-runtime/pkg/runtime/signals"
+	"sigs.k8s.io/controller-runtime/pkg/manager/signals"
 )
 
 const mockNamespaceName = "mock-namespace"
@@ -434,12 +434,13 @@ func getVersions(log *zap.Logger, versionsFile, versionFilter string) ([]*kuberm
 }
 
 func getImagesFromAddons(log *zap.Logger, addonsPath string, cluster *kubermaticv1.Cluster) ([]string, error) {
-	addonData := &addonutil.TemplateData{
-		Cluster:           cluster,
-		MajorMinorVersion: cluster.Spec.Version.MajorMinor(),
-		Addon:             &kubermaticv1.Addon{},
-		Variables:         map[string]interface{}{},
+	credentials := resources.Credentials{}
+
+	addonData, err := addonutil.NewTemplateData(cluster, credentials, "", "", "", nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create addon template data: %v", err)
 	}
+
 	infos, err := ioutil.ReadDir(addonsPath)
 	if err != nil {
 		return nil, fmt.Errorf("unable to list addons: %v", err)

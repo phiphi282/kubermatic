@@ -13,9 +13,8 @@ import (
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/runtime"
 	cr "github.com/go-openapi/runtime/client"
+	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
-
-	strfmt "github.com/go-openapi/strfmt"
 )
 
 // NewListNodesForClusterLegacyParams creates a new ListNodesForClusterLegacyParams object
@@ -65,7 +64,7 @@ type ListNodesForClusterLegacyParams struct {
 	/*ClusterID*/
 	ClusterID string
 	/*Dc*/
-	Dc string
+	DC string
 	/*HideInitialConditions*/
 	HideInitialConditions *bool
 	/*ProjectID*/
@@ -120,15 +119,15 @@ func (o *ListNodesForClusterLegacyParams) SetClusterID(clusterID string) {
 	o.ClusterID = clusterID
 }
 
-// WithDc adds the dc to the list nodes for cluster legacy params
-func (o *ListNodesForClusterLegacyParams) WithDc(dc string) *ListNodesForClusterLegacyParams {
-	o.SetDc(dc)
+// WithDC adds the dc to the list nodes for cluster legacy params
+func (o *ListNodesForClusterLegacyParams) WithDC(dc string) *ListNodesForClusterLegacyParams {
+	o.SetDC(dc)
 	return o
 }
 
-// SetDc adds the dc to the list nodes for cluster legacy params
-func (o *ListNodesForClusterLegacyParams) SetDc(dc string) {
-	o.Dc = dc
+// SetDC adds the dc to the list nodes for cluster legacy params
+func (o *ListNodesForClusterLegacyParams) SetDC(dc string) {
+	o.DC = dc
 }
 
 // WithHideInitialConditions adds the hideInitialConditions to the list nodes for cluster legacy params
@@ -167,7 +166,7 @@ func (o *ListNodesForClusterLegacyParams) WriteToRequest(r runtime.ClientRequest
 	}
 
 	// path param dc
-	if err := r.SetPathParam("dc", o.Dc); err != nil {
+	if err := r.SetPathParam("dc", o.DC); err != nil {
 		return err
 	}
 

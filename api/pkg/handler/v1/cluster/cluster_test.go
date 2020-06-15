@@ -30,6 +30,8 @@ import (
 	"k8s.io/metrics/pkg/apis/metrics/v1beta1"
 )
 
+const fakeDC = "fake-dc"
+
 func TestDeleteClusterEndpointWithFinalizers(t *testing.T) {
 	t.Parallel()
 	testcases := []struct {
@@ -138,7 +140,7 @@ func TestDeleteClusterEndpointWithFinalizers(t *testing.T) {
 
 func TestDeleteClusterEndpoint(t *testing.T) {
 	t.Parallel()
-	testcase := struct {
+	testcases := []struct {
 		Name                          string
 		Body                          string
 		ExpectedResponse              string
@@ -149,135 +151,228 @@ func TestDeleteClusterEndpoint(t *testing.T) {
 		ExistingAPIUser               *apiv1.User
 		ExpectedSSHKeys               []*kubermaticv1.UserSSHKey
 		ExpectedListClusterKeysStatus int
+		PrivilegedOperation           bool
 	}{
-		Name:             "scenario 1: tests deletion of a cluster and its dependant resources",
-		Body:             ``,
-		ExpectedResponse: `{}`,
-		HTTPStatus:       http.StatusOK,
-		ProjectToSync:    test.GenDefaultProject().Name,
-		ExistingKubermaticObjs: test.GenDefaultKubermaticObjects(
-			// add a cluster
-			test.GenCluster("clusterAbcID", "clusterAbc", test.GenDefaultProject().Name, time.Date(2013, 02, 03, 19, 54, 0, 0, time.UTC)),
-			// add ssh keys
-			&kubermaticv1.UserSSHKey{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "key-c08aa5c7abf34504f18552846485267d-yafn",
-					OwnerReferences: []metav1.OwnerReference{
-						{
-							APIVersion: "kubermatic.k8s.io/v1",
-							Kind:       "Project",
-							UID:        "",
-							Name:       test.GenDefaultProject().Name,
+		{
+			Name:             "scenario 1: tests deletion of a cluster and its dependant resources",
+			Body:             ``,
+			ExpectedResponse: `{}`,
+			HTTPStatus:       http.StatusOK,
+			ProjectToSync:    test.GenDefaultProject().Name,
+			ExistingKubermaticObjs: test.GenDefaultKubermaticObjects(
+				// add a cluster
+				test.GenCluster("clusterAbcID", "clusterAbc", test.GenDefaultProject().Name, time.Date(2013, 02, 03, 19, 54, 0, 0, time.UTC)),
+				// add ssh keys
+				&kubermaticv1.UserSSHKey{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "key-c08aa5c7abf34504f18552846485267d-yafn",
+						OwnerReferences: []metav1.OwnerReference{
+							{
+								APIVersion: "kubermatic.k8s.io/v1",
+								Kind:       "Project",
+								UID:        "",
+								Name:       test.GenDefaultProject().Name,
+							},
 						},
 					},
-				},
-				Spec: kubermaticv1.SSHKeySpec{
-					Clusters: []string{"clusterAbcID"},
-				},
-			},
-			&kubermaticv1.UserSSHKey{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "key-abc-yafn",
-					OwnerReferences: []metav1.OwnerReference{
-						{
-							APIVersion: "kubermatic.k8s.io/v1",
-							Kind:       "Project",
-							UID:        "",
-							Name:       test.GenDefaultProject().Name,
-						},
+					Spec: kubermaticv1.SSHKeySpec{
+						Clusters: []string{"clusterAbcID"},
 					},
 				},
-				Spec: kubermaticv1.SSHKeySpec{
-					Clusters: []string{"clusterAbcID"},
-				},
-			},
-		),
-		ClusterToSync:   "clusterAbcID",
-		ExistingAPIUser: test.GenDefaultAPIUser(),
-		ExpectedSSHKeys: []*kubermaticv1.UserSSHKey{
-			{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "key-c08aa5c7abf34504f18552846485267d-yafn",
-					OwnerReferences: []metav1.OwnerReference{
-						{
-							APIVersion: "kubermatic.k8s.io/v1",
-							Kind:       "Project",
-							UID:        "",
-							Name:       test.GenDefaultProject().Name,
+				&kubermaticv1.UserSSHKey{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "key-abc-yafn",
+						OwnerReferences: []metav1.OwnerReference{
+							{
+								APIVersion: "kubermatic.k8s.io/v1",
+								Kind:       "Project",
+								UID:        "",
+								Name:       test.GenDefaultProject().Name,
+							},
 						},
 					},
-				},
-				Spec: kubermaticv1.SSHKeySpec{
-					Clusters: []string{},
-				},
-			},
-			{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "key-abc-yafn",
-					OwnerReferences: []metav1.OwnerReference{
-						{
-							APIVersion: "kubermatic.k8s.io/v1",
-							Kind:       "Project",
-							UID:        "",
-							Name:       test.GenDefaultProject().Name,
-						},
+					Spec: kubermaticv1.SSHKeySpec{
+						Clusters: []string{"clusterAbcID"},
 					},
 				},
-				Spec: kubermaticv1.SSHKeySpec{
-					Clusters: []string{},
+			),
+			ClusterToSync:   "clusterAbcID",
+			ExistingAPIUser: test.GenDefaultAPIUser(),
+			ExpectedSSHKeys: []*kubermaticv1.UserSSHKey{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "key-c08aa5c7abf34504f18552846485267d-yafn",
+						OwnerReferences: []metav1.OwnerReference{
+							{
+								APIVersion: "kubermatic.k8s.io/v1",
+								Kind:       "Project",
+								UID:        "",
+								Name:       test.GenDefaultProject().Name,
+							},
+						},
+					},
+					Spec: kubermaticv1.SSHKeySpec{
+						Clusters: []string{},
+					},
+				},
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "key-abc-yafn",
+						OwnerReferences: []metav1.OwnerReference{
+							{
+								APIVersion: "kubermatic.k8s.io/v1",
+								Kind:       "Project",
+								UID:        "",
+								Name:       test.GenDefaultProject().Name,
+							},
+						},
+					},
+					Spec: kubermaticv1.SSHKeySpec{
+						Clusters: []string{},
+					},
 				},
 			},
+			ExpectedListClusterKeysStatus: http.StatusNotFound,
 		},
-		ExpectedListClusterKeysStatus: http.StatusNotFound,
+		{
+			Name:             "scenario 2: the admin John can delete Bob's cluster",
+			Body:             ``,
+			ExpectedResponse: `{}`,
+			HTTPStatus:       http.StatusOK,
+			ProjectToSync:    test.GenDefaultProject().Name,
+			ExistingKubermaticObjs: test.GenDefaultKubermaticObjects(
+				genUser("John", "john@acme.com", true),
+				// add a cluster
+				test.GenCluster("clusterAbcID", "clusterAbc", test.GenDefaultProject().Name, time.Date(2013, 02, 03, 19, 54, 0, 0, time.UTC)),
+				// add ssh keys
+				&kubermaticv1.UserSSHKey{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "key-c08aa5c7abf34504f18552846485267d-yafn",
+						OwnerReferences: []metav1.OwnerReference{
+							{
+								APIVersion: "kubermatic.k8s.io/v1",
+								Kind:       "Project",
+								UID:        "",
+								Name:       test.GenDefaultProject().Name,
+							},
+						},
+					},
+					Spec: kubermaticv1.SSHKeySpec{
+						Clusters: []string{"clusterAbcID"},
+					},
+				},
+				&kubermaticv1.UserSSHKey{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "key-abc-yafn",
+						OwnerReferences: []metav1.OwnerReference{
+							{
+								APIVersion: "kubermatic.k8s.io/v1",
+								Kind:       "Project",
+								UID:        "",
+								Name:       test.GenDefaultProject().Name,
+							},
+						},
+					},
+					Spec: kubermaticv1.SSHKeySpec{
+						Clusters: []string{"clusterAbcID"},
+					},
+				},
+			),
+			ClusterToSync:   "clusterAbcID",
+			ExistingAPIUser: test.GenAPIUser("John", "john@acme.com"),
+			ExpectedSSHKeys: []*kubermaticv1.UserSSHKey{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "key-c08aa5c7abf34504f18552846485267d-yafn",
+						OwnerReferences: []metav1.OwnerReference{
+							{
+								APIVersion: "kubermatic.k8s.io/v1",
+								Kind:       "Project",
+								UID:        "",
+								Name:       test.GenDefaultProject().Name,
+							},
+						},
+					},
+					Spec: kubermaticv1.SSHKeySpec{
+						Clusters: []string{},
+					},
+				},
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "key-abc-yafn",
+						OwnerReferences: []metav1.OwnerReference{
+							{
+								APIVersion: "kubermatic.k8s.io/v1",
+								Kind:       "Project",
+								UID:        "",
+								Name:       test.GenDefaultProject().Name,
+							},
+						},
+					},
+					Spec: kubermaticv1.SSHKeySpec{
+						Clusters: []string{},
+					},
+				},
+			},
+			ExpectedListClusterKeysStatus: http.StatusNotFound,
+			PrivilegedOperation:           true,
+		},
 	}
 
-	// validate if deletion was successful
-	req := httptest.NewRequest("DELETE", fmt.Sprintf("/api/v1/projects/%s/dc/us-central1/clusters/%s", testcase.ProjectToSync, testcase.ClusterToSync), strings.NewReader(testcase.Body))
-	res := httptest.NewRecorder()
-	var kubermaticObj []runtime.Object
-	kubermaticObj = append(kubermaticObj, testcase.ExistingKubermaticObjs...)
-	ep, clientsSets, err := test.CreateTestEndpointAndGetClients(*testcase.ExistingAPIUser, nil, []runtime.Object{}, []runtime.Object{}, kubermaticObj, nil, nil, hack.NewTestRouting)
-	if err != nil {
-		t.Fatalf("failed to create test endpoint due to %v", err)
-	}
+	for _, tc := range testcases {
+		t.Run(tc.Name, func(t *testing.T) {
 
-	kubermaticClient := clientsSets.FakeKubermaticClient
-
-	ep.ServeHTTP(res, req)
-
-	if res.Code != testcase.HTTPStatus {
-		t.Fatalf("Expected HTTP status code %d, got %d: %s", testcase.HTTPStatus, res.Code, res.Body.String())
-	}
-	test.CompareWithResult(t, res, testcase.ExpectedResponse)
-
-	validatedActions := 0
-	for _, action := range kubermaticClient.Actions() {
-		if action.Matches("update", "usersshkeies") {
-			updateAction, ok := action.(clienttesting.CreateAction)
-			if !ok {
-				t.Fatalf("unexpected action %#v", action)
+			// validate if deletion was successful
+			req := httptest.NewRequest("DELETE", fmt.Sprintf("/api/v1/projects/%s/dc/us-central1/clusters/%s", tc.ProjectToSync, tc.ClusterToSync), strings.NewReader(tc.Body))
+			res := httptest.NewRecorder()
+			var kubermaticObj []runtime.Object
+			kubermaticObj = append(kubermaticObj, tc.ExistingKubermaticObjs...)
+			ep, clientsSets, err := test.CreateTestEndpointAndGetClients(*tc.ExistingAPIUser, nil, []runtime.Object{}, []runtime.Object{}, kubermaticObj, nil, nil, hack.NewTestRouting)
+			if err != nil {
+				t.Fatalf("failed to create test endpoint due to %v", err)
 			}
-			for _, expectedSSHKey := range testcase.ExpectedSSHKeys {
-				sshKeyFromAction := updateAction.GetObject().(*kubermaticv1.UserSSHKey)
-				if sshKeyFromAction.Name == expectedSSHKey.Name {
-					if !equality.Semantic.DeepEqual(updateAction.GetObject().(*kubermaticv1.UserSSHKey), expectedSSHKey) {
-						t.Fatalf("%v", diff.ObjectDiff(expectedSSHKey, updateAction.GetObject().(*kubermaticv1.UserSSHKey)))
+
+			kubermaticClient := clientsSets.FakeKubermaticClient
+
+			ep.ServeHTTP(res, req)
+
+			if res.Code != tc.HTTPStatus {
+				t.Fatalf("Expected HTTP status code %d, got %d: %s", tc.HTTPStatus, res.Code, res.Body.String())
+			}
+			test.CompareWithResult(t, res, tc.ExpectedResponse)
+
+			if !tc.PrivilegedOperation {
+				validatedActions := 0
+				for _, action := range kubermaticClient.Actions() {
+					if action.Matches("update", "usersshkeies") {
+						updateAction, ok := action.(clienttesting.CreateAction)
+						if !ok {
+							t.Fatalf("unexpected action %#v", action)
+						}
+						for _, expectedSSHKey := range tc.ExpectedSSHKeys {
+							sshKeyFromAction := updateAction.GetObject().(*kubermaticv1.UserSSHKey)
+							if sshKeyFromAction.Name == expectedSSHKey.Name {
+								if !equality.Semantic.DeepEqual(updateAction.GetObject().(*kubermaticv1.UserSSHKey), expectedSSHKey) {
+									t.Fatalf("%v", diff.ObjectDiff(expectedSSHKey, updateAction.GetObject().(*kubermaticv1.UserSSHKey)))
+								}
+							}
+						}
+						validatedActions++
 					}
 				}
+				if validatedActions != len(tc.ExpectedSSHKeys) {
+					t.Fatalf("not all update actions were validated, expected to validate %d but validated only %d", len(tc.ExpectedSSHKeys), validatedActions)
+				}
 			}
-			validatedActions++
-		}
-	}
-	if validatedActions != len(testcase.ExpectedSSHKeys) {
-		t.Fatalf("not all update actions were validated, expected to validate %d but validated only %d", len(testcase.ExpectedSSHKeys), validatedActions)
-	}
 
-	// validate if the cluster was deleted
-	req = httptest.NewRequest("GET", fmt.Sprintf("/api/v1/projects/%s/dc/us-central1/clusters/abcd/sshkeys", testcase.ProjectToSync), strings.NewReader(testcase.Body))
-	res = httptest.NewRecorder()
-	ep.ServeHTTP(res, req)
-	if res.Code != testcase.ExpectedListClusterKeysStatus {
-		t.Fatalf("Expected HTTP status code %d, got %d: %s", testcase.ExpectedListClusterKeysStatus, res.Code, res.Body.String())
+			// validate if the cluster was deleted
+			req = httptest.NewRequest("GET", fmt.Sprintf("/api/v1/projects/%s/dc/us-central1/clusters/abcd/sshkeys", tc.ProjectToSync), strings.NewReader(tc.Body))
+			res = httptest.NewRecorder()
+			ep.ServeHTTP(res, req)
+			if res.Code != tc.ExpectedListClusterKeysStatus {
+				t.Fatalf("Expected HTTP status code %d, got %d: %s", tc.ExpectedListClusterKeysStatus, res.Code, res.Body.String())
+			}
+		})
 	}
 }
 
@@ -348,6 +443,110 @@ func TestDetachSSHKeyFromClusterEndpoint(t *testing.T) {
 			),
 			ClusterToSync: "clusterAbcID",
 		},
+		// scenario 2
+		{
+			Name:                            "scenario 2: the admin John detaches one key from the Bob cluster",
+			Body:                            ``,
+			KeyToDelete:                     "key-c08aa5c7abf34504f18552846485267d-yafn",
+			ExpectedDeleteResponse:          `{}`,
+			ExpectedDeleteHTTPStatus:        http.StatusOK,
+			ExpectedGetHTTPStatus:           http.StatusOK,
+			ExpectedResponseOnGetAfterDelte: `[{"id":"key-abc-yafn","name":"key-display-name","creationTimestamp":"0001-01-01T00:00:00Z","spec":{"fingerprint":"","publicKey":""}}]`,
+			ProjectToSync:                   test.GenDefaultProject().Name,
+			ExistingAPIUser:                 test.GenAPIUser("John", "john@acme.com"),
+			ExistingKubermaticObjs: test.GenDefaultKubermaticObjects(
+				genUser("John", "john@acme.com", true),
+				// add a cluster
+				test.GenCluster("clusterAbcID", "clusterAbc", test.GenDefaultProject().Name, time.Date(2013, 02, 03, 19, 54, 0, 0, time.UTC)),
+				// add ssh keys
+				&kubermaticv1.UserSSHKey{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "key-c08aa5c7abf34504f18552846485267d-yafn",
+						OwnerReferences: []metav1.OwnerReference{
+							{
+								APIVersion: "kubermatic.k8s.io/v1",
+								Kind:       "Project",
+								UID:        "",
+								Name:       test.GenDefaultProject().Name,
+							},
+						},
+					},
+					Spec: kubermaticv1.SSHKeySpec{
+						Clusters: []string{"clusterAbcID"},
+					},
+				},
+				&kubermaticv1.UserSSHKey{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "key-abc-yafn",
+						OwnerReferences: []metav1.OwnerReference{
+							{
+								APIVersion: "kubermatic.k8s.io/v1",
+								Kind:       "Project",
+								UID:        "",
+								Name:       test.GenDefaultProject().Name,
+							},
+						},
+					},
+					Spec: kubermaticv1.SSHKeySpec{
+						Name:     "key-display-name",
+						Clusters: []string{"clusterAbcID"},
+					},
+				},
+			),
+			ClusterToSync: "clusterAbcID",
+		},
+		// scenario 3
+		{
+			Name:                            "scenario 3: the user John can not detach any key from the Bob cluster",
+			Body:                            ``,
+			KeyToDelete:                     "key-c08aa5c7abf34504f18552846485267d-yafn",
+			ExpectedDeleteResponse:          `{"error":{"code":403,"message":"forbidden: \"john@acme.com\" doesn't belong to the given project = my-first-project-ID"}}`,
+			ExpectedDeleteHTTPStatus:        http.StatusForbidden,
+			ExpectedGetHTTPStatus:           http.StatusForbidden,
+			ExpectedResponseOnGetAfterDelte: `{"error":{"code":403,"message":"forbidden: \"john@acme.com\" doesn't belong to the given project = my-first-project-ID"}}`,
+			ProjectToSync:                   test.GenDefaultProject().Name,
+			ExistingAPIUser:                 test.GenAPIUser("John", "john@acme.com"),
+			ExistingKubermaticObjs: test.GenDefaultKubermaticObjects(
+				genUser("John", "john@acme.com", false),
+				// add a cluster
+				test.GenCluster("clusterAbcID", "clusterAbc", test.GenDefaultProject().Name, time.Date(2013, 02, 03, 19, 54, 0, 0, time.UTC)),
+				// add ssh keys
+				&kubermaticv1.UserSSHKey{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "key-c08aa5c7abf34504f18552846485267d-yafn",
+						OwnerReferences: []metav1.OwnerReference{
+							{
+								APIVersion: "kubermatic.k8s.io/v1",
+								Kind:       "Project",
+								UID:        "",
+								Name:       test.GenDefaultProject().Name,
+							},
+						},
+					},
+					Spec: kubermaticv1.SSHKeySpec{
+						Clusters: []string{"clusterAbcID"},
+					},
+				},
+				&kubermaticv1.UserSSHKey{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "key-abc-yafn",
+						OwnerReferences: []metav1.OwnerReference{
+							{
+								APIVersion: "kubermatic.k8s.io/v1",
+								Kind:       "Project",
+								UID:        "",
+								Name:       test.GenDefaultProject().Name,
+							},
+						},
+					},
+					Spec: kubermaticv1.SSHKeySpec{
+						Name:     "key-display-name",
+						Clusters: []string{"clusterAbcID"},
+					},
+				},
+			),
+			ClusterToSync: "clusterAbcID",
+		},
 	}
 
 	for _, tc := range testcases {
@@ -370,20 +569,6 @@ func TestDetachSSHKeyFromClusterEndpoint(t *testing.T) {
 					t.Fatalf("Expected HTTP status code %d, got %d: %s", tc.ExpectedDeleteHTTPStatus, res.Code, res.Body.String())
 				}
 				test.CompareWithResult(t, res, tc.ExpectedDeleteResponse)
-			}
-
-			// GET request list the keys from the cache, thus we wait 1 s before firing the request . . . I know :)
-			time.Sleep(time.Second)
-			{
-				req := httptest.NewRequest("GET", fmt.Sprintf("/api/v1/projects/%s/dc/us-central1/clusters/%s/sshkeys", tc.ProjectToSync, tc.ClusterToSync), strings.NewReader(tc.Body))
-				res := httptest.NewRecorder()
-
-				ep.ServeHTTP(res, req)
-
-				if res.Code != tc.ExpectedGetHTTPStatus {
-					t.Fatalf("Expected HTTP status code %d, got %d: %s", tc.ExpectedGetHTTPStatus, res.Code, res.Body.String())
-				}
-				test.CompareWithResult(t, res, tc.ExpectedResponseOnGetAfterDelte)
 			}
 		})
 	}
@@ -575,6 +760,70 @@ func TestAssignSSHKeyToClusterEndpoint(t *testing.T) {
 								Name:       "differentProject",
 							},
 						},
+					},
+				},
+			),
+			ClusterToSync: test.GenDefaultCluster().Name,
+		},
+		// scenario 3
+		{
+			Name:             "scenario 3: the admin John can assign ssh key to the Bob's cluster",
+			SSHKeyID:         "key-c08aa5c7abf34504f18552846485267d-yafn",
+			ExpectedResponse: `{"id":"key-c08aa5c7abf34504f18552846485267d-yafn","name":"","creationTimestamp":"0001-01-01T00:00:00Z","spec":{"fingerprint":"","publicKey":""}}`,
+			HTTPStatus:       http.StatusCreated,
+			ProjectToSync:    test.GenDefaultProject().Name,
+			ExistingAPIUser:  test.GenAPIUser("John", "john@acme.com"),
+			ExistingKubermaticObjs: test.GenDefaultKubermaticObjects(
+				genUser("John", "john@acme.com", true),
+				// add a cluster
+				test.GenDefaultCluster(),
+				// add a ssh key
+				&kubermaticv1.UserSSHKey{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "key-c08aa5c7abf34504f18552846485267d-yafn",
+						OwnerReferences: []metav1.OwnerReference{
+							{
+								APIVersion: "kubermatic.k8s.io/v1",
+								Kind:       "Project",
+								UID:        "",
+								Name:       test.GenDefaultProject().Name,
+							},
+						},
+					},
+					Spec: kubermaticv1.SSHKeySpec{
+						Clusters: []string{test.GenDefaultCluster().Name},
+					},
+				},
+			),
+			ClusterToSync: test.GenDefaultCluster().Name,
+		},
+		// scenario 4
+		{
+			Name:             "scenario 4: the user John can not assign ssh key to the Bob's cluster",
+			SSHKeyID:         "key-c08aa5c7abf34504f18552846485267d-yafn",
+			ExpectedResponse: `{"error":{"code":403,"message":"forbidden: \"john@acme.com\" doesn't belong to the given project = my-first-project-ID"}}`,
+			HTTPStatus:       http.StatusForbidden,
+			ProjectToSync:    test.GenDefaultProject().Name,
+			ExistingAPIUser:  test.GenAPIUser("John", "john@acme.com"),
+			ExistingKubermaticObjs: test.GenDefaultKubermaticObjects(
+				genUser("John", "john@acme.com", false),
+				// add a cluster
+				test.GenDefaultCluster(),
+				// add a ssh key
+				&kubermaticv1.UserSSHKey{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "key-c08aa5c7abf34504f18552846485267d-yafn",
+						OwnerReferences: []metav1.OwnerReference{
+							{
+								APIVersion: "kubermatic.k8s.io/v1",
+								Kind:       "Project",
+								UID:        "",
+								Name:       test.GenDefaultProject().Name,
+							},
+						},
+					},
+					Spec: kubermaticv1.SSHKeySpec{
+						Clusters: []string{test.GenDefaultCluster().Name},
 					},
 				},
 			),
@@ -797,6 +1046,46 @@ func TestCreateClusterEndpoint(t *testing.T) {
 			),
 			ExistingAPIUser: test.GenAPIUser(test.UserName2, test.UserEmail2),
 		},
+		{
+			Name:             "scenario 11: create a cluster in audit-logging-enforced datacenter, without explicitly enabling audit logging",
+			Body:             `{"cluster":{"name":"keen-snyder","spec":{"version":"1.9.7","cloud":{"fake":{"token":"dummy_token"},"dc":"audited-dc"}}}}`,
+			ExpectedResponse: `{"id":"%s","name":"keen-snyder","creationTimestamp":"0001-01-01T00:00:00Z","type":"kubernetes","spec":{"cloud":{"dc":"audited-dc","fake":{}},"clusterNetwork":{"services":{},"pods":{}},"version":"1.9.7","oidc":{},"sys11auth":{},"auditLogging":{"enabled":true}},"status":{"version":"1.9.7","url":""}}`,
+			RewriteClusterID: true,
+			HTTPStatus:       http.StatusCreated,
+			ProjectToSync:    test.GenDefaultProject().Name,
+			ExistingKubermaticObjs: test.GenDefaultKubermaticObjects(
+				test.GenUser(test.UserID2, test.UserName2, test.UserEmail2),
+				test.GenBinding(test.GenDefaultProject().Name, test.UserEmail2, "editors"),
+			),
+			ExistingAPIUser: test.GenAPIUser(test.UserName2, test.UserEmail2),
+		},
+		{
+			Name:             "scenario 12: the admin user can create cluster for any project",
+			Body:             `{"cluster":{"name":"keen-snyder","spec":{"version":"1.9.7","cloud":{"fake":{"token":"dummy_token"},"dc":"fake-dc"}}}}`,
+			ExpectedResponse: `{"id":"%s","name":"keen-snyder","creationTimestamp":"0001-01-01T00:00:00Z","type":"kubernetes","spec":{"cloud":{"dc":"fake-dc","fake":{}},"clusterNetwork":{"services":{},"pods":{}},"version":"1.9.7","oidc":{},"sys11auth":{}},"status":{"version":"1.9.7","url":""}}`,
+			RewriteClusterID: true,
+			HTTPStatus:       http.StatusCreated,
+			ProjectToSync:    test.GenDefaultProject().Name,
+			ExistingKubermaticObjs: test.GenDefaultKubermaticObjects(
+				// add admin user
+				genUser("John", "john@acme.com", true),
+				// add an ssh key
+				&kubermaticv1.UserSSHKey{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "key-c08aa5c7abf34504f18552846485267d-yafn",
+						OwnerReferences: []metav1.OwnerReference{
+							{
+								APIVersion: "kubermatic.k8s.io/v1",
+								Kind:       "Project",
+								UID:        "",
+								Name:       test.GenDefaultProject().Name,
+							},
+						},
+					},
+				},
+			),
+			ExistingAPIUser: test.GenAPIUser("John", "john@acme.com"),
+		},
 	}
 
 	for _, tc := range testcases {
@@ -876,6 +1165,68 @@ func TestGetClusterHealth(t *testing.T) {
 			),
 			ExistingAPIUser: test.GenDefaultAPIUser(),
 		},
+		// scenario 2
+		{
+			Name:             "scenario 2: the admin Bob can get John's cluster health status",
+			Body:             ``,
+			ExpectedResponse: `{"apiserver":1,"scheduler":0,"controller":1,"machineController":0,"etcd":1,"cloudProviderInfrastructure":1,"userClusterControllerManager":1}`,
+			HTTPStatus:       http.StatusOK,
+			ClusterToGet:     "keen-snyder",
+			ProjectToSync:    test.GenDefaultProject().Name,
+			ExistingKubermaticObjs: test.GenDefaultKubermaticObjects(
+				// add admin user
+				genUser("John", "john@acme.com", true),
+				// add a cluster
+				test.GenCluster("clusterDefID", "clusterDef", test.GenDefaultProject().Name, time.Date(2013, 02, 04, 01, 54, 0, 0, time.UTC)),
+				// add another cluster
+				func() *kubermaticv1.Cluster {
+					cluster := test.GenCluster("keen-snyder", "clusterAbc", test.GenDefaultProject().Name, time.Date(2013, 02, 03, 19, 54, 0, 0, time.UTC))
+					cluster.Status.ExtendedHealth = kubermaticv1.ExtendedClusterHealth{
+
+						Apiserver:                    kubermaticv1.HealthStatusUp,
+						Scheduler:                    kubermaticv1.HealthStatusDown,
+						Controller:                   kubermaticv1.HealthStatusUp,
+						MachineController:            kubermaticv1.HealthStatusDown,
+						Etcd:                         kubermaticv1.HealthStatusUp,
+						CloudProviderInfrastructure:  kubermaticv1.HealthStatusUp,
+						UserClusterControllerManager: kubermaticv1.HealthStatusUp,
+					}
+					return cluster
+				}(),
+			),
+			ExistingAPIUser: test.GenAPIUser("John", "john@acme.com"),
+		},
+		// scenario 3
+		{
+			Name:             "scenario 3: the user Bob can not get John's cluster health status",
+			Body:             ``,
+			ExpectedResponse: `{"error":{"code":403,"message":"forbidden: \"john@acme.com\" doesn't belong to the given project = my-first-project-ID"}}`,
+			HTTPStatus:       http.StatusForbidden,
+			ClusterToGet:     "keen-snyder",
+			ProjectToSync:    test.GenDefaultProject().Name,
+			ExistingKubermaticObjs: test.GenDefaultKubermaticObjects(
+				// add regular user John
+				genUser("John", "john@acme.com", false),
+				// add a cluster
+				test.GenCluster("clusterDefID", "clusterDef", test.GenDefaultProject().Name, time.Date(2013, 02, 04, 01, 54, 0, 0, time.UTC)),
+				// add another cluster
+				func() *kubermaticv1.Cluster {
+					cluster := test.GenCluster("keen-snyder", "clusterAbc", test.GenDefaultProject().Name, time.Date(2013, 02, 03, 19, 54, 0, 0, time.UTC))
+					cluster.Status.ExtendedHealth = kubermaticv1.ExtendedClusterHealth{
+
+						Apiserver:                    kubermaticv1.HealthStatusUp,
+						Scheduler:                    kubermaticv1.HealthStatusDown,
+						Controller:                   kubermaticv1.HealthStatusUp,
+						MachineController:            kubermaticv1.HealthStatusDown,
+						Etcd:                         kubermaticv1.HealthStatusUp,
+						CloudProviderInfrastructure:  kubermaticv1.HealthStatusUp,
+						UserClusterControllerManager: kubermaticv1.HealthStatusUp,
+					}
+					return cluster
+				}(),
+			),
+			ExistingAPIUser: test.GenAPIUser("John", "john@acme.com"),
+		},
 	}
 
 	for _, tc := range testcases {
@@ -929,7 +1280,7 @@ func TestPatchCluster(t *testing.T) {
 			ExistingKubermaticObjects: test.GenDefaultKubermaticObjects(
 				func() *kubermaticv1.Cluster {
 					cluster := test.GenCluster("keen-snyder", "clusterAbc", test.GenDefaultProject().Name, time.Date(2013, 02, 03, 19, 54, 0, 0, time.UTC))
-					cluster.Spec.Cloud.DatacenterName = "fake-dc"
+					cluster.Spec.Cloud.DatacenterName = fakeDC
 					return cluster
 				}()),
 		},
@@ -956,7 +1307,7 @@ func TestPatchCluster(t *testing.T) {
 			ExistingKubermaticObjects: test.GenDefaultKubermaticObjects(
 				func() *kubermaticv1.Cluster {
 					cluster := test.GenCluster("keen-snyder", "clusterAbc", test.GenDefaultProject().Name, time.Date(2013, 02, 03, 19, 54, 0, 0, time.UTC))
-					cluster.Spec.Cloud.DatacenterName = "fake-dc"
+					cluster.Spec.Cloud.DatacenterName = fakeDC
 					return cluster
 				}(),
 			),
@@ -1006,6 +1357,38 @@ func TestPatchCluster(t *testing.T) {
 				test.GenTestMachine("venus", `{"cloudProvider":"digitalocean","cloudProviderSpec":{"token":"dummy-token","region":"fra1","size":"2GB"},"operatingSystem":"ubuntu","containerRuntimeInfo":{"name":"docker","version":"1.13"},"operatingSystemSpec":{"distUpgradeOnBoot":true}}`, map[string]string{"md-id": "123", "some-other": "xyz"}, nil),
 				test.GenTestMachine("mars", `{"cloudProvider":"aws","cloudProviderSpec":{"token":"dummy-token","region":"eu-central-1","availabilityZone":"eu-central-1a","vpcId":"vpc-819f62e9","subnetId":"subnet-2bff4f43","instanceType":"t2.micro","diskSize":50}, "containerRuntimeInfo":{"name":"docker","version":"1.12"},"operatingSystem":"ubuntu", "operatingSystemSpec":{"distUpgradeOnBoot":false}}`, map[string]string{"md-id": "123", "some-other": "xyz"}, nil),
 			},
+		},
+		// scenario 6
+		{
+			Name:             "scenario 6: the admin John can update Bob's cluster version",
+			Body:             `{"spec":{"version":"1.2.3"}}`,
+			ExpectedResponse: `{"id":"keen-snyder","name":"clusterAbc","creationTimestamp":"2013-02-03T19:54:00Z","type":"kubernetes","spec":{"cloud":{"dc":"fake-dc","fake":{}},"clusterNetwork":{"services":{},"pods":{}},"version":"1.2.3","oidc":{},"sys11auth":{}},"status":{"version":"1.2.3","url":"https://w225mx4z66.asia-east1-a-1.cloud.kubermatic.io:31885"}}`,
+			cluster:          "keen-snyder",
+			HTTPStatus:       http.StatusOK,
+			project:          test.GenDefaultProject().Name,
+			ExistingAPIUser:  test.GenAPIUser("John", "john@acme.com"),
+			ExistingKubermaticObjects: test.GenDefaultKubermaticObjects(
+				func() *kubermaticv1.Cluster {
+					cluster := test.GenCluster("keen-snyder", "clusterAbc", test.GenDefaultProject().Name, time.Date(2013, 02, 03, 19, 54, 0, 0, time.UTC))
+					cluster.Spec.Cloud.DatacenterName = fakeDC
+					return cluster
+				}(), genUser("John", "john@acme.com", true)),
+		},
+		// scenario 7
+		{
+			Name:             "scenario 7: the regular user John can not update Bob's cluster version",
+			Body:             `{"spec":{"version":"1.2.3"}}`,
+			ExpectedResponse: `{"error":{"code":403,"message":"forbidden: \"john@acme.com\" doesn't belong to the given project = my-first-project-ID"}}`,
+			cluster:          "keen-snyder",
+			HTTPStatus:       http.StatusForbidden,
+			project:          test.GenDefaultProject().Name,
+			ExistingAPIUser:  test.GenAPIUser("John", "john@acme.com"),
+			ExistingKubermaticObjects: test.GenDefaultKubermaticObjects(
+				func() *kubermaticv1.Cluster {
+					cluster := test.GenCluster("keen-snyder", "clusterAbc", test.GenDefaultProject().Name, time.Date(2013, 02, 03, 19, 54, 0, 0, time.UTC))
+					cluster.Spec.Cloud.DatacenterName = fakeDC
+					return cluster
+				}(), genUser("John", "john@acme.com", false)),
 		},
 	}
 
@@ -1072,6 +1455,34 @@ func TestGetCluster(t *testing.T) {
 				test.GenCluster("clusterAbcID", "clusterAbc", test.GenDefaultProject().Name, time.Date(2013, 02, 03, 19, 54, 0, 0, time.UTC)),
 			),
 			ExistingAPIUser: test.GenDefaultAPIUser(),
+		},
+		// scenario 3
+		{
+			Name:             "scenario 3: the admin John can get Bob's cluster",
+			Body:             ``,
+			ExpectedResponse: `{"id":"defClusterID","name":"defClusterName","creationTimestamp":"2013-02-03T19:54:00Z","type":"kubernetes","spec":{"cloud":{"dc":"OpenstackDatacenter","openstack":{"floatingIpPool":"floatingIPPool"}},"clusterNetwork":{"services":{},"pods":{}},"version":"9.9.9","oidc":{},"sys11auth":{}},"status":{"version":"9.9.9","url":"https://w225mx4z66.asia-east1-a-1.cloud.kubermatic.io:31885"}}`,
+			ClusterToGet:     test.GenDefaultCluster().Name,
+			HTTPStatus:       http.StatusOK,
+			ExistingKubermaticObjs: test.GenDefaultKubermaticObjects(
+				genUser("John", "john@acme.com", true),
+				genClusterWithOpenstack(test.GenDefaultCluster()),
+				test.GenCluster("clusterAbcID", "clusterAbc", test.GenDefaultProject().Name, time.Date(2013, 02, 03, 19, 54, 0, 0, time.UTC)),
+			),
+			ExistingAPIUser: test.GenAPIUser("John", "john@acme.com"),
+		},
+		// scenario 4
+		{
+			Name:             "scenario 4: the regular user John can not get Bob's cluster",
+			Body:             ``,
+			ExpectedResponse: `{"error":{"code":403,"message":"forbidden: \"john@acme.com\" doesn't belong to the given project = my-first-project-ID"}}`,
+			ClusterToGet:     test.GenDefaultCluster().Name,
+			HTTPStatus:       http.StatusForbidden,
+			ExistingKubermaticObjs: test.GenDefaultKubermaticObjects(
+				genUser("John", "john@acme.com", false),
+				genClusterWithOpenstack(test.GenDefaultCluster()),
+				test.GenCluster("clusterAbcID", "clusterAbc", test.GenDefaultProject().Name, time.Date(2013, 02, 03, 19, 54, 0, 0, time.UTC)),
+			),
+			ExistingAPIUser: test.GenAPIUser("John", "john@acme.com"),
 		},
 	}
 
@@ -1178,6 +1589,79 @@ func TestListClusters(t *testing.T) {
 			),
 			ExistingAPIUser: test.GenDefaultAPIUser(),
 		},
+		// scenario 2
+		{
+			Name: "scenario 2: the admin John can list Bob's clusters",
+			ExpectedClusters: []apiv1.Cluster{
+				{
+					ObjectMeta: apiv1.ObjectMeta{
+						ID:                "clusterAbcID",
+						Name:              "clusterAbc",
+						CreationTimestamp: apiv1.Date(2013, 02, 03, 19, 54, 0, 0, time.UTC),
+					},
+					Spec: apiv1.ClusterSpec{
+						Cloud: kubermaticv1.CloudSpec{
+							DatacenterName: "FakeDatacenter",
+							Fake:           &kubermaticv1.FakeCloudSpec{},
+						},
+						Version: *semver.NewSemverOrDie("9.9.9"),
+					},
+					Status: apiv1.ClusterStatus{
+						Version: *semver.NewSemverOrDie("9.9.9"),
+						URL:     "https://w225mx4z66.asia-east1-a-1.cloud.kubermatic.io:31885",
+					},
+					Type: "kubernetes",
+				},
+				{
+					ObjectMeta: apiv1.ObjectMeta{
+						ID:                "clusterDefID",
+						Name:              "clusterDef",
+						CreationTimestamp: apiv1.Date(2013, 02, 04, 01, 54, 0, 0, time.UTC),
+					},
+					Spec: apiv1.ClusterSpec{
+						Cloud: kubermaticv1.CloudSpec{
+							DatacenterName: "FakeDatacenter",
+							Fake:           &kubermaticv1.FakeCloudSpec{},
+						},
+						Version: *semver.NewSemverOrDie("9.9.9"),
+					},
+					Status: apiv1.ClusterStatus{
+						Version: *semver.NewSemverOrDie("9.9.9"),
+						URL:     "https://w225mx4z66.asia-east1-a-1.cloud.kubermatic.io:31885",
+					},
+					Type: "kubernetes",
+				},
+				{
+					ObjectMeta: apiv1.ObjectMeta{
+						ID:                "clusterOpenstackID",
+						Name:              "clusterOpenstack",
+						CreationTimestamp: apiv1.Date(2013, 02, 04, 03, 54, 0, 0, time.UTC),
+					},
+					Spec: apiv1.ClusterSpec{
+						Cloud: kubermaticv1.CloudSpec{
+							DatacenterName: "OpenstackDatacenter",
+							Openstack: &kubermaticv1.OpenstackCloudSpec{
+								FloatingIPPool: "floatingIPPool",
+							},
+						},
+						Version: *semver.NewSemverOrDie("9.9.9"),
+					},
+					Status: apiv1.ClusterStatus{
+						Version: *semver.NewSemverOrDie("9.9.9"),
+						URL:     "https://w225mx4z66.asia-east1-a-1.cloud.kubermatic.io:31885",
+					},
+					Type: "kubernetes",
+				},
+			},
+			HTTPStatus: http.StatusOK,
+			ExistingKubermaticObjs: test.GenDefaultKubermaticObjects(
+				genUser("John", "john@acme.com", true),
+				test.GenCluster("clusterAbcID", "clusterAbc", test.GenDefaultProject().Name, time.Date(2013, 02, 03, 19, 54, 0, 0, time.UTC)),
+				test.GenCluster("clusterDefID", "clusterDef", test.GenDefaultProject().Name, time.Date(2013, 02, 04, 01, 54, 0, 0, time.UTC)),
+				genClusterWithOpenstack(test.GenCluster("clusterOpenstackID", "clusterOpenstack", test.GenDefaultProject().Name, time.Date(2013, 02, 04, 03, 54, 0, 0, time.UTC))),
+			),
+			ExistingAPIUser: test.GenAPIUser("John", "john@acme.com"),
+		},
 	}
 
 	for _, tc := range testcases {
@@ -1269,6 +1753,59 @@ func TestListClustersForProject(t *testing.T) {
 			),
 			ExistingAPIUser: test.GenDefaultAPIUser(),
 		},
+		// scenario 2
+		{
+			Name: "scenario 2: the admin John can list Bob's clusters in his project",
+			ExpectedClusters: []apiv1.Cluster{
+				{
+					ObjectMeta: apiv1.ObjectMeta{
+						ID:                "clusterAbcID",
+						Name:              "clusterAbc",
+						CreationTimestamp: apiv1.Date(2013, 02, 03, 19, 54, 0, 0, time.UTC),
+					},
+					Spec: apiv1.ClusterSpec{
+						Cloud: kubermaticv1.CloudSpec{
+							DatacenterName: "FakeDatacenter",
+							Fake:           &kubermaticv1.FakeCloudSpec{},
+						},
+						Version: *semver.NewSemverOrDie("9.9.9"),
+					},
+					Status: apiv1.ClusterStatus{
+						Version: *semver.NewSemverOrDie("9.9.9"),
+						URL:     "https://w225mx4z66.asia-east1-a-1.cloud.kubermatic.io:31885",
+					},
+					Type: "kubernetes",
+				},
+				{
+					ObjectMeta: apiv1.ObjectMeta{
+						ID:                "clusterOpenstackID",
+						Name:              "clusterOpenstack",
+						CreationTimestamp: apiv1.Date(2013, 02, 04, 03, 54, 0, 0, time.UTC),
+					},
+					Spec: apiv1.ClusterSpec{
+						Cloud: kubermaticv1.CloudSpec{
+							DatacenterName: "OpenstackDatacenter",
+							Openstack: &kubermaticv1.OpenstackCloudSpec{
+								FloatingIPPool: "floatingIPPool",
+							},
+						},
+						Version: *semver.NewSemverOrDie("9.9.9"),
+					},
+					Status: apiv1.ClusterStatus{
+						Version: *semver.NewSemverOrDie("9.9.9"),
+						URL:     "https://w225mx4z66.asia-east1-a-1.cloud.kubermatic.io:31885",
+					},
+					Type: "kubernetes",
+				},
+			},
+			HTTPStatus: http.StatusOK,
+			ExistingKubermaticObjs: test.GenDefaultKubermaticObjects(
+				genUser("John", "john@acme.com", true),
+				test.GenCluster("clusterAbcID", "clusterAbc", test.GenDefaultProject().Name, time.Date(2013, 02, 03, 19, 54, 0, 0, time.UTC)),
+				genClusterWithOpenstack(test.GenCluster("clusterOpenstackID", "clusterOpenstack", test.GenDefaultProject().Name, time.Date(2013, 02, 04, 03, 54, 0, 0, time.UTC))),
+			),
+			ExistingAPIUser: test.GenAPIUser("John", "john@acme.com"),
+		},
 	}
 
 	for _, tc := range testcases {
@@ -1301,37 +1838,85 @@ func TestListClustersForProject(t *testing.T) {
 
 func TestRevokeClusterAdminTokenEndpoint(t *testing.T) {
 	t.Parallel()
-	// setup world view
-	expectedResponse := "{}"
-	kubermaticObjs := test.GenDefaultKubermaticObjects()
-	tester := test.GenDefaultAPIUser()
-	projectToSync := test.GenDefaultProject().Name
-	cluster := test.GenDefaultCluster()
-	kubermaticObjs = append(kubermaticObjs, cluster)
-	ep, clientsSets, err := test.CreateTestEndpointAndGetClients(*tester, nil, []runtime.Object{}, []runtime.Object{}, kubermaticObjs, nil, nil, hack.NewTestRouting)
-	if err != nil {
-		t.Fatalf("failed to create test endpoint due to %v", err)
+
+	testcases := []struct {
+		name                   string
+		expectedResponse       string
+		httpStatus             int
+		clusterToGet           *kubermaticv1.Cluster
+		projectToSync          string
+		existingAPIUser        *apiv1.User
+		existingKubermaticObjs []runtime.Object
+		existingKubernrtesObjs []runtime.Object
+	}{
+		// scenario 1
+		{
+			name:             "scenario 1: the owner user revokes admin cluster token",
+			expectedResponse: `{}`,
+			clusterToGet:     test.GenDefaultCluster(),
+			httpStatus:       http.StatusOK,
+			existingKubermaticObjs: test.GenDefaultKubermaticObjects(
+				test.GenDefaultCluster(),
+			),
+			existingAPIUser: test.GenDefaultAPIUser(),
+		},
+		// scenario 2
+		{
+			name:             "scenario 2: the admin John revokes Bob's cluster token",
+			expectedResponse: `{}`,
+			clusterToGet:     test.GenDefaultCluster(),
+			httpStatus:       http.StatusOK,
+			existingKubermaticObjs: test.GenDefaultKubermaticObjects(
+				genUser("John", "john@acme.com", true),
+				test.GenDefaultCluster(),
+			),
+			existingAPIUser: test.GenAPIUser("John", "john@acme.com"),
+		},
+		// scenario 3
+		{
+			name:             "scenario 3: the user John can not revoke Bob's cluster token",
+			expectedResponse: `{"error":{"code":403,"message":"forbidden: \"john@acme.com\" doesn't belong to the given project = my-first-project-ID"}}`,
+			clusterToGet:     test.GenDefaultCluster(),
+			httpStatus:       http.StatusForbidden,
+			existingKubermaticObjs: test.GenDefaultKubermaticObjects(
+				genUser("John", "john@acme.com", false),
+				test.GenDefaultCluster(),
+			),
+			existingAPIUser: test.GenAPIUser("John", "john@acme.com"),
+		},
 	}
 
-	// perform test
-	res := httptest.NewRecorder()
-	req := httptest.NewRequest("PUT", fmt.Sprintf("/api/v1/projects/%s/dc/us-central1/clusters/%s/token", projectToSync, cluster.Name), nil)
-	ep.ServeHTTP(res, req)
+	for _, tc := range testcases {
+		t.Run(tc.name, func(t *testing.T) {
+			ep, clientsSets, err := test.CreateTestEndpointAndGetClients(*tc.existingAPIUser, nil, []runtime.Object{}, []runtime.Object{}, tc.existingKubermaticObjs, nil, nil, hack.NewTestRouting)
+			if err != nil {
+				t.Fatalf("failed to create test endpoint due to %v", err)
+			}
 
-	// check assertions
-	test.CheckStatusCode(http.StatusOK, res, t)
-	test.CompareWithResult(t, res, expectedResponse)
-	updatedCluster := &kubermaticv1.Cluster{}
-	if err := clientsSets.FakeClient.Get(context.Background(), types.NamespacedName{Name: test.DefaultClusterID}, updatedCluster); err != nil {
-		t.Fatalf("failed to get cluster from fake client: %v", err)
+			// perform test
+			res := httptest.NewRecorder()
+			req := httptest.NewRequest("PUT", fmt.Sprintf("/api/v1/projects/%s/dc/us-central1/clusters/%s/token", test.ProjectName, tc.clusterToGet.Name), nil)
+			ep.ServeHTTP(res, req)
+
+			// check assertions
+			test.CheckStatusCode(tc.httpStatus, res, t)
+			test.CompareWithResult(t, res, tc.expectedResponse)
+			if tc.httpStatus == http.StatusOK {
+				updatedCluster := &kubermaticv1.Cluster{}
+				if err := clientsSets.FakeClient.Get(context.Background(), types.NamespacedName{Name: test.DefaultClusterID}, updatedCluster); err != nil {
+					t.Fatalf("failed to get cluster from fake client: %v", err)
+				}
+				updatedToken := updatedCluster.Address.AdminToken
+				if err := kuberneteshelper.ValidateKubernetesToken(updatedToken); err != nil {
+					t.Fatalf("generated token '%s' is malformed: %v", updatedToken, err)
+				}
+				if updatedToken == tc.clusterToGet.Address.AdminToken {
+					t.Fatalf("generated token '%s' is exactly the same as the old one : %s", updatedToken, tc.clusterToGet.Address.AdminToken)
+				}
+			}
+		})
 	}
-	updatedToken := updatedCluster.Address.AdminToken
-	if err := kuberneteshelper.ValidateKubernetesToken(updatedToken); err != nil {
-		t.Errorf("generated token '%s' is malformed: %v", updatedToken, err)
-	}
-	if updatedToken == cluster.Address.AdminToken {
-		t.Errorf("generated token '%s' is exactly the same as the old one : %s", updatedToken, cluster.Address.AdminToken)
-	}
+
 }
 
 func TestGetClusterEventsEndpoint(t *testing.T) {
@@ -1393,6 +1978,34 @@ func TestGetClusterEventsEndpoint(t *testing.T) {
 				test.GenTestEvent("event-2", corev1.EventTypeWarning, "Killed", "message killed", "Cluster", "venus-1-machine"),
 			},
 			ExpectedResult: `[{"name":"event-1","creationTimestamp":"0001-01-01T00:00:00Z","message":"message started","type":"Normal","involvedObject":{"type":"Cluster","namespace":"kube-system","name":"testMachine"},"lastTimestamp":"0001-01-01T00:00:00Z","count":1}]`,
+		},
+		// scenario 4
+		{
+			Name:                   "scenario 4: the admin John can list Bob's cluster events",
+			HTTPStatus:             http.StatusOK,
+			ClusterIDToSync:        test.GenDefaultCluster().Name,
+			ProjectIDToSync:        test.GenDefaultProject().Name,
+			ExistingKubermaticObjs: test.GenDefaultKubermaticObjects(test.GenDefaultCluster(), genUser("John", "john@acme.com", true)),
+			ExistingAPIUser:        test.GenAPIUser("John", "john@acme.com"),
+			ExistingEvents: []*corev1.Event{
+				test.GenTestEvent("event-1", corev1.EventTypeNormal, "Started", "message started", "Cluster", "venus-1-machine"),
+				test.GenTestEvent("event-2", corev1.EventTypeWarning, "Killed", "message killed", "Cluster", "venus-1-machine"),
+			},
+			ExpectedResult: `[{"name":"event-1","creationTimestamp":"0001-01-01T00:00:00Z","message":"message started","type":"Normal","involvedObject":{"type":"Cluster","namespace":"kube-system","name":"testMachine"},"lastTimestamp":"0001-01-01T00:00:00Z","count":1},{"name":"event-2","creationTimestamp":"0001-01-01T00:00:00Z","message":"message killed","type":"Warning","involvedObject":{"type":"Cluster","namespace":"kube-system","name":"testMachine"},"lastTimestamp":"0001-01-01T00:00:00Z","count":1}]`,
+		},
+		// scenario 5
+		{
+			Name:                   "scenario 5: the user John can not list Bob's cluster events",
+			HTTPStatus:             http.StatusForbidden,
+			ClusterIDToSync:        test.GenDefaultCluster().Name,
+			ProjectIDToSync:        test.GenDefaultProject().Name,
+			ExistingKubermaticObjs: test.GenDefaultKubermaticObjects(test.GenDefaultCluster(), genUser("John", "john@acme.com", false)),
+			ExistingAPIUser:        test.GenAPIUser("John", "john@acme.com"),
+			ExistingEvents: []*corev1.Event{
+				test.GenTestEvent("event-1", corev1.EventTypeNormal, "Started", "message started", "Cluster", "venus-1-machine"),
+				test.GenTestEvent("event-2", corev1.EventTypeWarning, "Killed", "message killed", "Cluster", "venus-1-machine"),
+			},
+			ExpectedResult: `{"error":{"code":403,"message":"forbidden: \"john@acme.com\" doesn't belong to the given project = my-first-project-ID"}}`,
 		},
 	}
 
@@ -1489,6 +2102,92 @@ func TestGetClusterMetrics(t *testing.T) {
 				},
 			},
 		},
+		// scenario 2
+		{
+			Name:             "scenario 2: the admin John can get any cluster metrics",
+			Body:             ``,
+			ExpectedResponse: `{"name":"defClusterID","controlPlane":{"memoryTotalBytes":1310,"cpuTotalMillicores":580000},"nodes":{"memoryTotalBytes":1310,"memoryAvailableBytes":1310,"memoryUsedPercentage":100,"cpuTotalMillicores":580000,"cpuAvailableMillicores":580000,"cpuUsedPercentage":100}}`,
+			ClusterToGet:     test.GenDefaultCluster().Name,
+			HTTPStatus:       http.StatusOK,
+			ExistingNodes: []*corev1.Node{
+				{ObjectMeta: metav1.ObjectMeta{Name: "venus"}, Status: corev1.NodeStatus{Allocatable: map[corev1.ResourceName]resource.Quantity{"cpu": cpuQuantity, "memory": memoryQuantity}}},
+				{ObjectMeta: metav1.ObjectMeta{Name: "mars"}, Status: corev1.NodeStatus{Allocatable: map[corev1.ResourceName]resource.Quantity{"cpu": cpuQuantity, "memory": memoryQuantity}}},
+			},
+			ExistingKubermaticObjs: test.GenDefaultKubermaticObjects(
+				genUser("John", "john@acme.com", true),
+				test.GenDefaultCluster(),
+				test.GenCluster("clusterAbcID", "clusterAbc", test.GenDefaultProject().Name, time.Date(2013, 02, 03, 19, 54, 0, 0, time.UTC)),
+			),
+			ExistingAPIUser: test.GenAPIUser("John", "john@acme.com"),
+			ExistingPodMetrics: []*v1beta1.PodMetrics{
+				{
+					ObjectMeta: metav1.ObjectMeta{Name: "pod1", Namespace: "cluster-defClusterID"},
+					Containers: []v1beta1.ContainerMetrics{
+						{
+							Name:  "c1-pod1",
+							Usage: map[corev1.ResourceName]resource.Quantity{"cpu": cpuQuantity, "memory": memoryQuantity},
+						},
+						{
+							Name:  "c2-pod1",
+							Usage: map[corev1.ResourceName]resource.Quantity{"cpu": cpuQuantity, "memory": memoryQuantity},
+						},
+					},
+				},
+			},
+			ExistingNodeMetrics: []*v1beta1.NodeMetrics{
+				{
+					ObjectMeta: metav1.ObjectMeta{Name: "venus"},
+					Usage:      map[corev1.ResourceName]resource.Quantity{"cpu": cpuQuantity, "memory": memoryQuantity},
+				},
+				{
+					ObjectMeta: metav1.ObjectMeta{Name: "mars"},
+					Usage:      map[corev1.ResourceName]resource.Quantity{"cpu": cpuQuantity, "memory": memoryQuantity},
+				},
+			},
+		},
+		// scenario 2
+		{
+			Name:             "scenario 2: the user John can not get Bob's cluster metrics",
+			Body:             ``,
+			ExpectedResponse: `{"error":{"code":403,"message":"forbidden: \"john@acme.com\" doesn't belong to the given project = my-first-project-ID"}}`,
+			ClusterToGet:     test.GenDefaultCluster().Name,
+			HTTPStatus:       http.StatusForbidden,
+			ExistingNodes: []*corev1.Node{
+				{ObjectMeta: metav1.ObjectMeta{Name: "venus"}, Status: corev1.NodeStatus{Allocatable: map[corev1.ResourceName]resource.Quantity{"cpu": cpuQuantity, "memory": memoryQuantity}}},
+				{ObjectMeta: metav1.ObjectMeta{Name: "mars"}, Status: corev1.NodeStatus{Allocatable: map[corev1.ResourceName]resource.Quantity{"cpu": cpuQuantity, "memory": memoryQuantity}}},
+			},
+			ExistingKubermaticObjs: test.GenDefaultKubermaticObjects(
+				genUser("John", "john@acme.com", false),
+				test.GenDefaultCluster(),
+				test.GenCluster("clusterAbcID", "clusterAbc", test.GenDefaultProject().Name, time.Date(2013, 02, 03, 19, 54, 0, 0, time.UTC)),
+			),
+			ExistingAPIUser: test.GenAPIUser("John", "john@acme.com"),
+			ExistingPodMetrics: []*v1beta1.PodMetrics{
+				{
+					ObjectMeta: metav1.ObjectMeta{Name: "pod1", Namespace: "cluster-defClusterID"},
+					Containers: []v1beta1.ContainerMetrics{
+						{
+							Name:  "c1-pod1",
+							Usage: map[corev1.ResourceName]resource.Quantity{"cpu": cpuQuantity, "memory": memoryQuantity},
+						},
+						{
+							Name:  "c2-pod1",
+							Usage: map[corev1.ResourceName]resource.Quantity{"cpu": cpuQuantity, "memory": memoryQuantity},
+						},
+					},
+				},
+			},
+			ExistingNodeMetrics: []*v1beta1.NodeMetrics{
+				{
+					ObjectMeta: metav1.ObjectMeta{Name: "venus"},
+					Usage:      map[corev1.ResourceName]resource.Quantity{"cpu": cpuQuantity, "memory": memoryQuantity},
+				},
+				{
+					ObjectMeta: metav1.ObjectMeta{Name: "mars"},
+					Usage:      map[corev1.ResourceName]resource.Quantity{"cpu": cpuQuantity, "memory": memoryQuantity},
+				},
+			},
+		},
 	}
 
 	for _, tc := range testcases {
@@ -1556,6 +2255,46 @@ func TestListNamespace(t *testing.T) {
 			},
 			existingAPIUser: test.GenDefaultAPIUser(),
 		},
+		// scenario 2
+		{
+			name:             "scenario 2: the admin John can get Bob's cluster namespaces",
+			expectedResponse: `[{"name":"default"},{"name":"kube-admin"}]`,
+			clusterToGet:     test.GenDefaultCluster().Name,
+			httpStatus:       http.StatusOK,
+			existingKubermaticObjs: test.GenDefaultKubermaticObjects(
+				test.GenDefaultCluster(),
+				genUser("John", "john@acme.com", true),
+			),
+			existingKubernrtesObjs: []runtime.Object{
+				&corev1.Namespace{
+					ObjectMeta: metav1.ObjectMeta{Name: "default"},
+				},
+				&corev1.Namespace{
+					ObjectMeta: metav1.ObjectMeta{Name: "kube-admin"},
+				},
+			},
+			existingAPIUser: test.GenAPIUser("John", "john@acme.com"),
+		},
+		// scenario 3
+		{
+			name:             "scenario 3: the user John can not get Bob's cluster namespaces",
+			expectedResponse: `{"error":{"code":403,"message":"forbidden: \"john@acme.com\" doesn't belong to the given project = my-first-project-ID"}}`,
+			clusterToGet:     test.GenDefaultCluster().Name,
+			httpStatus:       http.StatusForbidden,
+			existingKubermaticObjs: test.GenDefaultKubermaticObjects(
+				test.GenDefaultCluster(),
+				genUser("John", "john@acme.com", false),
+			),
+			existingKubernrtesObjs: []runtime.Object{
+				&corev1.Namespace{
+					ObjectMeta: metav1.ObjectMeta{Name: "default"},
+				},
+				&corev1.Namespace{
+					ObjectMeta: metav1.ObjectMeta{Name: "kube-admin"},
+				},
+			},
+			existingAPIUser: test.GenAPIUser("John", "john@acme.com"),
+		},
 	}
 
 	for _, tc := range testcases {
@@ -1599,4 +2338,10 @@ func genClusterWithOpenstack(cluster *kubermaticv1.Cluster) *kubermaticv1.Cluste
 		},
 	}
 	return cluster
+}
+
+func genUser(name, email string, isAdmin bool) *kubermaticv1.User {
+	user := test.GenUser("", name, email)
+	user.Spec.IsAdmin = isAdmin
+	return user
 }

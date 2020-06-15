@@ -13,8 +13,7 @@ import (
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/runtime"
 	cr "github.com/go-openapi/runtime/client"
-
-	strfmt "github.com/go-openapi/strfmt"
+	"github.com/go-openapi/strfmt"
 )
 
 // NewListHetznerSizesNoCredentialsParams creates a new ListHetznerSizesNoCredentialsParams object
@@ -64,7 +63,7 @@ type ListHetznerSizesNoCredentialsParams struct {
 	/*ClusterID*/
 	ClusterID string
 	/*Dc*/
-	Dc string
+	DC string
 	/*ProjectID*/
 	ProjectID string
 
@@ -117,15 +116,15 @@ func (o *ListHetznerSizesNoCredentialsParams) SetClusterID(clusterID string) {
 	o.ClusterID = clusterID
 }
 
-// WithDc adds the dc to the list hetzner sizes no credentials params
-func (o *ListHetznerSizesNoCredentialsParams) WithDc(dc string) *ListHetznerSizesNoCredentialsParams {
-	o.SetDc(dc)
+// WithDC adds the dc to the list hetzner sizes no credentials params
+func (o *ListHetznerSizesNoCredentialsParams) WithDC(dc string) *ListHetznerSizesNoCredentialsParams {
+	o.SetDC(dc)
 	return o
 }
 
-// SetDc adds the dc to the list hetzner sizes no credentials params
-func (o *ListHetznerSizesNoCredentialsParams) SetDc(dc string) {
-	o.Dc = dc
+// SetDC adds the dc to the list hetzner sizes no credentials params
+func (o *ListHetznerSizesNoCredentialsParams) SetDC(dc string) {
+	o.DC = dc
 }
 
 // WithProjectID adds the projectID to the list hetzner sizes no credentials params
@@ -153,7 +152,7 @@ func (o *ListHetznerSizesNoCredentialsParams) WriteToRequest(r runtime.ClientReq
 	}
 
 	// path param dc
-	if err := r.SetPathParam("dc", o.Dc); err != nil {
+	if err := r.SetPathParam("dc", o.DC); err != nil {
 		return err
 	}
 

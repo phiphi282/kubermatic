@@ -13,8 +13,7 @@ import (
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/runtime"
 	cr "github.com/go-openapi/runtime/client"
-
-	strfmt "github.com/go-openapi/strfmt"
+	"github.com/go-openapi/strfmt"
 )
 
 // NewListRoleBindingParams creates a new ListRoleBindingParams object
@@ -64,7 +63,7 @@ type ListRoleBindingParams struct {
 	/*ClusterID*/
 	ClusterID string
 	/*Dc*/
-	Dc string
+	DC string
 	/*ProjectID*/
 	ProjectID string
 
@@ -117,15 +116,15 @@ func (o *ListRoleBindingParams) SetClusterID(clusterID string) {
 	o.ClusterID = clusterID
 }
 
-// WithDc adds the dc to the list role binding params
-func (o *ListRoleBindingParams) WithDc(dc string) *ListRoleBindingParams {
-	o.SetDc(dc)
+// WithDC adds the dc to the list role binding params
+func (o *ListRoleBindingParams) WithDC(dc string) *ListRoleBindingParams {
+	o.SetDC(dc)
 	return o
 }
 
-// SetDc adds the dc to the list role binding params
-func (o *ListRoleBindingParams) SetDc(dc string) {
-	o.Dc = dc
+// SetDC adds the dc to the list role binding params
+func (o *ListRoleBindingParams) SetDC(dc string) {
+	o.DC = dc
 }
 
 // WithProjectID adds the projectID to the list role binding params
@@ -153,7 +152,7 @@ func (o *ListRoleBindingParams) WriteToRequest(r runtime.ClientRequest, reg strf
 	}
 
 	// path param dc
-	if err := r.SetPathParam("dc", o.Dc); err != nil {
+	if err := r.SetPathParam("dc", o.DC); err != nil {
 		return err
 	}
 

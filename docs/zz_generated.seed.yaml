@@ -42,6 +42,10 @@ spec:
       # Spec describes the cloud provider settings used to manage resources
       # in this datacenter. Exactly one cloud provider must be defined.
       spec:
+        alibaba:
+          # Region to use, for a full list of regions see
+          # https://www.alibabacloud.com/help/doc-detail/40654.htm
+          region: ""
         aws:
           # List of AMIs to use for a given operating system.
           # This gets defaulted by querying for the latest AMI for the given distribution
@@ -50,6 +54,7 @@ spec:
           images:
             centos: ""
             coreos: ""
+            flatcar: ""
             rhel: ""
             sles: ""
             ubuntu: ""
@@ -67,6 +72,12 @@ spec:
           # Datacenter location, e.g. "ams3". A list of existing datacenters can be found
           # at https://www.digitalocean.com/docs/platform/availability-matrix/
           region: ""
+        # EnforceAuditLogging enforces audit logging on every cluster within the DC,
+        # ignoring cluster-specific settings.
+        enforceAuditLogging: false
+        # nolint:staticcheck
+        # lint:ignore SA5008 omitempty is used by the example-yaml-generator
+        fake: null
         gcp:
           # Region to use, for example "europe-west3", for a full list of regions see
           # https://cloud.google.com/compute/docs/regions-zones/
@@ -99,6 +110,7 @@ spec:
           images:
             centos: ""
             coreos: ""
+            flatcar: ""
             rhel: ""
             sles: ""
             ubuntu: ""
@@ -111,6 +123,7 @@ spec:
             minimum_memory: 0
             # VCPUs is the minimum required amount of (virtual) CPUs
             minimum_vcpus: 0
+          node_volume_attach_limit: null
           region: ""
           # Optional: Gets mapped to the "trust-device-path" setting in the cloud config.
           # See https://kubernetes.io/docs/concepts/cluster-administration/cloud-providers/#block-storage
@@ -154,6 +167,7 @@ spec:
           templates:
             centos: ""
             coreos: ""
+            flatcar: ""
             rhel: ""
             sles: ""
             ubuntu: ""
@@ -174,7 +188,7 @@ spec:
     # referencing a part of an object.
     fieldPath: ""
     # Kind of the referent.
-    # More info: https://git.k8s.io/community/contributors/devel/api-conventions.md#types-kinds
+    # More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
     kind: ""
     # Name of the referent.
     # More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
@@ -183,7 +197,7 @@ spec:
     # More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/namespaces/
     namespace: ""
     # Specific resourceVersion to which this reference is made, if any.
-    # More info: https://git.k8s.io/community/contributors/devel/api-conventions.md#concurrency-control-and-consistency
+    # More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#concurrency-control-and-consistency
     resourceVersion: ""
     # UID of the referent.
     # More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#uids
@@ -191,6 +205,73 @@ spec:
   # Optional: Detailed location of the cluster, like "Hamburg" or "Datacenter 7".
   # For informational purposes in the Kubermatic dashboard only.
   location: ""
+  # NodeportProxy can be used to configure the NodePort proxy service that is
+  # responsible for making user-cluster control planes accessible from the outside.
+  nodeport_proxy:
+    # Annotations are used to further tweak the LoadBalancer integration with the
+    # cloud provider where the seed cluster is running.
+    annotations:
+      service.beta.kubernetes.io/aws-load-balancer-connection-idle-timeout: "3600"
+      service.beta.kubernetes.io/aws-load-balancer-type: nlb
+    # Disable will prevent the Kubermatic Operator from creating a nodeport-proxy
+    # setup on the seed cluster. This should only be used if a suitable replacement
+    # is installed (like the nodeport-proxy Helm chart).
+    disable: false
+    # Envoy configures the Envoy application itself.
+    envoy:
+      # DockerRepository is the repository containing the component's image.
+      docker_repository: docker.io/envoyproxy/envoy-alpine
+      # Resources describes the requested and maximum allowed CPU/memory usage.
+      resources:
+        # Limits describes the maximum amount of compute resources allowed.
+        # More info: https://kubernetes.io/docs/concepts/configuration/manage-compute-resources-container/
+        limits:
+          cpu: 200m
+          memory: 64Mi
+        # Requests describes the minimum amount of compute resources required.
+        # If Requests is omitted for a container, it defaults to Limits if that is explicitly specified,
+        # otherwise to an implementation-defined value.
+        # More info: https://kubernetes.io/docs/concepts/configuration/manage-compute-resources-container/
+        requests:
+          cpu: 50m
+          memory: 32Mi
+    # EnvoyManager configures the Kubermatic-internal Envoy manager.
+    envoy_manager:
+      # DockerRepository is the repository containing the component's image.
+      docker_repository: quay.io/kubermatic/nodeport-proxy
+      # Resources describes the requested and maximum allowed CPU/memory usage.
+      resources:
+        # Limits describes the maximum amount of compute resources allowed.
+        # More info: https://kubernetes.io/docs/concepts/configuration/manage-compute-resources-container/
+        limits:
+          cpu: 150m
+          memory: 48Mi
+        # Requests describes the minimum amount of compute resources required.
+        # If Requests is omitted for a container, it defaults to Limits if that is explicitly specified,
+        # otherwise to an implementation-defined value.
+        # More info: https://kubernetes.io/docs/concepts/configuration/manage-compute-resources-container/
+        requests:
+          cpu: 50m
+          memory: 32Mi
+    # Updater configures the component responsible for updating the LoadBalancer
+    # service.
+    updater:
+      # DockerRepository is the repository containing the component's image.
+      docker_repository: quay.io/kubermatic/nodeport-proxy
+      # Resources describes the requested and maximum allowed CPU/memory usage.
+      resources:
+        # Limits describes the maximum amount of compute resources allowed.
+        # More info: https://kubernetes.io/docs/concepts/configuration/manage-compute-resources-container/
+        limits:
+          cpu: 150m
+          memory: 32Mi
+        # Requests describes the minimum amount of compute resources required.
+        # If Requests is omitted for a container, it defaults to Limits if that is explicitly specified,
+        # otherwise to an implementation-defined value.
+        # More info: https://kubernetes.io/docs/concepts/configuration/manage-compute-resources-container/
+        requests:
+          cpu: 50m
+          memory: 32Mi
   # Optional: ProxySettings can be used to configure HTTP proxy settings on the
   # worker nodes in user clusters. However, proxy settings on nodes take precedence.
   proxy_settings:

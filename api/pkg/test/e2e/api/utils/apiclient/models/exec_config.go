@@ -8,9 +8,8 @@ package models
 import (
 	"strconv"
 
-	strfmt "github.com/go-openapi/strfmt"
-
 	"github.com/go-openapi/errors"
+	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
 )
 
@@ -19,6 +18,7 @@ import (
 //
 // See the client.authentiction.k8s.io API group for specifications of the exact input
 // and output format
+//
 // swagger:model ExecConfig
 type ExecConfig struct {
 

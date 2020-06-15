@@ -54,13 +54,13 @@ func DeploymentCreator(data userclusterControllerData, openshift bool) reconcili
 	return func() (string, reconciling.DeploymentCreator) {
 		return resources.UserClusterControllerDeploymentName, func(dep *appsv1.Deployment) (*appsv1.Deployment, error) {
 			dep.Name = resources.UserClusterControllerDeploymentName
-			dep.Labels = resources.BaseAppLabel(name, nil)
+			dep.Labels = resources.BaseAppLabels(name, nil)
 
 			dep.Spec.Replicas = resources.Int32(1)
 			dep.Spec.Selector = &metav1.LabelSelector{
-				MatchLabels: resources.BaseAppLabel(name, nil),
+				MatchLabels: resources.BaseAppLabels(name, nil),
 			}
-			dep.Spec.Strategy.Type = appsv1.RollingUpdateStatefulSetStrategyType
+			dep.Spec.Strategy.Type = appsv1.RollingUpdateDeploymentStrategyType
 			dep.Spec.Strategy.RollingUpdate = &appsv1.RollingUpdateDeployment{
 				MaxSurge: &intstr.IntOrString{
 					Type: intstr.Int,
@@ -114,6 +114,10 @@ func DeploymentCreator(data userclusterControllerData, openshift bool) reconcili
 			if openshiftConsoleCallbackURI := data.Cluster().Address.OpenshiftConsoleCallBack; openshiftConsoleCallbackURI != "" {
 				args = append(args, "-openshift-console-callback-uri", openshiftConsoleCallbackURI)
 			}
+			if data.Cluster().Spec.UpdateWindow != nil && data.Cluster().Spec.UpdateWindow.Length != "" && data.Cluster().Spec.UpdateWindow.Start != "" {
+				args = append(args, "-update-window-start", data.Cluster().Spec.UpdateWindow.Start, "-update-window-length", data.Cluster().Spec.UpdateWindow.Length)
+			}
+
 			if data.Cluster().Spec.UpdateWindow != nil && data.Cluster().Spec.UpdateWindow.Length != "" && data.Cluster().Spec.UpdateWindow.Start != "" {
 				args = append(args, "-update-window-start", data.Cluster().Spec.UpdateWindow.Start, "-update-window-length", data.Cluster().Spec.UpdateWindow.Length)
 			}

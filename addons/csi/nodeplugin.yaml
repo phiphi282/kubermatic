@@ -1,12 +1,15 @@
-{{ if (.Cluster.Spec.Features.externalCloudProvider) }}
+{{ if .Cluster.Features.Has "externalCloudProvider" }}
 
-{{ if .Cluster.Spec.Cloud.Openstack }}
+{{ if eq .Cluster.CloudProviderName "openstack" }}
 {{ $version := "UNSUPPORTED" }}
-{{ if eq .MajorMinorVersion "1.16" }}
+{{ if eq .Cluster.MajorMinorVersion "1.16" }}
 {{ $version = "v1.16.0 "}}
 {{ end }}
-{{ if eq .MajorMinorVersion "1.17" }}
+{{ if eq .Cluster.MajorMinorVersion "1.17" }}
 {{ $version = "v1.17.0 "}}
+{{ end }}
+{{ if eq .Cluster.MajorMinorVersion "1.18" }}
+{{ $version = "v1.18.0 "}}
 {{ end }}
 
 kind: DaemonSet
@@ -124,6 +127,7 @@ spec:
         - name: secret-cinderplugin
           secret:
             secretName: cloud-config
+
 ---
 kind: DaemonSet
 apiVersion: apps/v1
@@ -240,6 +244,7 @@ spec:
         - name: secret-cinderplugin
           secret:
             secretName: cloud-config
+
 ---
 kind: DaemonSet
 apiVersion: apps/v1

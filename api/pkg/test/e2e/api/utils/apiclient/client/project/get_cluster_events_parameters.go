@@ -13,8 +13,7 @@ import (
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/runtime"
 	cr "github.com/go-openapi/runtime/client"
-
-	strfmt "github.com/go-openapi/strfmt"
+	"github.com/go-openapi/strfmt"
 )
 
 // NewGetClusterEventsParams creates a new GetClusterEventsParams object
@@ -61,14 +60,14 @@ for the get cluster events operation typically these are written to a http.Reque
 */
 type GetClusterEventsParams struct {
 
-	/*Type*/
-	Type *string
 	/*ClusterID*/
 	ClusterID string
 	/*Dc*/
-	Dc string
+	DC string
 	/*ProjectID*/
 	ProjectID string
+	/*Type*/
+	Type *string
 
 	timeout    time.Duration
 	Context    context.Context
@@ -108,17 +107,6 @@ func (o *GetClusterEventsParams) SetHTTPClient(client *http.Client) {
 	o.HTTPClient = client
 }
 
-// WithType adds the typeVar to the get cluster events params
-func (o *GetClusterEventsParams) WithType(typeVar *string) *GetClusterEventsParams {
-	o.SetType(typeVar)
-	return o
-}
-
-// SetType adds the type to the get cluster events params
-func (o *GetClusterEventsParams) SetType(typeVar *string) {
-	o.Type = typeVar
-}
-
 // WithClusterID adds the clusterID to the get cluster events params
 func (o *GetClusterEventsParams) WithClusterID(clusterID string) *GetClusterEventsParams {
 	o.SetClusterID(clusterID)
@@ -130,15 +118,15 @@ func (o *GetClusterEventsParams) SetClusterID(clusterID string) {
 	o.ClusterID = clusterID
 }
 
-// WithDc adds the dc to the get cluster events params
-func (o *GetClusterEventsParams) WithDc(dc string) *GetClusterEventsParams {
-	o.SetDc(dc)
+// WithDC adds the dc to the get cluster events params
+func (o *GetClusterEventsParams) WithDC(dc string) *GetClusterEventsParams {
+	o.SetDC(dc)
 	return o
 }
 
-// SetDc adds the dc to the get cluster events params
-func (o *GetClusterEventsParams) SetDc(dc string) {
-	o.Dc = dc
+// SetDC adds the dc to the get cluster events params
+func (o *GetClusterEventsParams) SetDC(dc string) {
+	o.DC = dc
 }
 
 // WithProjectID adds the projectID to the get cluster events params
@@ -152,6 +140,17 @@ func (o *GetClusterEventsParams) SetProjectID(projectID string) {
 	o.ProjectID = projectID
 }
 
+// WithType adds the typeVar to the get cluster events params
+func (o *GetClusterEventsParams) WithType(typeVar *string) *GetClusterEventsParams {
+	o.SetType(typeVar)
+	return o
+}
+
+// SetType adds the type to the get cluster events params
+func (o *GetClusterEventsParams) SetType(typeVar *string) {
+	o.Type = typeVar
+}
+
 // WriteToRequest writes these params to a swagger request
 func (o *GetClusterEventsParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
 
@@ -160,35 +159,35 @@ func (o *GetClusterEventsParams) WriteToRequest(r runtime.ClientRequest, reg str
 	}
 	var res []error
 
-	if o.Type != nil {
-
-		// query param Type
-		var qrType string
-		if o.Type != nil {
-			qrType = *o.Type
-		}
-		qType := qrType
-		if qType != "" {
-			if err := r.SetQueryParam("Type", qType); err != nil {
-				return err
-			}
-		}
-
-	}
-
 	// path param cluster_id
 	if err := r.SetPathParam("cluster_id", o.ClusterID); err != nil {
 		return err
 	}
 
 	// path param dc
-	if err := r.SetPathParam("dc", o.Dc); err != nil {
+	if err := r.SetPathParam("dc", o.DC); err != nil {
 		return err
 	}
 
 	// path param project_id
 	if err := r.SetPathParam("project_id", o.ProjectID); err != nil {
 		return err
+	}
+
+	if o.Type != nil {
+
+		// query param type
+		var qrType string
+		if o.Type != nil {
+			qrType = *o.Type
+		}
+		qType := qrType
+		if qType != "" {
+			if err := r.SetQueryParam("type", qType); err != nil {
+				return err
+			}
+		}
+
 	}
 
 	if len(res) > 0 {

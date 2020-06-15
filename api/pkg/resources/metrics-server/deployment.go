@@ -38,7 +38,7 @@ const (
 	ServingCertSecretName  = "metrics-server-serving-cert"
 	servingCertMountFolder = "/etc/serving-cert"
 
-	tag = "v0.3.4"
+	tag = "v0.3.6"
 )
 
 // metricsServerData is the data needed to construct the metrics-server components
@@ -69,11 +69,11 @@ func DeploymentCreator(data metricsServerData) reconciling.NamedDeploymentCreato
 	return func() (string, reconciling.DeploymentCreator) {
 		return resources.MetricsServerDeploymentName, func(dep *appsv1.Deployment) (*appsv1.Deployment, error) {
 			dep.Name = resources.MetricsServerDeploymentName
-			dep.Labels = resources.BaseAppLabel(name, nil)
+			dep.Labels = resources.BaseAppLabels(name, nil)
 
 			dep.Spec.Replicas = resources.Int32(2)
 			dep.Spec.Selector = &metav1.LabelSelector{
-				MatchLabels: resources.BaseAppLabel(name, nil),
+				MatchLabels: resources.BaseAppLabels(name, nil),
 			}
 			dep.Spec.Template.Spec.ImagePullSecrets = []corev1.LocalObjectReference{{Name: resources.ImagePullSecretName}}
 
