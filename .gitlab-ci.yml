@@ -123,6 +123,7 @@ build-kubermatic:
   image: golang:${GO_VERSION}
   script:
   - cd api
+  - export KUBERMATIC_EDITION=ee
   - KUBERMATICCOMMIT=$CI_COMMIT_TAG make build
   artifacts:
     paths:
@@ -137,6 +138,7 @@ build-dnatcontroller:
   image: golang:${GO_VERSION}
   script:
     - cd api/cmd/kubeletdnat-controller
+    - export KUBERMATIC_EDITION=ee
     - make build
   artifacts:
     paths:
