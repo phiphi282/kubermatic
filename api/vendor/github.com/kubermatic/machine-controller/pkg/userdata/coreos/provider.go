@@ -86,6 +86,32 @@ func (p Provider) UserData(req plugin.UserDataRequest) (string, error) {
 		coreosConfig.DisableUpdateEngine = true
 	}
 
+	// Use patched kubelet where necessary
+	var kubeletImage string
+	{
+		upstreamImage := "docker://k8s.gcr.io/hyperkube-amd64:v" + kubeletVersion.String()
+		sys11Image := "docker://docker.io/syseleven/hyperkube-amd64:v" + kubeletVersion.String() + "-sys11-2"
+
+		kubeletImage = upstreamImage
+
+		switch kubeletVersion.Minor() {
+		case 15:
+			if kubeletVersion.Patch() < 8 {
+				kubeletImage = sys11Image
+			}
+
+		case 16:
+			if kubeletVersion.Patch() < 5 {
+				kubeletImage = sys11Image
+			}
+
+		case 17:
+			if kubeletVersion.Patch() < 1 {
+				kubeletImage = sys11Image
+			}
+		}
+	}
+
 	data := struct {
 		plugin.UserDataRequest
 		ProviderSpec           *providerconfigtypes.Config
@@ -93,7 +119,9 @@ func (p Provider) UserData(req plugin.UserDataRequest) (string, error) {
 		Kubeconfig             string
 		KubernetesCACert       string
 		KubeletVersion         string
+		KubeletImage           string
 		InsecureHyperkubeImage bool
+		NodeIPScript           string
 	}{
 		UserDataRequest:        req,
 		ProviderSpec:           pconfig,
@@ -101,7 +129,9 @@ func (p Provider) UserData(req plugin.UserDataRequest) (string, error) {
 		Kubeconfig:             kubeconfigString,
 		KubernetesCACert:       kubernetesCACert,
 		KubeletVersion:         kubeletVersion.String(),
+		KubeletImage:           kubeletImage,
 		InsecureHyperkubeImage: insecureHyperkubeImage,
+		NodeIPScript:           userdatahelper.SetupNodeIPEnvScript(),
 	}
 	b := &bytes.Buffer{}
 	err = tmpl.Execute(b, data)
@@ -172,6 +202,7 @@ systemd:
         Type=oneshot
         EnvironmentFile=-/etc/environment
         ExecStart=/opt/bin/download.sh
+        ExecPost=systemctl daemon-reload
         [Install]
         WantedBy=multi-user.target
 
@@ -197,6 +228,22 @@ systemd:
       contents: |
 {{ kubeletHealthCheckSystemdUnit | indent 10 }}
 
+    - name: nodeip.service
+      enabled: true
+      contents: |
+        [Unit]
+        Description=Setup Kubelet Node IP Env
+        Requires=network-online.target
+        After=network-online.target
+
+        [Service]
+        ExecStart=/opt/bin/setup_net_env.sh
+        RemainAfterExit=yes
+        Type=oneshot
+        [Install]
+        WantedBy=multi-user.target
+
+
     - name: kubelet.service
       enabled: true
       contents: |
@@ -209,10 +256,11 @@ systemd:
         CPUAccounting=true
         MemoryAccounting=true
         EnvironmentFile=-/etc/environment
+        EnvironmentFile=/etc/kubernetes/nodeip.conf
 {{- if .HTTPProxy }}
         Environment=KUBELET_IMAGE=docker://{{ .HyperkubeImage }}:v{{ .KubeletVersion }}
 {{- else }}
-        Environment=KUBELET_IMAGE=docker://k8s.gcr.io/hyperkube-amd64:v{{ .KubeletVersion }}
+        Environment=KUBELET_IMAGE={{ .KubeletImage }}
 {{- end }}
         Environment="RKT_RUN_ARGS=--uuid-file-save=/var/cache/kubelet-pod.uuid \
           --inherit-env \
@@ -270,7 +318,7 @@ storage:
       contents:
         inline: |
 {{ journalDConfig | indent 10 }}
-    
+
     - path: "/etc/kubernetes/kubelet.conf"
       filesystem: root
       mode: 0644
@@ -312,6 +360,13 @@ storage:
       contents:
         inline: |
           1
+
+    - path: "/opt/bin/setup_net_env.sh"
+      filesystem: root
+      mode: 0755
+      contents:
+        inline: |
+{{ .NodeIPScript | indent 10 }}
 
     - path: /etc/kubernetes/bootstrap-kubelet.conf
       filesystem: root
@@ -365,7 +420,7 @@ storage:
       mode: 0644
       contents:
         inline: |
-{{ dockerConfig .InsecureRegistries .RegistryMirrors | indent 10 }}
+{{ dockerConfig .InsecureRegistries .RegistryMirrors .MaxLogSize | indent 10 }}
 
     - path: /opt/bin/download.sh
       filesystem: root

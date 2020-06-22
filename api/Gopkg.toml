@@ -121,7 +121,8 @@ required = [
 
 [[constraint]]
   name = "github.com/kubermatic/machine-controller"
-  version = "~1.14.1"
+  source = "https://github.com/syseleven/machine-controller"
+  branch = "fkasymovgeniiuulu/soft-anti-affinity-server-group"
 
 [[override]]
   name = "sigs.k8s.io/controller-runtime"

@@ -888,7 +888,8 @@
   version = "v0.1.0"
 
 [[projects]]
-  digest = "1:5d2c421b1735d13ba711afa9de7ca97d9d038b96d602809037490f0723477171"
+  branch = "fkasymovgeniiuulu/soft-anti-affinity-server-group"
+  digest = "1:ee8177a273e84bebcae8a8ad96a71a1fa75b2a73324c2ac247e7d3b810586dc0"
   name = "github.com/kubermatic/machine-controller"
   packages = [
     "pkg/apis/cluster/common",
@@ -916,8 +917,8 @@
     "pkg/userdata/ubuntu",
   ]
   pruneopts = "NUT"
-  revision = "1dd6b128854077daac70fb1a1d1975f365501604"
-  version = "v1.14.1"
+  revision = "0f07928c93f598cb4be047a28900265a9592d42f"
+  source = "https://github.com/syseleven/machine-controller"
 
 [[projects]]
   digest = "1:d244f8666a838fe6ad70ec8fe77f50ebc29fdc3331a2729ba5886bef8435d10d"
