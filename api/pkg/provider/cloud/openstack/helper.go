@@ -10,6 +10,7 @@ import (
 	"github.com/apparentlymart/go-cidr/cidr"
 	"github.com/gophercloud/gophercloud"
 	goopenstack "github.com/gophercloud/gophercloud/openstack"
+	osservergroups "github.com/gophercloud/gophercloud/openstack/compute/v2/extensions/servergroups"
 	osflavors "github.com/gophercloud/gophercloud/openstack/compute/v2/flavors"
 	osprojects "github.com/gophercloud/gophercloud/openstack/identity/v3/projects"
 	ostokens "github.com/gophercloud/gophercloud/openstack/identity/v3/tokens"
@@ -270,6 +271,34 @@ func deleteRouter(netClient *gophercloud.ServiceClient, routerID string) error {
 		return res.Err
 	}
 	return res.ExtractErr()
+}
+
+func deleteServerGroup(computeClient *gophercloud.ServiceClient, n string) error {
+	var id string
+	err := osservergroups.List(computeClient).EachPage(func(page pagination.Page) (bool, error) {
+		items, err := osservergroups.ExtractServerGroups(page)
+		if err != nil {
+			return false, err
+		}
+		for _, item := range items {
+			if item.Name == n {
+				id = item.ID
+				return false, nil
+			}
+		}
+		return true, nil
+	})
+	if err != nil {
+		return fmt.Errorf("failed to list servergroups: %v", err)
+	}
+	if id == "" {
+		// Not found, assume it is deleted
+		return nil
+	}
+	if err := osservergroups.Delete(computeClient, id).ExtractErr(); err != nil {
+		return fmt.Errorf("failed to delete servergroup '%s': %v", n, err)
+	}
+	return nil
 }
 
 func createKubermaticSubnet(netClient *gophercloud.ServiceClient, clusterName, networkID string, dnsServers []string, customSubnetCIDR string) (*ossubnets.Subnet, error) {

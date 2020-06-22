@@ -39,6 +39,8 @@ const (
 	RouterCleanupFinalizer = "kubermatic.io/cleanup-openstack-router-v2"
 	// RouterSubnetLinkCleanupFinalizer will instruct the deletion of the link between the router and the subnet
 	RouterSubnetLinkCleanupFinalizer = "kubermatic.io/cleanup-openstack-router-subnet-link-v2"
+	// SoftAntiAffinityServerGroupCleanupFinalizer will instruct the deletion of the soft-anti-affinity server group bound to cluster
+	SoftAntiAffinityServerGroupCleanupFinalizer = "kubermatic.io/cleanup-cluster-servergroups"
 )
 
 // Provider is a struct that implements CloudProvider interface
@@ -258,6 +260,10 @@ func (os *Provider) InitializeCloudProvider(cluster *kubermaticv1.Cluster, updat
 		}
 	}
 
+	// Sys11: by default we set soft-anti-affinity name to be created by machine-controller.
+	// When cluster is deleted, servergroup should be cleaned up
+	kubernetes.AddFinalizer(cluster, SoftAntiAffinityServerGroupCleanupFinalizer)
+
 	return cluster, nil
 }
 
@@ -358,7 +364,34 @@ func (os *Provider) CleanUpCloudProvider(cluster *kubermaticv1.Cluster, update p
 		}
 	}
 
+	if kubernetes.HasAnyFinalizer(cluster, SoftAntiAffinityServerGroupCleanupFinalizer) {
+		authClient, err := getAuthClient(creds.Username, creds.Password, creds.Domain, creds.Tenant, creds.TenantID, os.dc.AuthURL)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get provider client: %v", err)
+		}
+		computeClient, err := goopenstack.NewComputeV2(authClient, gophercloud.EndpointOpts{})
+		if err != nil {
+			return nil, fmt.Errorf("failed to get compute client: %v", err)
+		}
+
+		if err := deleteServerGroup(computeClient, SoftAntiAffinityServerGroupName(cluster)); err != nil {
+			return nil, err
+		}
+
+		cluster, err = update(cluster.Name, func(cluster *kubermaticv1.Cluster) {
+			kubernetes.RemoveFinalizer(cluster, RouterSubnetLinkCleanupFinalizer)
+		})
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	return cluster, nil
+}
+
+// SoftAntiAffinityServerGroupName returns name of soft-anti-affinity for a cluster.
+func SoftAntiAffinityServerGroupName(cluster *kubermaticv1.Cluster) string {
+	return fmt.Sprintf("%s:%s", cluster.Namespace, cluster.Name)
 }
 
 // GetFlavors lists available flavors for the given CloudSpec.DatacenterName and OpenstackSpec.Region
