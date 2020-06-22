@@ -364,8 +364,12 @@ func (os *Provider) CleanUpCloudProvider(cluster *kubermaticv1.Cluster, update p
 		}
 	}
 
+	return cleanupServerGroup(cluster, creds, update, os.dc.AuthURL)
+}
+
+func cleanupServerGroup(cluster *kubermaticv1.Cluster, creds resources.OpenstackCredentials, update provider.ClusterUpdater, authURL string) (*kubermaticv1.Cluster, error) {
 	if kubernetes.HasAnyFinalizer(cluster, SoftAntiAffinityServerGroupCleanupFinalizer) {
-		authClient, err := getAuthClient(creds.Username, creds.Password, creds.Domain, creds.Tenant, creds.TenantID, os.dc.AuthURL)
+		authClient, err := getAuthClient(creds.Username, creds.Password, creds.Domain, creds.Tenant, creds.TenantID, authURL)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get provider client: %v", err)
 		}
@@ -385,7 +389,6 @@ func (os *Provider) CleanUpCloudProvider(cluster *kubermaticv1.Cluster, update p
 			return nil, err
 		}
 	}
-
 	return cluster, nil
 }
 

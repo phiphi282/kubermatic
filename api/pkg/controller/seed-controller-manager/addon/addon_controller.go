@@ -346,6 +346,9 @@ func (r *Reconciler) getAddonManifests(log *zap.SugaredLogger, addon *kubermatic
 		seedDC = "syseleven-dbl1-1"
 	}
 	data.ExternalURL = fmt.Sprintf("app.%s.%s", seedDC, r.externalURL)
+	if cluster.Spec.Cloud.Openstack != nil {
+		data.Variables["FloatingIPPool"] = cluster.Spec.Cloud.Openstack.FloatingIPPool
+	}
 	// Sys11 block end
 
 	manifestPath := path.Join(addonDir, addon.Spec.Name)
