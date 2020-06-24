@@ -47,7 +47,7 @@ while true; do
     if [[ "${DEBUG}" == "true" ]]; then
         dlv --listen=:2345 --headless=true --api-version=2 --accept-multiclient exec ./_build/kubermatic-api -- \
           -kubeconfig=${CONFIG_DIR}/kubeconfig \
-          -datacenters=${CONFIG_DIR}/datacenters.yaml \
+          -dynamic-datacenters=true \
           -versions=${RESOURCES_DIR}/versions.yaml \
           -updates=${RESOURCES_DIR}/updates.yaml \
           -master-resources=${RESOURCES_DIR} \
@@ -67,7 +67,7 @@ while true; do
     else
         ./_build/kubermatic-api \
           -kubeconfig=${CONFIG_DIR}/kubeconfig \
-          -datacenters=${CONFIG_DIR}/datacenters.yaml \
+          -dynamic-datacenters=true \
           -versions=${RESOURCES_DIR}/versions.yaml \
           -updates=${RESOURCES_DIR}/updates.yaml \
           -master-resources=${RESOURCES_DIR} \
