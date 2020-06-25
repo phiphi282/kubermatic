@@ -364,18 +364,14 @@ func (os *Provider) CleanUpCloudProvider(cluster *kubermaticv1.Cluster, update p
 		}
 	}
 
-	return cleanupServerGroup(cluster, creds, update, os.dc.AuthURL)
+	return cleanupServerGroup(cluster, creds, update, os.dc.AuthURL, os.dc.Region)
 }
 
-func cleanupServerGroup(cluster *kubermaticv1.Cluster, creds resources.OpenstackCredentials, update provider.ClusterUpdater, authURL string) (*kubermaticv1.Cluster, error) {
+func cleanupServerGroup(cluster *kubermaticv1.Cluster, creds resources.OpenstackCredentials, update provider.ClusterUpdater, authURL, region string) (*kubermaticv1.Cluster, error) {
 	if kubernetes.HasAnyFinalizer(cluster, SoftAntiAffinityServerGroupCleanupFinalizer) {
-		authClient, err := getAuthClient(creds.Username, creds.Password, creds.Domain, creds.Tenant, creds.TenantID, authURL)
+		computeClient, err := getComputeClient(creds.Username, creds.Password, creds.Domain, creds.Tenant, creds.TenantID, authURL, region)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get provider client: %v", err)
-		}
-		computeClient, err := goopenstack.NewComputeV2(authClient, gophercloud.EndpointOpts{})
-		if err != nil {
-			return nil, fmt.Errorf("failed to get compute client: %v", err)
+			return nil, err
 		}
 
 		if err := deleteServerGroup(computeClient, SoftAntiAffinityServerGroupName(cluster)); err != nil {
