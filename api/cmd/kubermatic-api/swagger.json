@@ -11526,6 +11526,11 @@
           "type": "string",
           "x-go-name": "SecurityGroups"
         },
+        "serverGroupID": {
+          "description": "ServerGroupID used as schedule hint shared between all machines in the cluster,\nWhen not specified, soft-anti-affinity server group will be automatically created",
+          "type": "string",
+          "x-go-name": "ServerGroupID"
+        },
         "subnetCIDR": {
           "type": "string",
           "x-go-name": "SubnetCIDR"

@@ -24,6 +24,7 @@ import (
 	ossubnets "github.com/gophercloud/gophercloud/openstack/networking/v2/subnets"
 	"github.com/gophercloud/gophercloud/pagination"
 	"github.com/kubermatic/kubermatic/api/pkg/provider"
+	"github.com/kubermatic/kubermatic/api/pkg/resources"
 )
 
 const (
@@ -273,34 +274,6 @@ func deleteRouter(netClient *gophercloud.ServiceClient, routerID string) error {
 	return res.ExtractErr()
 }
 
-func deleteServerGroup(computeClient *gophercloud.ServiceClient, n string) error {
-	var id string
-	err := osservergroups.List(computeClient).EachPage(func(page pagination.Page) (bool, error) {
-		items, err := osservergroups.ExtractServerGroups(page)
-		if err != nil {
-			return false, err
-		}
-		for _, item := range items {
-			if item.Name == n {
-				id = item.ID
-				return false, nil
-			}
-		}
-		return true, nil
-	})
-	if err != nil {
-		return fmt.Errorf("failed to list servergroups: %v", err)
-	}
-	if id == "" {
-		// Not found, assume it is deleted
-		return nil
-	}
-	if err := osservergroups.Delete(computeClient, id).ExtractErr(); err != nil {
-		return fmt.Errorf("failed to delete servergroup '%s': %v", n, err)
-	}
-	return nil
-}
-
 func createKubermaticSubnet(netClient *gophercloud.ServiceClient, clusterName, networkID string, dnsServers []string, customSubnetCIDR string) (*ossubnets.Subnet, error) {
 	iTrue := true
 	currentCidr := subnetCIDR
@@ -367,6 +340,25 @@ func attachSubnetToRouter(netClient *gophercloud.ServiceClient, subnetID, router
 		return res.Extract()
 	}()
 	return interf, ignoreRouterAlreadyHasPortInSubnetError(err, subnetID)
+}
+
+func createDefaultServerGroup(creds resources.OpenstackCredentials, cluster, authURL, region string) (*osservergroups.ServerGroup, error) {
+	// Create default soft-anti-affinity server group and register finalizer to clean up
+	client, err := getComputeClient(creds.Username, creds.Password, creds.Domain, creds.Tenant, creds.TenantID, authURL, region)
+	if err != nil {
+		return nil, err
+	}
+	// Microversion 2.15 or later required for 'soft-anti-affinity'
+	client.Microversion = "2.15"
+
+	sg, err := osservergroups.Create(client, osservergroups.CreateOpts{
+		Name:     fmt.Sprintf("cluster-%s-soft-anti-affinity-group", cluster),
+		Policies: []string{"soft-anti-affinity"},
+	}).Extract()
+	if err != nil {
+		return nil, fmt.Errorf("create soft-anti-affinity server group: %v", err)
+	}
+	return sg, nil
 }
 
 func detachSubnetFromRouter(netClient *gophercloud.ServiceClient, subnetID, routerID string) (*osrouters.InterfaceInfo, error) {

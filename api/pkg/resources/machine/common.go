@@ -8,7 +8,6 @@ import (
 
 	apiv1 "github.com/kubermatic/kubermatic/api/pkg/api/v1"
 	kubermaticv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
-	k8copenstack "github.com/kubermatic/kubermatic/api/pkg/provider/cloud/openstack"
 	alibaba "github.com/kubermatic/machine-controller/pkg/cloudprovider/provider/alibaba/types"
 	aws "github.com/kubermatic/machine-controller/pkg/cloudprovider/provider/aws/types"
 	azure "github.com/kubermatic/machine-controller/pkg/cloudprovider/provider/azure/types"
@@ -178,7 +177,7 @@ func getOpenstackProviderSpec(c *kubermaticv1.Cluster, nodeSpec apiv1.NodeSpec, 
 		SecurityGroups:        []providerconfig.ConfigVarString{{Value: c.Spec.Cloud.Openstack.SecurityGroups}},
 		NodeVolumeAttachLimit: dc.Spec.Openstack.NodeVolumeAttachLimit,
 		// Sys11: Set soft-anti-affinity server group name to be set on machines as schedule hint
-		CreateOrReuseSoftAntiAffinityName: providerconfig.ConfigVarString{Value: k8copenstack.SoftAntiAffinityServerGroupName(c)},
+		ServerGroupID: providerconfig.ConfigVarString{Value: c.Spec.Cloud.Openstack.ServerGroupID},
 	}
 
 	if nodeSpec.Cloud.Openstack.UseFloatingIP || dc.Spec.Openstack.EnforceFloatingIP {

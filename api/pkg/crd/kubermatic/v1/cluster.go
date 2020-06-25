@@ -491,6 +491,9 @@ type OpenstackCloudSpec struct {
 	RouterID       string `json:"routerID"`
 	SubnetID       string `json:"subnetID"`
 	SubnetCIDR     string `json:"subnetCIDR,omitempty"`
+	// ServerGroupID used as schedule hint shared between all machines in the cluster,
+	// When not specified, soft-anti-affinity server group will be automatically created
+	ServerGroupID string `json:"serverGroupID"`
 }
 
 // PacketCloudSpec specifies access data to a Packet cloud.
