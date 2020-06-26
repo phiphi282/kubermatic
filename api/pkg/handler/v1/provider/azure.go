@@ -222,7 +222,7 @@ func azureSize(ctx context.Context, subscriptionID, clientID, clientSecret, tena
 
 	var sizeList apiv1.AzureSizeList
 	for _, v := range listVMSize {
-		if v.Name != nil {
+		if v.Name != nil && *v.NumberOfCores > 1 {
 			_, okSKU := validSKUSet[*v.Name]
 			_, okVMContainer := validVMContainerSet[*v.Name]
 
