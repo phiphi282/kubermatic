@@ -71,7 +71,7 @@ while true; do
     cd ${SRC_DIR}
     if [[ "${DEBUG}" == "true" ]]; then
         dlv --listen=:2345 --headless=true --api-version=2 --accept-multiclient exec ./_build/seed-controller-manager -- \
-          -datacenters=${CONFIG_DIR}/datacenters.yaml \
+          -dynamic-datacenters=true \
           -datacenter-name=${KUBERMATIC_CLUSTER} \
           -kubeconfig=$seedKubeconfig \
           -versions=${RESOURCES_DIR}/versions.yaml \
@@ -102,7 +102,7 @@ while true; do
         PID=$!
     else
         ./_build/seed-controller-manager \
-          -datacenters=${CONFIG_DIR}/datacenters.yaml \
+          -dynamic-datacenters=true \
           -datacenter-name=${KUBERMATIC_CLUSTER} \
           -kubeconfig=$seedKubeconfig \
           -versions=${RESOURCES_DIR}/versions.yaml \

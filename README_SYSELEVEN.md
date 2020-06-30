@@ -5,7 +5,7 @@ This is a fork of Loodse's kubermatic upstream repository (https://github.com/ku
 Use `api/hack/sys11-run-api.sh` and `api/hack/sys11-run-dashboard-and-api.sh` scripts for for launching the
 API or API and dashboard locally. There's also `sys11-run-controller.sh`, `sys11-run-master-controller-manager.sh`,
 and `sys11-run-userclustercontroller.sh` for running the kubermatic controller manager, master controller manager,
-and user cluster controller manager locally. 
+and user cluster controller manager locally.
 
 See https://intra.syseleven.de/confluence/display/K8s/Repository%3A+kubermatic for a general overview.
 
@@ -27,3 +27,53 @@ syseleven/release-master branch, creating syseleven/feature/some-feature or syse
 as syseleven/release/vx.y release branches from syseleven/release-master. If our code is of interest to upstream, we
 cherry-pick the corresponding commits into our own "some-feature" branch created from upstream master and submit a pull
 request.
+
+
+## Mergin with upstream and releasing new version
+
+New branch is created
+```
+git co syseleven/release-master
+git pull
+git checkout -b <username>/merge_<upstream-release-tag>
+```
+
+Upstream is updated
+```
+git fetch upstream
+```
+
+Merge is initiated
+```
+git merge <upstream-release-tag>
+```
+
+Resolving `/vendor` folder conflicts by merging dependencies file. `Gopkg.lock` and `Gopkg.toml` and running:
+```
+dep ensure
+```
+
+Conflicts in `/fixtures/` and `/apiclient/` folders can be ignored because they can be regenerated using scripts at `/hack/` directory.
+
+Most of the rest of `*.go` files need to be resolved manually. Best is to go from down up in directory structure.
+
+To check merge use `make lint`, `make test`, `make build` commands.
+
+**Along with this repo `machine-controller` and `kubermatic-installer` repositories need to be updated.**
+
+Note: Kubermatic has hardcode for machine-controller version at `kubermatic/api/pkg/resources/machine-controller/deployment.go`. It needs to be adjusted with `machine-controller` fork's merge.
+
+### Updating machine-controller
+
+`machine-controller` needs to be updated with upstream.
+
+New release needs to be issued and hardcode at `kubermatic/api/pkg/resources/machine-controller/deployment.go` needs to be updated accordingly.
+
+### Update kubermatic-installer
+
+This steps may vary from release to realse.
+
+Things to look at:
+
+- `addons` which manually coppied from `kubermatic` repo to adjust for our needs
+- configuration `*yaml.mako` files

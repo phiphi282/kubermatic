@@ -8,6 +8,7 @@ import (
 
 	"github.com/gophercloud/gophercloud"
 	goopenstack "github.com/gophercloud/gophercloud/openstack"
+	osservergroups "github.com/gophercloud/gophercloud/openstack/compute/v2/extensions/servergroups"
 	osflavors "github.com/gophercloud/gophercloud/openstack/compute/v2/flavors"
 	osprojects "github.com/gophercloud/gophercloud/openstack/identity/v3/projects"
 	ossecuritygroups "github.com/gophercloud/gophercloud/openstack/networking/v2/extensions/security/groups"
@@ -39,6 +40,8 @@ const (
 	RouterCleanupFinalizer = "kubermatic.io/cleanup-openstack-router-v2"
 	// RouterSubnetLinkCleanupFinalizer will instruct the deletion of the link between the router and the subnet
 	RouterSubnetLinkCleanupFinalizer = "kubermatic.io/cleanup-openstack-router-subnet-link-v2"
+	// ServerGroupCleanupFinalizer will instruct the deletion of server group bound to cluster
+	ServerGroupCleanupFinalizer = "kubermatic.io/cleanup-cluster-servergroup"
 )
 
 // Provider is a struct that implements CloudProvider interface
@@ -258,6 +261,24 @@ func (os *Provider) InitializeCloudProvider(cluster *kubermaticv1.Cluster, updat
 		}
 	}
 
+	if cluster.Spec.Cloud.Openstack.ServerGroupID == "" {
+		sg, err := createDefaultServerGroup(creds, cluster.Name, os.dc.AuthURL, os.dc.Region)
+		if err != nil {
+			return nil, err
+		}
+		cluster, err = update(cluster.Name, func(cluster *kubermaticv1.Cluster) {
+			cluster.Spec.Cloud.Openstack.ServerGroupID = sg.ID
+			kubernetes.AddFinalizer(cluster, ServerGroupCleanupFinalizer)
+		})
+		if err != nil {
+			err = fmt.Errorf("add server group ID to cluster: %v", err)
+			if e := deleteServerGroup(creds, sg.ID, os.dc.AuthURL, os.dc.Region); e != nil {
+				err = fmt.Errorf("delete server group after failure: %v: %v", e, err)
+			}
+			return nil, err
+		}
+	}
+
 	return cluster, nil
 }
 
@@ -358,7 +379,31 @@ func (os *Provider) CleanUpCloudProvider(cluster *kubermaticv1.Cluster, update p
 		}
 	}
 
+	return cleanUpServerGroup(cluster, creds, update, os.dc.AuthURL, os.dc.Region)
+}
+
+func cleanUpServerGroup(cluster *kubermaticv1.Cluster, creds resources.OpenstackCredentials, update provider.ClusterUpdater, authURL, region string) (*kubermaticv1.Cluster, error) {
+	if kubernetes.HasAnyFinalizer(cluster, ServerGroupCleanupFinalizer) {
+		id := cluster.Spec.Cloud.Openstack.ServerGroupID
+		if err := deleteServerGroup(creds, id, authURL, region); err != nil {
+			return cluster, err
+		}
+		return update(cluster.Name, func(cluster *kubermaticv1.Cluster) {
+			kubernetes.RemoveFinalizer(cluster, ServerGroupCleanupFinalizer)
+		})
+	}
 	return cluster, nil
+}
+
+func deleteServerGroup(creds resources.OpenstackCredentials, id, authURL, region string) error {
+	computeClient, err := getComputeClient(creds.Username, creds.Password, creds.Domain, creds.Tenant, creds.TenantID, authURL, region)
+	if err != nil {
+		return err
+	}
+	if err := osservergroups.Delete(computeClient, id).ExtractErr(); err != nil {
+		return fmt.Errorf("delete server group with ID '%s': %v", id, err)
+	}
+	return nil
 }
 
 // GetFlavors lists available flavors for the given CloudSpec.DatacenterName and OpenstackSpec.Region

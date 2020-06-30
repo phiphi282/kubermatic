@@ -43,6 +43,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/util/retry"
 	ctrlruntimeclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -587,7 +588,7 @@ func retryNAttempts(maxAttempts int, f func(attempt int) error) error {
 // attempt.
 func measuredRetryNAttempts(
 	runtimeMetric *prometheus.GaugeVec,
-	attemptsMetric prometheus.Gauge,
+	attemptsMetric cache.GaugeMetric,
 	log *zap.SugaredLogger,
 	maxAttempts int,
 	f func(attempt int) error,

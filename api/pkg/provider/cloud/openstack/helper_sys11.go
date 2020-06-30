@@ -2,6 +2,7 @@ package openstack
 
 import (
 	"fmt"
+
 	"github.com/gophercloud/gophercloud"
 	goopenstack "github.com/gophercloud/gophercloud/openstack"
 )

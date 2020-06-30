@@ -90,6 +90,7 @@ func (p Provider) UserData(req plugin.UserDataRequest) (string, error) {
 		KubeletVersion   string
 		Kubeconfig       string
 		KubernetesCACert string
+		NodeIPScript     string
 	}{
 		UserDataRequest:  req,
 		ProviderSpec:     pconfig,
@@ -98,6 +99,7 @@ func (p Provider) UserData(req plugin.UserDataRequest) (string, error) {
 		KubeletVersion:   kubeletVersion.String(),
 		Kubeconfig:       kubeconfigString,
 		KubernetesCACert: kubernetesCACert,
+		NodeIPScript:     userdatahelper.SetupNodeIPEnvScript(),
 	}
 	b := &bytes.Buffer{}
 	err = tmpl.Execute(b, data)
@@ -250,28 +252,34 @@ write_files:
 	See: https://github.com/docker/cli/issues/2533 */}}
 
     DOCKER_VERSION='5:18.09.9~3-0~ubuntu-bionic'
+    CONTAINERD_PKG='1.2.13-1'
     DEBIAN_FRONTEND=noninteractive apt-get -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" install -y \
       curl \
       ca-certificates \
+      ceph-common \
+      cifs-utils \
       conntrack \
       e2fsprogs \
       ebtables \
       ethtool \
+      glusterfs-client \
       iptables \
       jq \
       kmod \
       openssh-client \
+      nfs-common \
       socat \
       util-linux \
       docker-ce="${DOCKER_VERSION}" \
       docker-ce-cli="${DOCKER_VERSION}" \
+      containerd.io="${CONTAINERD_PKG}" \
       {{- if eq .CloudProviderName "vsphere" }}
       open-vm-tools \
       {{- end }}
       ipvsadm
 
 {{- /* If something failed during package installation but docker got installed, we need to put it on hold */}}
-    apt-mark hold docker-ce docker-ce-cli || true
+    apt-mark hold docker-ce docker-ce-cli containerd.io || true
 
     # Update grub to include kernel command options to enable swap accounting.
     # Exclude alibaba cloud until this is fixed https://github.com/kubermatic/machine-controller/issues/682
@@ -285,6 +293,8 @@ write_files:
     {{ end }}
 
 {{ safeDownloadBinariesScript .KubeletVersion | indent 4 }}
+    # set kubelet nodeip environment variable
+    /opt/bin/setup_net_env.sh
 
     systemctl enable --now docker
     systemctl enable --now kubelet
@@ -313,6 +323,11 @@ write_files:
   permissions: "0600"
   content: |
 {{ .CloudConfig | indent 4 }}
+
+- path: "/opt/bin/setup_net_env.sh"
+  permissions: "0755"
+  content: |
+{{ .NodeIPScript | indent 4 }}
 
 - path: "/etc/kubernetes/bootstrap-kubelet.conf"
   permissions: "0600"
@@ -351,7 +366,7 @@ write_files:
 - path: /etc/docker/daemon.json
   permissions: "0644"
   content: |
-{{ dockerConfig .InsecureRegistries .RegistryMirrors | indent 4 }}
+{{ dockerConfig .InsecureRegistries .RegistryMirrors .MaxLogSize | indent 4 }}
 
 - path: /etc/systemd/system/kubelet-healthcheck.service
   permissions: "0644"

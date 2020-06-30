@@ -641,17 +641,20 @@
 
 [[projects]]
   branch = "master"
-  digest = "1:fad979dda21f646403025227db715ee527746229dfc57759d4ed3a1e5810a61b"
+  digest = "1:5c0ed3aab591276c130c5cf8653d8909a463f97dbe8d76a13279bea5fc9bdd85"
   name = "github.com/gophercloud/gophercloud"
   packages = [
     ".",
     "internal",
     "openstack",
     "openstack/compute/v2/extensions/limits",
+    "openstack/compute/v2/extensions/servergroups",
     "openstack/compute/v2/flavors",
     "openstack/compute/v2/images",
     "openstack/identity/v2/tenants",
     "openstack/identity/v2/tokens",
+    "openstack/identity/v3/extensions/ec2tokens",
+    "openstack/identity/v3/extensions/oauth1",
     "openstack/identity/v3/groups",
     "openstack/identity/v3/projects",
     "openstack/identity/v3/tokens",
@@ -668,7 +671,7 @@
     "pagination",
   ]
   pruneopts = "NUT"
-  revision = "3a7818a07cfc862267a0b03635075a444c92dcda"
+  revision = "1f9e326ce889660d92ec175620ba7eb8c8dd7009"
 
 [[projects]]
   digest = "1:c01767916c59f084bb7c41a7d5877c0f3099b1595cfa066e84ec6ad6b084dd89"
@@ -888,7 +891,8 @@
   version = "v0.1.0"
 
 [[projects]]
-  digest = "1:5d2c421b1735d13ba711afa9de7ca97d9d038b96d602809037490f0723477171"
+  branch = "fkasymovgeniiuulu/soft-anti-affinity-server-group"
+  digest = "1:5e92dcba41e212b4fd07ae8eb55fbfc43b19698c956744b618a9ae66df2a8cc2"
   name = "github.com/kubermatic/machine-controller"
   packages = [
     "pkg/apis/cluster/common",
@@ -916,8 +920,8 @@
     "pkg/userdata/ubuntu",
   ]
   pruneopts = "NUT"
-  revision = "1dd6b128854077daac70fb1a1d1975f365501604"
-  version = "v1.14.1"
+  revision = "7a69bf4bf06df8b83400af39a0eb1604f8ef4ff3"
+  source = "https://github.com/syseleven/machine-controller"
 
 [[projects]]
   digest = "1:d244f8666a838fe6ad70ec8fe77f50ebc29fdc3331a2729ba5886bef8435d10d"
@@ -2230,6 +2234,7 @@
     "github.com/gophercloud/gophercloud",
     "github.com/gophercloud/gophercloud/openstack",
     "github.com/gophercloud/gophercloud/openstack/compute/v2/extensions/limits",
+    "github.com/gophercloud/gophercloud/openstack/compute/v2/extensions/servergroups",
     "github.com/gophercloud/gophercloud/openstack/compute/v2/flavors",
     "github.com/gophercloud/gophercloud/openstack/compute/v2/images",
     "github.com/gophercloud/gophercloud/openstack/identity/v3/projects",

@@ -3,6 +3,7 @@
 set -o errexit
 set -o pipefail
 set -x
+set -e
 
 : "${DASHBOARD_SRC_DIR:=$(go env GOPATH)/src/gitlab.syseleven.de/kubernetes/kubermatic-dashboard}"
 
