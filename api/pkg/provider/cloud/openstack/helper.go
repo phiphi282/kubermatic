@@ -352,7 +352,7 @@ func createDefaultServerGroup(creds resources.OpenstackCredentials, cluster, aut
 	client.Microversion = "2.15"
 
 	sg, err := osservergroups.Create(client, osservergroups.CreateOpts{
-		Name:     fmt.Sprintf("cluster-%s-soft-anti-affinity-group", cluster),
+		Name:     fmt.Sprintf("cluster-%s-servergroup", cluster),
 		Policies: []string{"soft-anti-affinity"},
 	}).Extract()
 	if err != nil {
