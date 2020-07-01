@@ -12,7 +12,7 @@
   "info": {
     "description": "This describes possible operations which can be made against the MetaKube API.",
     "title": "MetaKube API",
-    "termsOfService": "There are no TOS at this moment, use at your own risk we take no responsibility",
+    "termsOfService": "https://www.syseleven.de/agb-sla-metakube",
     "version": "2.11"
   },
   "host": "metakube.syseleven.de",

@@ -7,7 +7,7 @@
 //
 // Terms Of Service:
 //
-// There are no TOS at this moment, use at your own risk we take no responsibility
+// https://www.syseleven.de/agb-sla-metakube
 //
 //     Version: 2.11
 //
