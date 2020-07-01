@@ -99,6 +99,7 @@ func NewTemplateData(
 			Version:              semver.MustParse(cluster.Spec.Version.String()),
 			MajorMinorVersion:    cluster.Spec.Version.MajorMinor(),
 			Features:             sets.StringKeySet(cluster.Spec.Features),
+			CloudSpec:            cluster.Spec.Cloud,
 			Network: ClusterNetwork{
 				DNSClusterIP:      dnsClusterIP,
 				DNSResolverIP:     dnsResolverIP,
@@ -157,6 +158,9 @@ type ClusterData struct {
 	Network ClusterNetwork
 	// Features is a set of enabled features for this cluster.
 	Features sets.String
+	// CloudSpec contains the complete access data to the cluster's cloud provider.
+	// CAUTION: This is internal information and subject to change; using it is not recommended!
+	CloudSpec kubermaticv1.CloudSpec
 }
 
 type ClusterNetwork struct {
