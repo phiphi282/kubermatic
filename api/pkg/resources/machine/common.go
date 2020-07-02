@@ -1,3 +1,19 @@
+/*
+Copyright 2020 The Kubermatic Kubernetes Platform contributors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 package machine
 
 import (
@@ -21,6 +37,7 @@ import (
 	providerconfig "github.com/kubermatic/machine-controller/pkg/providerconfig/types"
 	"github.com/kubermatic/machine-controller/pkg/userdata/centos"
 	"github.com/kubermatic/machine-controller/pkg/userdata/coreos"
+	"github.com/kubermatic/machine-controller/pkg/userdata/flatcar"
 	"github.com/kubermatic/machine-controller/pkg/userdata/rhel"
 	"github.com/kubermatic/machine-controller/pkg/userdata/sles"
 	"github.com/kubermatic/machine-controller/pkg/userdata/ubuntu"
@@ -45,6 +62,9 @@ func getOsName(nodeSpec apiv1.NodeSpec) (providerconfig.OperatingSystem, error) 
 	}
 	if nodeSpec.OperatingSystem.RHEL != nil {
 		return providerconfig.OperatingSystemRHEL, nil
+	}
+	if nodeSpec.OperatingSystem.Flatcar != nil {
+		return providerconfig.OperatingSystemFlatcar, nil
 	}
 
 	return "", errors.New("unknown operating system")
@@ -451,6 +471,24 @@ func getRHELOperatingSystemSpec(nodeSpec apiv1.NodeSpec) (*runtime.RawExtension,
 		RHELSubscriptionManagerUser:     nodeSpec.OperatingSystem.RHEL.RHELSubscriptionManagerUser,
 		RHELSubscriptionManagerPassword: nodeSpec.OperatingSystem.RHEL.RHELSubscriptionManagerPassword,
 		RHSMOfflineToken:                nodeSpec.OperatingSystem.RHEL.RHSMOfflineToken,
+	}
+
+	ext := &runtime.RawExtension{}
+	b, err := json.Marshal(config)
+	if err != nil {
+		return nil, err
+	}
+
+	ext.Raw = b
+	return ext, nil
+}
+
+func getFlatcarOperatingSystemSpec(nodeSpec apiv1.NodeSpec) (*runtime.RawExtension, error) {
+	config := flatcar.Config{
+		DisableUpdateEngine: nodeSpec.OperatingSystem.Flatcar.DisableAutoUpdate,
+		// We manage Flatcar updates via the CoreOS update operator which requires locksmithd
+		// to be disabled: https://github.com/coreos/container-linux-update-operator#design
+		DisableLocksmithD: true,
 	}
 
 	ext := &runtime.RawExtension{}

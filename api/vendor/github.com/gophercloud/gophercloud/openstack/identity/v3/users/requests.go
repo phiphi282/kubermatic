@@ -1,6 +1,7 @@
 package users
 
 import (
+	"net/http"
 	"net/url"
 	"strings"
 
@@ -94,8 +95,7 @@ func List(client *gophercloud.ServiceClient, opts ListOptsBuilder) pagination.Pa
 
 // Get retrieves details on a single user, by ID.
 func Get(client *gophercloud.ServiceClient, id string) (r GetResult) {
-	resp, err := client.Get(getURL(client, id), &r.Body, nil)
-	_, r.Header, r.Err = gophercloud.ParseResponse(resp, err)
+	_, r.Err = client.Get(getURL(client, id), &r.Body, nil)
 	return
 }
 
@@ -157,10 +157,9 @@ func Create(client *gophercloud.ServiceClient, opts CreateOptsBuilder) (r Create
 		r.Err = err
 		return
 	}
-	resp, err := client.Post(createURL(client), &b, &r.Body, &gophercloud.RequestOpts{
+	_, r.Err = client.Post(createURL(client), &b, &r.Body, &gophercloud.RequestOpts{
 		OkCodes: []int{201},
 	})
-	_, r.Header, r.Err = gophercloud.ParseResponse(resp, err)
 	return
 }
 
@@ -179,7 +178,7 @@ type UpdateOpts struct {
 	DefaultProjectID string `json:"default_project_id,omitempty"`
 
 	// Description is a description of the user.
-	Description *string `json:"description,omitempty"`
+	Description string `json:"description,omitempty"`
 
 	// DomainID is the ID of the domain the user belongs to.
 	DomainID string `json:"domain_id,omitempty"`
@@ -222,10 +221,9 @@ func Update(client *gophercloud.ServiceClient, userID string, opts UpdateOptsBui
 		r.Err = err
 		return
 	}
-	resp, err := client.Patch(updateURL(client, userID), &b, &r.Body, &gophercloud.RequestOpts{
+	_, r.Err = client.Patch(updateURL(client, userID), &b, &r.Body, &gophercloud.RequestOpts{
 		OkCodes: []int{200},
 	})
-	_, r.Header, r.Err = gophercloud.ParseResponse(resp, err)
 	return
 }
 
@@ -262,17 +260,15 @@ func ChangePassword(client *gophercloud.ServiceClient, userID string, opts Chang
 		return
 	}
 
-	resp, err := client.Post(changePasswordURL(client, userID), &b, nil, &gophercloud.RequestOpts{
+	_, r.Err = client.Post(changePasswordURL(client, userID), &b, nil, &gophercloud.RequestOpts{
 		OkCodes: []int{204},
 	})
-	_, r.Header, r.Err = gophercloud.ParseResponse(resp, err)
 	return
 }
 
 // Delete deletes a user.
 func Delete(client *gophercloud.ServiceClient, userID string) (r DeleteResult) {
-	resp, err := client.Delete(deleteURL(client, userID), nil)
-	_, r.Header, r.Err = gophercloud.ParseResponse(resp, err)
+	_, r.Err = client.Delete(deleteURL(client, userID), nil)
 	return
 }
 
@@ -287,35 +283,34 @@ func ListGroups(client *gophercloud.ServiceClient, userID string) pagination.Pag
 // AddToGroup adds a user to a group.
 func AddToGroup(client *gophercloud.ServiceClient, groupID, userID string) (r AddToGroupResult) {
 	url := addToGroupURL(client, groupID, userID)
-	resp, err := client.Put(url, nil, nil, &gophercloud.RequestOpts{
+	_, r.Err = client.Put(url, nil, nil, &gophercloud.RequestOpts{
 		OkCodes: []int{204},
 	})
-	_, r.Header, r.Err = gophercloud.ParseResponse(resp, err)
 	return
 }
 
 // IsMemberOfGroup checks whether a user belongs to a group.
 func IsMemberOfGroup(client *gophercloud.ServiceClient, groupID, userID string) (r IsMemberOfGroupResult) {
 	url := isMemberOfGroupURL(client, groupID, userID)
-	resp, err := client.Head(url, &gophercloud.RequestOpts{
+	var response *http.Response
+	response, r.Err = client.Head(url, &gophercloud.RequestOpts{
 		OkCodes: []int{204, 404},
 	})
-	_, r.Header, r.Err = gophercloud.ParseResponse(resp, err)
-	if r.Err == nil {
-		if resp.StatusCode == 204 {
+	if r.Err == nil && response != nil {
+		if (*response).StatusCode == 204 {
 			r.isMember = true
 		}
 	}
+
 	return
 }
 
 // RemoveFromGroup removes a user from a group.
 func RemoveFromGroup(client *gophercloud.ServiceClient, groupID, userID string) (r RemoveFromGroupResult) {
 	url := removeFromGroupURL(client, groupID, userID)
-	resp, err := client.Delete(url, &gophercloud.RequestOpts{
+	_, r.Err = client.Delete(url, &gophercloud.RequestOpts{
 		OkCodes: []int{204},
 	})
-	_, r.Header, r.Err = gophercloud.ParseResponse(resp, err)
 	return
 }
 

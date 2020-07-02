@@ -65,8 +65,7 @@ func List(client *gophercloud.ServiceClient, opts ListOptsBuilder) pagination.Pa
 
 // Get retrieves details on a single group, by ID.
 func Get(client *gophercloud.ServiceClient, id string) (r GetResult) {
-	resp, err := client.Get(getURL(client, id), &r.Body, nil)
-	_, r.Header, r.Err = gophercloud.ParseResponse(resp, err)
+	_, r.Err = client.Get(getURL(client, id), &r.Body, nil)
 	return
 }
 
@@ -116,10 +115,9 @@ func Create(client *gophercloud.ServiceClient, opts CreateOptsBuilder) (r Create
 		r.Err = err
 		return
 	}
-	resp, err := client.Post(createURL(client), &b, &r.Body, &gophercloud.RequestOpts{
+	_, r.Err = client.Post(createURL(client), &b, &r.Body, &gophercloud.RequestOpts{
 		OkCodes: []int{201},
 	})
-	_, r.Header, r.Err = gophercloud.ParseResponse(resp, err)
 	return
 }
 
@@ -135,7 +133,7 @@ type UpdateOpts struct {
 	Name string `json:"name,omitempty"`
 
 	// Description is a description of the group.
-	Description *string `json:"description,omitempty"`
+	Description string `json:"description,omitempty"`
 
 	// DomainID is the ID of the domain the group belongs to.
 	DomainID string `json:"domain_id,omitempty"`
@@ -169,16 +167,14 @@ func Update(client *gophercloud.ServiceClient, groupID string, opts UpdateOptsBu
 		r.Err = err
 		return
 	}
-	resp, err := client.Patch(updateURL(client, groupID), &b, &r.Body, &gophercloud.RequestOpts{
+	_, r.Err = client.Patch(updateURL(client, groupID), &b, &r.Body, &gophercloud.RequestOpts{
 		OkCodes: []int{200},
 	})
-	_, r.Header, r.Err = gophercloud.ParseResponse(resp, err)
 	return
 }
 
 // Delete deletes a group.
 func Delete(client *gophercloud.ServiceClient, groupID string) (r DeleteResult) {
-	resp, err := client.Delete(deleteURL(client, groupID), nil)
-	_, r.Header, r.Err = gophercloud.ParseResponse(resp, err)
+	_, r.Err = client.Delete(deleteURL(client, groupID), nil)
 	return
 }

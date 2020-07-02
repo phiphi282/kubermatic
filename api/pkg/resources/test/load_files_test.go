@@ -1,3 +1,19 @@
+/*
+Copyright 2020 The Kubermatic Kubernetes Platform contributors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 package test
 
 import (
@@ -168,11 +184,12 @@ func TestLoadFiles(t *testing.T) {
 			},
 			AWS: &kubermaticv1.DatacenterSpecAWS{
 				Images: kubermaticv1.ImageList{
-					providerconfig.OperatingSystemUbuntu: "ubuntu-ami",
-					providerconfig.OperatingSystemCentOS: "centos-ami",
-					providerconfig.OperatingSystemCoreos: "coreos-ami",
-					providerconfig.OperatingSystemSLES:   "sles-ami",
-					providerconfig.OperatingSystemRHEL:   "rhel-ami",
+					providerconfig.OperatingSystemUbuntu:  "ubuntu-ami",
+					providerconfig.OperatingSystemCentOS:  "centos-ami",
+					providerconfig.OperatingSystemCoreos:  "coreos-ami",
+					providerconfig.OperatingSystemSLES:    "sles-ami",
+					providerconfig.OperatingSystemRHEL:    "rhel-ami",
+					providerconfig.OperatingSystemFlatcar: "flatcar-ami",
 				},
 				Region: "us-central1",
 			},

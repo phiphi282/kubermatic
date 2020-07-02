@@ -1,3 +1,19 @@
+/*
+Copyright 2020 The Kubermatic Kubernetes Platform contributors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 package nodelabeler
 
 import (
@@ -125,23 +141,36 @@ func (r *reconciler) reconcile(log *zap.SugaredLogger, node *corev1.Node) error 
 }
 
 func applyDistributionLabel(log *zap.SugaredLogger, node *corev1.Node) (changed bool, err error) {
-	osImage := strings.ToLower(node.Status.NodeInfo.OSImage)
+	osImage := node.Status.NodeInfo.OSImage
 
-	var wantValue string
-	for k, v := range api.OSLabelMatchValues {
-		if strings.Contains(osImage, v) {
-			wantValue = k
-		}
-	}
-	if wantValue == "" {
-		return false, fmt.Errorf("Could not detect distribution from image name %q", osImage)
+	wantedLabel := findDistributionLabel(node.Status.NodeInfo.OSImage)
+	if wantedLabel == "" {
+		return false, fmt.Errorf("could not detect distribution from image name %q", osImage)
 	}
 
-	if node.Labels[api.DistributionLabelKey] == wantValue {
+	if node.Labels[api.DistributionLabelKey] == wantedLabel {
 		return false, nil
 	}
 
-	node.Labels[api.DistributionLabelKey] = wantValue
-	log.Debugw("Setting label", "label-key", api.DistributionLabelKey, "old-label-value", node.Labels[api.DistributionLabelKey], "new-label-value", wantValue)
+	node.Labels[api.DistributionLabelKey] = wantedLabel
+	log.Debugw("Setting label", "label-key", api.DistributionLabelKey, "old-label-value", node.Labels[api.DistributionLabelKey], "new-label-value", wantedLabel)
 	return true, nil
+}
+
+// findDistributionLabel finds the best label value for a given
+// OS image string. It returns the longest match to ensure consistent
+// results.
+func findDistributionLabel(osImage string) string {
+	osImage = strings.ToLower(osImage)
+
+	matchedLabel := ""
+	matchedValue := ""
+	for k, v := range api.OSLabelMatchValues {
+		if strings.Contains(osImage, v) && len(v) > len(matchedValue) {
+			matchedLabel = k
+			matchedValue = v
+		}
+	}
+
+	return matchedLabel
 }

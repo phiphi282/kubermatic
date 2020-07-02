@@ -14,7 +14,6 @@ type ListOpts struct {
 	Direction      string `q:"direction"`
 	EtherType      string `q:"ethertype"`
 	ID             string `q:"id"`
-	Description    string `q:"description"`
 	PortRangeMax   int    `q:"port_range_max"`
 	PortRangeMin   int    `q:"port_range_min"`
 	Protocol       string `q:"protocol"`
@@ -141,22 +140,19 @@ func Create(c *gophercloud.ServiceClient, opts CreateOptsBuilder) (r CreateResul
 		r.Err = err
 		return
 	}
-	resp, err := c.Post(rootURL(c), b, &r.Body, nil)
-	_, r.Header, r.Err = gophercloud.ParseResponse(resp, err)
+	_, r.Err = c.Post(rootURL(c), b, &r.Body, nil)
 	return
 }
 
 // Get retrieves a particular security group rule based on its unique ID.
 func Get(c *gophercloud.ServiceClient, id string) (r GetResult) {
-	resp, err := c.Get(resourceURL(c, id), &r.Body, nil)
-	_, r.Header, r.Err = gophercloud.ParseResponse(resp, err)
+	_, r.Err = c.Get(resourceURL(c, id), &r.Body, nil)
 	return
 }
 
 // Delete will permanently delete a particular security group rule based on its
 // unique ID.
 func Delete(c *gophercloud.ServiceClient, id string) (r DeleteResult) {
-	resp, err := c.Delete(resourceURL(c, id), nil)
-	_, r.Header, r.Err = gophercloud.ParseResponse(resp, err)
+	_, r.Err = c.Delete(resourceURL(c, id), nil)
 	return
 }

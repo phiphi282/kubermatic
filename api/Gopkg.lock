@@ -641,7 +641,7 @@
 
 [[projects]]
   branch = "master"
-  digest = "1:5c0ed3aab591276c130c5cf8653d8909a463f97dbe8d76a13279bea5fc9bdd85"
+  digest = "1:102876e7ce79b3153e6d79b0ce9e9fd1e4c983fd087a96893df3bf22459476cb"
   name = "github.com/gophercloud/gophercloud"
   packages = [
     ".",
@@ -653,8 +653,6 @@
     "openstack/compute/v2/images",
     "openstack/identity/v2/tenants",
     "openstack/identity/v2/tokens",
-    "openstack/identity/v3/extensions/ec2tokens",
-    "openstack/identity/v3/extensions/oauth1",
     "openstack/identity/v3/groups",
     "openstack/identity/v3/projects",
     "openstack/identity/v3/tokens",
@@ -671,7 +669,7 @@
     "pagination",
   ]
   pruneopts = "NUT"
-  revision = "1f9e326ce889660d92ec175620ba7eb8c8dd7009"
+  revision = "3a7818a07cfc862267a0b03635075a444c92dcda"
 
 [[projects]]
   digest = "1:c01767916c59f084bb7c41a7d5877c0f3099b1595cfa066e84ec6ad6b084dd89"
@@ -892,7 +890,7 @@
 
 [[projects]]
   branch = "fkasymovgeniiuulu/soft-anti-affinity-server-group"
-  digest = "1:5e92dcba41e212b4fd07ae8eb55fbfc43b19698c956744b618a9ae66df2a8cc2"
+  digest = "1:6569052c4360c7b710462ac315721c0c88fdf467a2783e46e0d35c7d3e28abf9"
   name = "github.com/kubermatic/machine-controller"
   packages = [
     "pkg/apis/cluster/common",
@@ -913,6 +911,7 @@
     "pkg/providerconfig/types",
     "pkg/userdata/centos",
     "pkg/userdata/coreos",
+    "pkg/userdata/flatcar",
     "pkg/userdata/helper",
     "pkg/userdata/plugin",
     "pkg/userdata/rhel",
@@ -920,7 +919,7 @@
     "pkg/userdata/ubuntu",
   ]
   pruneopts = "NUT"
-  revision = "7a69bf4bf06df8b83400af39a0eb1604f8ef4ff3"
+  revision = "b50592ef32513e5a802f0234eaf5f633e43faf01"
   source = "https://github.com/syseleven/machine-controller"
 
 [[projects]]
@@ -2273,6 +2272,7 @@
     "github.com/kubermatic/machine-controller/pkg/providerconfig/types",
     "github.com/kubermatic/machine-controller/pkg/userdata/centos",
     "github.com/kubermatic/machine-controller/pkg/userdata/coreos",
+    "github.com/kubermatic/machine-controller/pkg/userdata/flatcar",
     "github.com/kubermatic/machine-controller/pkg/userdata/helper",
     "github.com/kubermatic/machine-controller/pkg/userdata/plugin",
     "github.com/kubermatic/machine-controller/pkg/userdata/rhel",

@@ -18,7 +18,6 @@ type ListOptsBuilder interface {
 // `asc' or `desc'. Marker and Limit are used for pagination.
 type ListOpts struct {
 	Name            string `q:"name"`
-	Description     string `q:"description"`
 	EnableDHCP      *bool  `q:"enable_dhcp"`
 	NetworkID       string `q:"network_id"`
 	TenantID        string `q:"tenant_id"`
@@ -69,8 +68,7 @@ func List(c *gophercloud.ServiceClient, opts ListOptsBuilder) pagination.Pager {
 
 // Get retrieves a specific subnet based on its unique ID.
 func Get(c *gophercloud.ServiceClient, id string) (r GetResult) {
-	resp, err := c.Get(getURL(c, id), &r.Body, nil)
-	_, r.Header, r.Err = gophercloud.ParseResponse(resp, err)
+	_, r.Err = c.Get(getURL(c, id), &r.Body, nil)
 	return
 }
 
@@ -90,9 +88,6 @@ type CreateOpts struct {
 
 	// Name is a human-readable name of the subnet.
 	Name string `json:"name,omitempty"`
-
-	// Description of the subnet.
-	Description string `json:"description,omitempty"`
 
 	// The UUID of the project who owns the Subnet. Only administrative users
 	// can specify a project UUID other than their own.
@@ -132,10 +127,6 @@ type CreateOpts struct {
 
 	// SubnetPoolID is the id of the subnet pool that subnet should be associated to.
 	SubnetPoolID string `json:"subnetpool_id,omitempty"`
-
-	// Prefixlen is used when user creates a subnet from the subnetpool. It will
-	// overwrite the "default_prefixlen" value of the referenced subnetpool.
-	Prefixlen int `json:"prefixlen,omitempty"`
 }
 
 // ToSubnetCreateMap builds a request body from CreateOpts.
@@ -161,8 +152,7 @@ func Create(c *gophercloud.ServiceClient, opts CreateOptsBuilder) (r CreateResul
 		r.Err = err
 		return
 	}
-	resp, err := c.Post(createURL(c), b, &r.Body, nil)
-	_, r.Header, r.Err = gophercloud.ParseResponse(resp, err)
+	_, r.Err = c.Post(createURL(c), b, &r.Body, nil)
 	return
 }
 
@@ -175,10 +165,7 @@ type UpdateOptsBuilder interface {
 // UpdateOpts represents the attributes used when updating an existing subnet.
 type UpdateOpts struct {
 	// Name is a human-readable name of the subnet.
-	Name *string `json:"name,omitempty"`
-
-	// Description of the subnet.
-	Description *string `json:"description,omitempty"`
+	Name string `json:"name,omitempty"`
 
 	// AllocationPools are IP Address pools that will be available for DHCP.
 	AllocationPools []AllocationPool `json:"allocation_pools,omitempty"`
@@ -190,7 +177,7 @@ type UpdateOpts struct {
 	GatewayIP *string `json:"gateway_ip,omitempty"`
 
 	// DNSNameservers are the nameservers to be set via DHCP.
-	DNSNameservers *[]string `json:"dns_nameservers,omitempty"`
+	DNSNameservers []string `json:"dns_nameservers,omitempty"`
 
 	// HostRoutes are any static host routes to be set via DHCP.
 	HostRoutes *[]HostRoute `json:"host_routes,omitempty"`
@@ -221,16 +208,51 @@ func Update(c *gophercloud.ServiceClient, id string, opts UpdateOptsBuilder) (r 
 		r.Err = err
 		return
 	}
-	resp, err := c.Put(updateURL(c, id), b, &r.Body, &gophercloud.RequestOpts{
+	_, r.Err = c.Put(updateURL(c, id), b, &r.Body, &gophercloud.RequestOpts{
 		OkCodes: []int{200, 201},
 	})
-	_, r.Header, r.Err = gophercloud.ParseResponse(resp, err)
 	return
 }
 
 // Delete accepts a unique ID and deletes the subnet associated with it.
 func Delete(c *gophercloud.ServiceClient, id string) (r DeleteResult) {
-	resp, err := c.Delete(deleteURL(c, id), nil)
-	_, r.Header, r.Err = gophercloud.ParseResponse(resp, err)
+	_, r.Err = c.Delete(deleteURL(c, id), nil)
 	return
+}
+
+// IDFromName is a convenience function that returns a subnet's ID,
+// given its name.
+func IDFromName(client *gophercloud.ServiceClient, name string) (string, error) {
+	count := 0
+	id := ""
+
+	listOpts := ListOpts{
+		Name: name,
+	}
+
+	pages, err := List(client, listOpts).AllPages()
+	if err != nil {
+		return "", err
+	}
+
+	all, err := ExtractSubnets(pages)
+	if err != nil {
+		return "", err
+	}
+
+	for _, s := range all {
+		if s.Name == name {
+			count++
+			id = s.ID
+		}
+	}
+
+	switch count {
+	case 0:
+		return "", gophercloud.ErrResourceNotFound{Name: name, ResourceType: "subnet"}
+	case 1:
+		return id, nil
+	default:
+		return "", gophercloud.ErrMultipleResourcesFound{Name: name, Count: count, ResourceType: "subnet"}
+	}
 }

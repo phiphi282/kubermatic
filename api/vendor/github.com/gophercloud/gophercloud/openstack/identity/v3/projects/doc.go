@@ -26,8 +26,7 @@ Example to Create a Project
 
 	createOpts := projects.CreateOpts{
 		Name:        "project_name",
-		Description: "Project Description",
-		Tags:        []string{"FirstTag", "SecondTag"},
+		Description: "Project Description"
 	}
 
 	project, err := projects.Create(identityClient, createOpts).Extract()
@@ -44,15 +43,6 @@ Example to Update a Project
 	}
 
 	project, err := projects.Update(identityClient, projectID, updateOpts).Extract()
-	if err != nil {
-		panic(err)
-	}
-
-	updateOpts = projects.UpdateOpts{
-		Tags: &[]string{"FirstTag"},
-	}
-
-	project, err = projects.Update(identityClient, projectID, updateOpts).Extract()
 	if err != nil {
 		panic(err)
 	}

@@ -11,7 +11,7 @@
   "swagger": "2.0",
   "info": {
     "description": "This describes possible operations which can be made against the MetaKube API.",
-    "title": "MetaKube API",
+    "title": "MetaKube API.",
     "termsOfService": "https://www.syseleven.de/agb-sla-metakube",
     "version": "2.11"
   },
@@ -10120,6 +10120,18 @@
       },
       "x-go-package": "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
     },
+    "FlatcarSpec": {
+      "description": "FlatcarSpec contains Flatcar Linux specific settings",
+      "type": "object",
+      "properties": {
+        "disableAutoUpdate": {
+          "description": "disable flatcar linux auto-update feature",
+          "type": "boolean",
+          "x-go-name": "DisableAutoUpdate"
+        }
+      },
+      "x-go-package": "github.com/kubermatic/kubermatic/api/pkg/api/v1"
+    },
     "GCPCloudSpec": {
       "type": "object",
       "title": "GCPCloudSpec specifies access data to GCP.",
@@ -11771,6 +11783,9 @@
         },
         "containerLinux": {
           "$ref": "#/definitions/ContainerLinuxSpec"
+        },
+        "flatcar": {
+          "$ref": "#/definitions/FlatcarSpec"
         },
         "rhel": {
           "$ref": "#/definitions/RHELSpec"
