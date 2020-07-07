@@ -1,7 +1,13 @@
 package handler
 
 import (
+	"bytes"
 	"context"
+	"encoding/csv"
+	"encoding/json"
+	"strconv"
+	"time"
+
 	"fmt"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -18,6 +24,7 @@ import (
 )
 
 var resourceUsageCollectorAuthToken = os.Getenv("RESOURCE_USAGE_COLLECTOR_AUTH_TOKEN")
+var csvColumns = []string{"time", "cluster_id", "project_id", "seed_cluster_name", "datacenter_name", "cluster_owner", "customer_project", "cpu", "memory", "floating_ips"}
 
 // swagger:route GET /api/v1/projects/{project_id}/dc/{dc}/cluster/{cluster_id}/usage
 //
@@ -25,9 +32,11 @@ var resourceUsageCollectorAuthToken = os.Getenv("RESOURCE_USAGE_COLLECTOR_AUTH_T
 //
 //     Produces:
 //     - application/json
+//     - txt/csv
 //
 //     Responses:
 //       default: errorResponse
+//       200: []UsageDataRecord
 func (r Routing) resourceUsageCollectorProxyHandler() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
@@ -44,10 +53,42 @@ func (r Routing) resourceUsageCollectorProxyHandler() http.Handler {
 // GetResourceUsageCollectorProxyReq represents a request to the ResourceUsageCollector proxy route
 type GetResourceUsageCollectorProxyReq struct {
 	common.GetClusterReq
-	from  string
-	until string
+	from     string
+	until    string
+	fileType string
 }
 
+// metrics collected for each worker node of the cluster
+type NodeRecord struct {
+	ID          string `json:"id"`
+	CPU         int    `json:"cpu"`
+	FloatingIps int    `json:"floating_ips"`
+	Memory      int    `json:"memory"`
+}
+
+// Data structure to respresents the metrics collected as part of
+// each UsageDataRecord for a cluster
+type Metrics struct {
+	Nodes         []NodeRecord     `json:"nodes"`
+	Storage       int              `json:"storage"`
+	Addons        []string         `json:"addons"`
+	Loadbalancers []map[string]int `json:"loadbalancers"`
+}
+
+// UsageDataRecord represents a usage record from resource-usage-collector API
+type UsageDataRecord struct {
+	ID              int     `json:"id"`
+	Time            string  `json:"time"`
+	ClusterID       string  `json:"cluster_id"`
+	ProjectID       string  `json:"project_id"`
+	SeedClusterName string  `json:"seed_cluster_name"`
+	DatacenterName  string  `json:"datacenter_name"`
+	ClusterOwner    string  `json:"cluster_owner"`
+	CustomerProject string  `json:"customer_project"`
+	Metrics         Metrics `json:"metrics"`
+}
+
+// Decodes HTTP request into type GetResourceUsageCollectorProxyReq
 func decodeResourceUsageCollectorProxyReq(c context.Context, r *http.Request) (interface{}, error) {
 	var req GetResourceUsageCollectorProxyReq
 
@@ -65,10 +106,13 @@ func decodeResourceUsageCollectorProxyReq(c context.Context, r *http.Request) (i
 	req.DCReq = dcr.(common.DCReq)
 	req.from = r.URL.Query().Get("from")
 	req.until = r.URL.Query().Get("until")
+	req.fileType = r.URL.Query().Get(("fileType"))
 
 	return req, nil
 }
 
+// gets usage data from resource-usage-collector service and generates RawResponse based on query parameters. This RawResponse is then
+// returned
 func getResourceUsageCollectorProxyEndpoint(seedsGetter provider.SeedsGetter, userInfoGetter provider.UserInfoGetter) endpoint.Endpoint {
 	return func(ctx context.Context, request interface{}) (interface{}, error) {
 		clusterProvider := ctx.Value(middleware.ClusterProviderContextKey).(provider.ClusterProvider)
@@ -126,11 +170,54 @@ func getResourceUsageCollectorProxyEndpoint(seedsGetter provider.SeedsGetter, us
 			resourceUsageCollectorQuery,
 		).(*rest.Request)
 
+		// set context timeout incase the external service is not responding
+		ctx, cancel := context.WithTimeout(ctx, time.Second*5)
+		defer cancel()
+
+		proxyRequest.Context(ctx)
 		proxyRequest.SetHeader("x-auth", resourceUsageCollectorAuthToken)
 		body, err := proxyRequest.DoRaw()
 
 		if err != nil {
 			return nil, err
+		}
+
+		if req.fileType == "json" {
+			filename := fmt.Sprintf("cluster-%s-%s-%s.json", req.ClusterID, req.from, req.until)
+			resp := RawResponse{
+				Header: http.Header{
+					"Content-Type":        []string{"txt/json"},
+					"Content-disposition": []string{fmt.Sprintf("attachment; filename=%s", filename)},
+					"Cache-Control":       []string{"no-cache"},
+				},
+				Body: body,
+			}
+
+			return resp, nil
+		}
+
+		if req.fileType == "csv" {
+			filename := fmt.Sprintf("cluster-%s-%s-%s.csv", req.ClusterID, req.from, req.until)
+			metris := []UsageDataRecord{}
+			err := json.Unmarshal(body, &metris)
+			if err != nil {
+				return nil, err
+			}
+
+			body, err := encodeUsageDataRecordToCSVBytes(metris)
+			if err != nil {
+				return nil, err
+			}
+			resp := RawResponse{
+				Header: http.Header{
+					"Content-Type":        []string{"txt/csv"},
+					"Content-disposition": []string{fmt.Sprintf("attachment; filename=%s", filename)},
+					"Cache-Control":       []string{"no-cache"},
+				},
+				Body: body,
+			}
+
+			return resp, nil
 		}
 
 		resp := RawResponse{
@@ -142,4 +229,44 @@ func getResourceUsageCollectorProxyEndpoint(seedsGetter provider.SeedsGetter, us
 
 		return resp, nil
 	}
+}
+
+// returns csv encoded byte array to be used as response body
+func encodeUsageDataRecordToCSVBytes(records []UsageDataRecord) ([]byte, error) {
+	byteBuffer := &bytes.Buffer{}
+	csvWriter := csv.NewWriter(byteBuffer)
+	err := csvWriter.Write(csvColumns)
+
+	if err != nil {
+		return nil, err
+	}
+	for _, record := range records {
+		var data []string
+		data = append(data, record.Time)
+		data = append(data, record.ClusterID)
+		data = append(data, record.ProjectID)
+		data = append(data, record.SeedClusterName)
+		data = append(data, record.DatacenterName)
+		data = append(data, record.ClusterOwner)
+		data = append(data, record.CustomerProject)
+
+		var cpu, memory, floatingIps int
+		for _, node := range record.Metrics.Nodes {
+			cpu += node.CPU
+			memory += node.Memory
+			floatingIps += node.FloatingIps
+		}
+
+		data = append(data, strconv.Itoa(cpu))
+		data = append(data, strconv.Itoa(memory))
+		data = append(data, strconv.Itoa(floatingIps))
+
+		err := csvWriter.Write(data)
+
+		if err != nil {
+			return nil, err
+		}
+	}
+	csvWriter.Flush()
+	return byteBuffer.Bytes(), nil
 }
