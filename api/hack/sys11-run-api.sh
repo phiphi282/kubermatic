@@ -33,9 +33,9 @@ fi
 
 while true; do
     if [[ "${DEBUG}" == "true" ]]; then
-        GOTOOLFLAGS="-v -gcflags='all=-N -l'" make -C ${SRC_DIR} kubermatic-api
+        GOTOOLFLAGS="-v -gcflags='all=-N -l'" make -C ${SRC_DIR} KUBERMATIC_EDITION=ee kubermatic-api
     else
-        make -C ${SRC_DIR} kubermatic-api
+        make -C ${SRC_DIR} KUBERMATIC_EDITION=ee kubermatic-api
     fi
 
     # Please make sure to set -feature-gates=PrometheusEndpoint=true if you want to use that endpoint.
