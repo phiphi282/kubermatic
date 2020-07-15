@@ -45,7 +45,7 @@ func MustRegisterAddonCollector(registry prometheus.Registerer, client ctrlrunti
 		addonCreated: prometheus.NewDesc(
 			addonPrefix+"created",
 			"Unix creation timestamp",
-			[]string{"cluster", "addon"},
+			[]string{"cluster", "addon", "resourcesCreated"},
 			nil,
 		),
 		addonDeleted: prometheus.NewDesc(
@@ -83,10 +83,17 @@ func (cc AddonCollector) Collect(ch chan<- prometheus.Metric) {
 func (cc *AddonCollector) collectAddon(ch chan<- prometheus.Metric, addon *kubermaticv1.Addon) {
 	if len(addon.OwnerReferences) < 1 || addon.OwnerReferences[0].Kind != kubermaticv1.ClusterKindName {
 		utilruntime.HandleError(fmt.Errorf("No owning cluster for addon %v/%v", addon.Namespace, addon.Name))
-		return
 	}
 
 	clusterName := addon.OwnerReferences[0].Name
+
+	resourcesCreated := "0"
+
+	for _, cond := range addon.Status.Conditions {
+		if cond.Type == kubermaticv1.AddonResourcesCreated {
+			resourcesCreated = "1"
+		}
+	}
 
 	ch <- prometheus.MustNewConstMetric(
 		cc.addonCreated,
@@ -94,6 +101,7 @@ func (cc *AddonCollector) collectAddon(ch chan<- prometheus.Metric, addon *kuber
 		float64(addon.CreationTimestamp.Unix()),
 		clusterName,
 		addon.Name,
+		resourcesCreated,
 	)
 
 	if addon.DeletionTimestamp != nil {
