@@ -943,6 +943,54 @@ items:
     name: logrotate
     labels:
       addons.kubermatic.io/ensure: true
+- apiVersion: kubermatic.k8s.io/v1
+  kind: Addon
+  metadata:
+    name: limit-range
+    labels:
+      addons.kubermatic.io/ensure: true
+- apiVersion: kubermatic.k8s.io/v1
+  kind: Addon
+  metadata:
+    name: metakube-autoscaler
+    labels:
+      addons.kubermatic.io/ensure: true
+- apiVersion: kubermatic.k8s.io/v1
+  kind: Addon
+  metadata:
+    name: metakube-general
+    labels:
+      addons.kubermatic.io/ensure: true
+- apiVersion: kubermatic.k8s.io/v1
+  kind: Addon
+  metadata:
+    name: metakube-helm
+    labels:
+      addons.kubermatic.io/ensure: true
+- apiVersion: kubermatic.k8s.io/v1
+  kind: Addon
+  metadata:
+    name: metakube-node-exporter
+    labels:
+      addons.kubermatic.io/ensure: true
+- apiVersion: kubermatic.k8s.io/v1
+  kind: Addon
+  metadata:
+    name: metakube-pod-security-policy
+    labels:
+      addons.kubermatic.io/ensure: true
+- apiVersion: kubermatic.k8s.io/v1
+  kind: Addon
+  metadata:
+    name: storage-class
+    labels:
+      addons.kubermatic.io/ensure: true
+- apiVersion: kubermatic.k8s.io/v1
+  kind: Addon
+  metadata:
+    name: metakube-node-problem-detector
+    labels:
+      addons.kubermatic.io/ensure: true
 `
 
 const DefaultOpenshiftAddons = `
