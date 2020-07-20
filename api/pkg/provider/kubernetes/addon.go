@@ -103,7 +103,7 @@ func genAddon(cluster *kubermaticv1.Cluster, addonName string, variables *runtim
 			Name:            addonName,
 			Namespace:       cluster.Status.NamespaceName,
 			OwnerReferences: []metav1.OwnerReference{*metav1.NewControllerRef(cluster, gv.WithKind("Cluster"))},
-			Labels:          map[string]string{},
+			Labels:          map[string]string{"addons.kubermatic.io/ensure": "true"},
 		},
 		Spec: kubermaticv1.AddonSpec{
 			Name: addonName,
