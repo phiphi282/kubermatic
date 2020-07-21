@@ -171,7 +171,7 @@ func getResourceUsageCollectorProxyEndpoint(seedsGetter provider.SeedsGetter, us
 		).(*rest.Request)
 
 		// set context timeout incase the external service is not responding
-		ctx, cancel := context.WithTimeout(ctx, time.Second*20)
+		ctx, cancel := context.WithTimeout(ctx, time.Second*100)
 		defer cancel()
 
 		proxyRequest.Context(ctx)
