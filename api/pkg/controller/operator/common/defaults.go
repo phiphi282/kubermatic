@@ -46,8 +46,8 @@ const (
 	DefaultIngressClass                           = "nginx"
 	DefaultAPIReplicas                            = 2
 	DefaultUIReplicas                             = 2
-	DefaultSeedControllerMgrReplicas              = 2
-	DefaultMasterControllerMgrReplicas            = 2
+	DefaultSeedControllerMgrReplicas              = 1
+	DefaultMasterControllerMgrReplicas            = 1
 	DefaultAPIServerReplicas                      = 2
 	DefaultExposeStrategy                         = operatorv1alpha1.NodePortStrategy
 	DefaultVPARecommenderDockerRepository         = "gcr.io/google_containers/vpa-recommender"
@@ -185,7 +185,7 @@ var (
 	}
 
 	DefaultKubernetesVersioning = operatorv1alpha1.KubermaticVersioningConfiguration{
-		Default: semver.MustParse("v1.17.5"),
+		Default: semver.MustParse("v1.17.9"),
 		Versions: []*semver.Version{
 			// Kubernetes 1.15
 			semver.MustParse("v1.15.5"),
@@ -195,19 +195,11 @@ var (
 			semver.MustParse("v1.15.10"),
 			semver.MustParse("v1.15.11"),
 			// Kubernetes 1.16
-			semver.MustParse("v1.16.2"),
-			semver.MustParse("v1.16.3"),
-			semver.MustParse("v1.16.4"),
-			semver.MustParse("v1.16.6"),
-			semver.MustParse("v1.16.7"),
-			semver.MustParse("v1.16.9"),
+			semver.MustParse("v1.16.13"),
 			// Kubernetes 1.17
-			semver.MustParse("v1.17.0"),
-			semver.MustParse("v1.17.2"),
-			semver.MustParse("v1.17.3"),
-			semver.MustParse("v1.17.5"),
+			semver.MustParse("v1.17.9"),
 			// Kubernetes 1.18
-			semver.MustParse("v1.18.2"),
+			semver.MustParse("v1.18.6"),
 		},
 		Updates: []operatorv1alpha1.Update{
 			// ======= 1.14 =======
@@ -259,15 +251,9 @@ var (
 				To:   "1.16.*",
 			},
 			{
-				// CVE-2019-11253
-				From:      "<= 1.16.1, >= 1.16.0",
-				To:        "1.16.2",
-				Automatic: pointer.BoolPtr(true),
-			},
-			{
-				// Released with broken Anago
-				From:      "1.16.5",
-				To:        "1.16.6",
+				// CVE-2019-11253, CVE-2020-8559
+				From:      "<= 1.16.12, >= 1.16.0",
+				To:        "1.16.13",
 				Automatic: pointer.BoolPtr(true),
 			},
 			{
@@ -283,9 +269,9 @@ var (
 				To:   "1.17.*",
 			},
 			{
-				// Released with broken Anago
-				From:      "1.17.1",
-				To:        "1.17.2",
+				// CVE-2020-8559
+				From:      "<= 1.17.8, >= 1.17.0",
+				To:        "1.17.9",
 				Automatic: pointer.BoolPtr(true),
 			},
 			{
@@ -299,6 +285,14 @@ var (
 				// Allow to change to any patch version
 				From: "1.18.*",
 				To:   "1.18.*",
+			},
+			{
+				// CVE-2020-8559
+				// Releases from 1.18.0 to 1.18.2 also do not work with CentOS7
+				// https://github.com/kubernetes/kubernetes/pull/90678
+				From:      "<= 1.18.5, >= 1.18.0",
+				To:        "1.18.6",
+				Automatic: pointer.BoolPtr(true),
 			},
 		},
 	}

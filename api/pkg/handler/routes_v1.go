@@ -612,6 +612,10 @@ func (r Routing) RegisterV1(mux *mux.Router, metrics common.ServerMetrics) {
 		Path("/me").
 		Handler(r.getCurrentUser())
 
+	mux.Methods(http.MethodPost).
+		Path("/me/logout").
+		Handler(r.logoutCurrentUser())
+
 	mux.Methods(http.MethodGet).
 		Path("/me/settings").
 		Handler(r.getCurrentUserSettings())
@@ -647,7 +651,7 @@ func (r Routing) RegisterV1(mux *mux.Router, metrics common.ServerMetrics) {
 func (r Routing) listSSHKeys() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 		)(ssh.ListEndpoint(r.sshKeyProvider, r.projectProvider, r.privilegedProjectProvider, r.userInfoGetter)),
 		ssh.DecodeListReq,
@@ -668,13 +672,13 @@ func (r Routing) listSSHKeys() http.Handler {
 //
 //     Responses:
 //       default: errorResponse
-//       200: SSHKey
+//       201: SSHKey
 //       401: empty
 //       403: empty
 func (r Routing) createSSHKey() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 		)(ssh.CreateEndpoint(r.sshKeyProvider, r.privilegedSSHKeyProvider, r.projectProvider, r.privilegedProjectProvider, r.userInfoGetter)),
 		ssh.DecodeCreateReq,
@@ -698,7 +702,7 @@ func (r Routing) createSSHKey() http.Handler {
 func (r Routing) deleteSSHKey() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 		)(ssh.DeleteEndpoint(r.sshKeyProvider, r.privilegedSSHKeyProvider, r.projectProvider, r.privilegedProjectProvider, r.userInfoGetter)),
 		ssh.DecodeDeleteReq,
@@ -720,7 +724,7 @@ func (r Routing) deleteSSHKey() http.Handler {
 func (r Routing) listCredentials() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 		)(presets.CredentialEndpoint(r.presetsProvider, r.userInfoGetter)),
 		presets.DecodeProviderReq,
@@ -742,7 +746,7 @@ func (r Routing) listCredentials() http.Handler {
 func (r Routing) listAWSSizes() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 		)(provider.AWSSizeEndpoint()),
 		provider.DecodeAWSSizesReq,
@@ -764,7 +768,7 @@ func (r Routing) listAWSSizes() http.Handler {
 func (r Routing) listAWSSubnets() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 		)(provider.AWSSubnetEndpoint(r.presetsProvider, r.seedsGetter, r.userInfoGetter)),
 		provider.DecodeAWSSubnetReq,
@@ -786,7 +790,7 @@ func (r Routing) listAWSSubnets() http.Handler {
 func (r Routing) listAWSVPCS() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 		)(provider.AWSVPCEndpoint(r.presetsProvider, r.seedsGetter, r.userInfoGetter)),
 		provider.DecodeAWSVPCReq,
@@ -808,7 +812,7 @@ func (r Routing) listAWSVPCS() http.Handler {
 func (r Routing) listGCPDiskTypes() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 		)(provider.GCPDiskTypesEndpoint(r.presetsProvider, r.userInfoGetter)),
 		provider.DecodeGCPTypesReq,
@@ -830,7 +834,7 @@ func (r Routing) listGCPDiskTypes() http.Handler {
 func (r Routing) listGCPSizes() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 		)(provider.GCPSizeEndpoint(r.presetsProvider, r.userInfoGetter)),
 		provider.DecodeGCPTypesReq,
@@ -852,7 +856,7 @@ func (r Routing) listGCPSizes() http.Handler {
 func (r Routing) listGCPZones() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 		)(provider.GCPZoneEndpoint(r.presetsProvider, r.seedsGetter, r.userInfoGetter)),
 		provider.DecodeGCPZoneReq,
@@ -874,7 +878,7 @@ func (r Routing) listGCPZones() http.Handler {
 func (r Routing) listGCPNetworks() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 		)(provider.GCPNetworkEndpoint(r.presetsProvider, r.userInfoGetter)),
 		provider.DecodeGCPCommonReq,
@@ -896,7 +900,7 @@ func (r Routing) listGCPNetworks() http.Handler {
 func (r Routing) listGCPSubnetworks() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 		)(provider.GCPSubnetworkEndpoint(r.presetsProvider, r.seedsGetter, r.userInfoGetter)),
 		provider.DecodeGCPSubnetworksReq,
@@ -918,7 +922,7 @@ func (r Routing) listGCPSubnetworks() http.Handler {
 func (r Routing) listDigitaloceanSizes() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 		)(provider.DigitaloceanSizeEndpoint(r.presetsProvider, r.userInfoGetter)),
 		provider.DecodeDoSizesReq,
@@ -940,7 +944,7 @@ func (r Routing) listDigitaloceanSizes() http.Handler {
 func (r Routing) listAzureSizes() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 		)(provider.AzureSizeEndpoint(r.presetsProvider, r.userInfoGetter)),
 		provider.DecodeAzureSizesReq,
@@ -962,7 +966,7 @@ func (r Routing) listAzureSizes() http.Handler {
 func (r Routing) listAzureSKUAvailabilityZones() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 		)(provider.AzureAvailabilityZonesEndpoint(r.presetsProvider, r.userInfoGetter)),
 		provider.DecodeAzureAvailabilityZonesReq,
@@ -984,7 +988,7 @@ func (r Routing) listAzureSKUAvailabilityZones() http.Handler {
 func (r Routing) listOpenstackSizes() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 		)(provider.OpenstackSizeEndpoint(r.seedsGetter, r.presetsProvider, r.userInfoGetter)),
 		provider.DecodeOpenstackReq,
@@ -1006,7 +1010,7 @@ func (r Routing) listOpenstackSizes() http.Handler {
 func (r Routing) listVSphereNetworks() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 		)(provider.VsphereNetworksEndpoint(r.seedsGetter, r.presetsProvider, r.userInfoGetter)),
 		provider.DecodeVSphereNetworksReq,
@@ -1028,7 +1032,7 @@ func (r Routing) listVSphereNetworks() http.Handler {
 func (r Routing) listVSphereFolders() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 		)(provider.VsphereFoldersEndpoint(r.seedsGetter, r.presetsProvider, r.userInfoGetter)),
 		provider.DecodeVSphereFoldersReq,
@@ -1050,7 +1054,7 @@ func (r Routing) listVSphereFolders() http.Handler {
 func (r Routing) listPacketSizes() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 		)(provider.PacketSizesEndpoint(r.presetsProvider, r.userInfoGetter)),
 		provider.DecodePacketSizesReq,
@@ -1072,7 +1076,7 @@ func (r Routing) listPacketSizes() http.Handler {
 func (r Routing) listPacketSizesNoCredentials() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
 			middleware.SetPrivilegedClusterProvider(r.clusterProviderGetter, r.seedsGetter),
@@ -1096,7 +1100,7 @@ func (r Routing) listPacketSizesNoCredentials() http.Handler {
 func (r Routing) listOpenstackTenants() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 		)(provider.OpenstackTenantEndpoint(r.seedsGetter, r.presetsProvider, r.userInfoGetter)),
 		provider.DecodeOpenstackTenantReq,
@@ -1118,7 +1122,7 @@ func (r Routing) listOpenstackTenants() http.Handler {
 func (r Routing) listOpenstackNetworks() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 		)(provider.OpenstackNetworkEndpoint(r.seedsGetter, r.presetsProvider, r.userInfoGetter)),
 		provider.DecodeOpenstackReq,
@@ -1140,7 +1144,7 @@ func (r Routing) listOpenstackNetworks() http.Handler {
 func (r Routing) listOpenstackSubnets() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 		)(provider.OpenstackSubnetsEndpoint(r.seedsGetter, r.presetsProvider, r.userInfoGetter)),
 		provider.DecodeOpenstackSubnetReq,
@@ -1162,7 +1166,7 @@ func (r Routing) listOpenstackSubnets() http.Handler {
 func (r Routing) listOpenstackSecurityGroups() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 		)(provider.OpenstackSecurityGroupEndpoint(r.seedsGetter, r.presetsProvider, r.userInfoGetter)),
 		provider.DecodeOpenstackReq,
@@ -1184,7 +1188,7 @@ func (r Routing) listOpenstackSecurityGroups() http.Handler {
 func (r Routing) listHetznerSizes() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 		)(provider.HetznerSizeEndpoint(r.presetsProvider, r.userInfoGetter)),
 		provider.DecodeHetznerSizesReq,
@@ -1206,7 +1210,7 @@ func (r Routing) listHetznerSizes() http.Handler {
 func (r Routing) listAlibabaInstanceTypes() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 		)(provider.AlibabaInstanceTypesEndpoint(r.presetsProvider, r.userInfoGetter)),
 		provider.DecodeAlibabaReq,
@@ -1228,7 +1232,7 @@ func (r Routing) listAlibabaInstanceTypes() http.Handler {
 func (r Routing) listAlibabaZones() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 		)(provider.AlibabaZonesEndpoint(r.presetsProvider, r.userInfoGetter)),
 		provider.DecodeAlibabaReq,
@@ -1248,10 +1252,10 @@ func (r Routing) listAlibabaZones() http.Handler {
 func (r Routing) datacentersHandler() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 		)(dc.ListEndpoint(r.seedsGetter, r.userInfoGetter)),
-		dc.DecodeDatacentersReq,
+		decodeEmptyReq,
 		encodeJSON,
 		r.defaultServerOptions()...,
 	)
@@ -1269,7 +1273,7 @@ func (r Routing) datacentersHandler() http.Handler {
 func (r Routing) datacenterHandler() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 		)(dc.GetEndpoint(r.seedsGetter, r.userInfoGetter)),
 		dc.DecodeLegacyDcReq,
@@ -1292,7 +1296,7 @@ func (r Routing) datacenterHandler() http.Handler {
 func (r Routing) getMasterVersions() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 		)(cluster.GetMasterVersionsEndpoint(r.updateManager)),
 		cluster.DecodeClusterTypeReq,
@@ -1314,7 +1318,7 @@ func (r Routing) getMasterVersions() http.Handler {
 func (r Routing) getKubermaticVersion() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 		)(v1.GetKubermaticVersion()),
 		decodeEmptyReq,
@@ -1338,7 +1342,7 @@ func (r Routing) getKubermaticVersion() http.Handler {
 func (r Routing) listProjects() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 		)(project.ListEndpoint(r.userInfoGetter, r.projectProvider, r.privilegedProjectProvider, r.userProjectMapper, r.projectMemberProvider, r.userProvider, r.clusterProviderGetter, r.seedsGetter)),
 		project.DecodeList,
@@ -1362,7 +1366,7 @@ func (r Routing) listProjects() http.Handler {
 func (r Routing) getProject() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 		)(project.GetEndpoint(r.projectProvider, r.privilegedProjectProvider, r.projectMemberProvider, r.userProvider, r.userInfoGetter, r.clusterProviderGetter, r.seedsGetter)),
 		common.DecodeGetProject,
@@ -1391,7 +1395,7 @@ func (r Routing) getProject() http.Handler {
 func (r Routing) createProject() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 		)(project.CreateEndpoint(r.projectProvider)),
 		project.DecodeCreate,
@@ -1417,7 +1421,7 @@ func (r Routing) createProject() http.Handler {
 func (r Routing) updateProject() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 		)(project.UpdateEndpoint(r.projectProvider, r.privilegedProjectProvider, r.projectMemberProvider, r.userProvider, r.userInfoGetter, r.clusterProviderGetter, r.seedsGetter)),
 		project.DecodeUpdateRq,
@@ -1442,7 +1446,7 @@ func (r Routing) updateProject() http.Handler {
 func (r Routing) deleteProject() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 		)(project.DeleteEndpoint(r.projectProvider, r.privilegedProjectProvider, r.userInfoGetter)),
 		project.DecodeDelete,
@@ -1469,12 +1473,12 @@ func (r Routing) deleteProject() http.Handler {
 func (r Routing) createCluster(initNodeDeploymentFailures *prometheus.CounterVec) http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
 			middleware.Keycloak(r.keycloakFacade),
 			middleware.SetPrivilegedClusterProvider(r.clusterProviderGetter, r.seedsGetter),
-		)(cluster.CreateEndpoint(r.sshKeyProvider, r.projectProvider, r.privilegedProjectProvider, r.seedsGetter, initNodeDeploymentFailures, r.eventRecorderProvider, r.presetsProvider, r.exposeStrategy, r.userInfoGetter, r.settingsProvider)),
+		)(cluster.CreateEndpoint(r.sshKeyProvider, r.projectProvider, r.privilegedProjectProvider, r.seedsGetter, initNodeDeploymentFailures, r.eventRecorderProvider, r.presetsProvider, r.exposeStrategy, r.userInfoGetter, r.settingsProvider, r.updateManager)),
 		cluster.DecodeCreateReq,
 		setStatusCreatedHeader(encodeJSON),
 		r.defaultServerOptions()...,
@@ -1496,7 +1500,7 @@ func (r Routing) createCluster(initNodeDeploymentFailures *prometheus.CounterVec
 func (r Routing) listClusters() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
 		)(cluster.ListEndpoint(r.projectProvider, r.privilegedProjectProvider, r.userInfoGetter)),
@@ -1521,7 +1525,7 @@ func (r Routing) listClusters() http.Handler {
 func (r Routing) listClustersForProject() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 		)(cluster.ListAllEndpoint(r.projectProvider, r.privilegedProjectProvider, r.seedsGetter, r.clusterProviderGetter, r.userInfoGetter)),
 		common.DecodeGetProject,
@@ -1545,7 +1549,7 @@ func (r Routing) listClustersForProject() http.Handler {
 func (r Routing) getCluster() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
 			middleware.SetPrivilegedClusterProvider(r.clusterProviderGetter, r.seedsGetter),
@@ -1571,7 +1575,7 @@ func (r Routing) getCluster() http.Handler {
 func (r Routing) patchCluster() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
 			middleware.SetPrivilegedClusterProvider(r.clusterProviderGetter, r.seedsGetter),
@@ -1599,7 +1603,7 @@ func (r Routing) patchCluster() http.Handler {
 func (r Routing) getClusterEvents() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
 			middleware.SetPrivilegedClusterProvider(r.clusterProviderGetter, r.seedsGetter),
@@ -1626,7 +1630,7 @@ func (r Routing) getClusterEvents() http.Handler {
 func (r Routing) getClusterKubeconfig() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
 			middleware.SetPrivilegedClusterProvider(r.clusterProviderGetter, r.seedsGetter),
@@ -1653,7 +1657,7 @@ func (r Routing) getClusterKubeconfig() http.Handler {
 func (r Routing) getOidcClusterKubeconfig() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
 			middleware.SetPrivilegedClusterProvider(r.clusterProviderGetter, r.seedsGetter),
@@ -1681,7 +1685,7 @@ func (r Routing) getOidcClusterKubeconfig() http.Handler {
 func (r Routing) deleteCluster() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
 			middleware.SetPrivilegedClusterProvider(r.clusterProviderGetter, r.seedsGetter),
@@ -1707,7 +1711,7 @@ func (r Routing) deleteCluster() http.Handler {
 func (r Routing) getClusterHealth() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
 			middleware.SetPrivilegedClusterProvider(r.clusterProviderGetter, r.seedsGetter),
@@ -1736,7 +1740,7 @@ func (r Routing) getClusterHealth() http.Handler {
 func (r Routing) assignSSHKeyToCluster() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
 			middleware.SetPrivilegedClusterProvider(r.clusterProviderGetter, r.seedsGetter),
@@ -1766,7 +1770,7 @@ func (r Routing) assignSSHKeyToCluster() http.Handler {
 func (r Routing) listSSHKeysAssignedToCluster() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
 			middleware.SetPrivilegedClusterProvider(r.clusterProviderGetter, r.seedsGetter),
@@ -1795,7 +1799,7 @@ func (r Routing) listSSHKeysAssignedToCluster() http.Handler {
 func (r Routing) detachSSHKeyFromCluster() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
 			middleware.SetPrivilegedClusterProvider(r.clusterProviderGetter, r.seedsGetter),
@@ -1821,7 +1825,7 @@ func (r Routing) detachSSHKeyFromCluster() http.Handler {
 func (r Routing) revokeClusterAdminToken() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
 			middleware.SetPrivilegedClusterProvider(r.clusterProviderGetter, r.seedsGetter),
@@ -1847,7 +1851,7 @@ func (r Routing) revokeClusterAdminToken() http.Handler {
 func (r Routing) revokeClusterViewerToken() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
 			middleware.SetPrivilegedClusterProvider(r.clusterProviderGetter, r.seedsGetter),
@@ -1873,7 +1877,7 @@ func (r Routing) revokeClusterViewerToken() http.Handler {
 func (r Routing) getClusterUpgrades() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
 			middleware.SetPrivilegedClusterProvider(r.clusterProviderGetter, r.seedsGetter),
@@ -1899,7 +1903,7 @@ func (r Routing) getClusterUpgrades() http.Handler {
 func (r Routing) getNodeUpgrades() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 		)(cluster.GetNodeUpgrades(r.updateManager)),
 		cluster.DecodeNodeUpgradesReq,
@@ -1923,7 +1927,7 @@ func (r Routing) getNodeUpgrades() http.Handler {
 func (r Routing) upgradeClusterNodeDeployments() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
 			middleware.SetPrivilegedClusterProvider(r.clusterProviderGetter, r.seedsGetter),
@@ -1952,7 +1956,7 @@ func (r Routing) upgradeClusterNodeDeployments() http.Handler {
 func (r Routing) addUserToProject() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 		)(user.AddEndpoint(r.projectProvider, r.privilegedProjectProvider, r.userProvider, r.projectMemberProvider, r.privilegedProjectMemberProvider, r.userInfoGetter)),
 		user.DecodeAddReq,
@@ -1979,7 +1983,7 @@ func (r Routing) addUserToProject() http.Handler {
 func (r Routing) getUsersForProject() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 		)(user.ListEndpoint(r.projectProvider, r.privilegedProjectProvider, r.userProvider, r.projectMemberProvider, r.userInfoGetter)),
 		common.DecodeGetProject,
@@ -2006,7 +2010,7 @@ func (r Routing) getUsersForProject() http.Handler {
 func (r Routing) editUserInProject() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 		)(user.EditEndpoint(r.projectProvider, r.privilegedProjectProvider, r.userProvider, r.projectMemberProvider, r.privilegedProjectMemberProvider, r.userInfoGetter)),
 		user.DecodeEditReq,
@@ -2033,7 +2037,7 @@ func (r Routing) editUserInProject() http.Handler {
 func (r Routing) deleteUserFromProject() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 		)(user.DeleteEndpoint(r.projectProvider, r.privilegedProjectProvider, r.userProvider, r.projectMemberProvider, r.privilegedProjectMemberProvider, r.userInfoGetter)),
 		user.DecodeDeleteReq,
@@ -2056,9 +2060,33 @@ func (r Routing) deleteUserFromProject() http.Handler {
 func (r Routing) getCurrentUser() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 		)(user.GetEndpoint(r.userProjectMapper)),
+		decodeEmptyReq,
+		encodeJSON,
+		r.defaultServerOptions()...,
+	)
+}
+
+// swagger:route POST /api/v1/me/logout users logoutCurrentUser
+//
+//     Adds current authorization bearer token to the blacklist.
+//     Enforces user to login again with the new token.
+//
+//     Produces:
+//     - application/json
+//
+//     Responses:
+//       default: errorResponse
+//       200: empty
+//       401: empty
+func (r Routing) logoutCurrentUser() http.Handler {
+	return httptransport.NewServer(
+		endpoint.Chain(
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
+			middleware.UserSaver(r.userProvider),
+		)(user.LogoutEndpoint(r.userProvider)),
 		decodeEmptyReq,
 		encodeJSON,
 		r.defaultServerOptions()...,
@@ -2079,7 +2107,7 @@ func (r Routing) getCurrentUser() http.Handler {
 func (r Routing) getCurrentUserSettings() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 		)(user.GetSettingsEndpoint(r.userProjectMapper)),
 		decodeEmptyReq,
@@ -2105,7 +2133,7 @@ func (r Routing) getCurrentUserSettings() http.Handler {
 func (r Routing) patchCurrentUserSettings() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 		)(user.PatchSettingsEndpoint(r.userProvider)),
 		user.DecodePatchSettingsReq,
@@ -2132,7 +2160,7 @@ func (r Routing) patchCurrentUserSettings() http.Handler {
 func (r Routing) addServiceAccountToProject() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 		)(serviceaccount.CreateEndpoint(r.projectProvider, r.privilegedProjectProvider, r.serviceAccountProvider, r.privilegedServiceAccountProvider, r.userInfoGetter)),
 		serviceaccount.DecodeAddReq,
@@ -2156,7 +2184,7 @@ func (r Routing) addServiceAccountToProject() http.Handler {
 func (r Routing) listServiceAccounts() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 		)(serviceaccount.ListEndpoint(r.projectProvider, r.privilegedProjectProvider, r.serviceAccountProvider, r.privilegedServiceAccountProvider, r.userProjectMapper, r.userInfoGetter)),
 		common.DecodeGetProject,
@@ -2183,7 +2211,7 @@ func (r Routing) listServiceAccounts() http.Handler {
 func (r Routing) updateServiceAccount() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 		)(serviceaccount.UpdateEndpoint(r.projectProvider, r.privilegedProjectProvider, r.serviceAccountProvider, r.privilegedServiceAccountProvider, r.userProjectMapper, r.userInfoGetter)),
 		serviceaccount.DecodeUpdateReq,
@@ -2208,7 +2236,7 @@ func (r Routing) updateServiceAccount() http.Handler {
 func (r Routing) deleteServiceAccount() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 		)(serviceaccount.DeleteEndpoint(r.serviceAccountProvider, r.privilegedServiceAccountProvider, r.projectProvider, r.privilegedProjectProvider, r.userInfoGetter)),
 		serviceaccount.DecodeDeleteReq,
@@ -2235,7 +2263,7 @@ func (r Routing) deleteServiceAccount() http.Handler {
 func (r Routing) addTokenToServiceAccount() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 		)(serviceaccount.CreateTokenEndpoint(r.projectProvider, r.privilegedProjectProvider, r.serviceAccountProvider, r.privilegedServiceAccountProvider, r.serviceAccountTokenProvider, r.privilegedServiceAccountTokenProvider, r.saTokenAuthenticator, r.saTokenGenerator, r.userInfoGetter)),
 		serviceaccount.DecodeAddTokenReq,
@@ -2259,7 +2287,7 @@ func (r Routing) addTokenToServiceAccount() http.Handler {
 func (r Routing) listServiceAccountTokens() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 		)(serviceaccount.ListTokenEndpoint(r.projectProvider, r.privilegedProjectProvider, r.serviceAccountProvider, r.privilegedServiceAccountProvider, r.serviceAccountTokenProvider, r.privilegedServiceAccountTokenProvider, r.saTokenAuthenticator, r.userInfoGetter)),
 		serviceaccount.DecodeTokenReq,
@@ -2286,7 +2314,7 @@ func (r Routing) listServiceAccountTokens() http.Handler {
 func (r Routing) updateServiceAccountToken() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 		)(serviceaccount.UpdateTokenEndpoint(r.projectProvider, r.privilegedProjectProvider, r.serviceAccountProvider, r.privilegedServiceAccountProvider, r.serviceAccountTokenProvider, r.privilegedServiceAccountTokenProvider, r.saTokenAuthenticator, r.saTokenGenerator, r.userInfoGetter)),
 		serviceaccount.DecodeUpdateTokenReq,
@@ -2313,7 +2341,7 @@ func (r Routing) updateServiceAccountToken() http.Handler {
 func (r Routing) patchServiceAccountToken() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 		)(serviceaccount.PatchTokenEndpoint(r.projectProvider, r.privilegedProjectProvider, r.serviceAccountProvider, r.privilegedServiceAccountProvider, r.serviceAccountTokenProvider, r.privilegedServiceAccountTokenProvider, r.saTokenAuthenticator, r.saTokenGenerator, r.userInfoGetter)),
 		serviceaccount.DecodePatchTokenReq,
@@ -2337,7 +2365,7 @@ func (r Routing) patchServiceAccountToken() http.Handler {
 func (r Routing) deleteServiceAccountToken() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 		)(serviceaccount.DeleteTokenEndpoint(r.projectProvider, r.privilegedProjectProvider, r.serviceAccountProvider, r.privilegedServiceAccountProvider, r.serviceAccountTokenProvider, r.privilegedServiceAccountTokenProvider, r.userInfoGetter)),
 		serviceaccount.DecodeDeleteTokenReq,
@@ -2359,7 +2387,7 @@ func (r Routing) deleteServiceAccountToken() http.Handler {
 func (r Routing) listAWSSizesNoCredentials() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
 			middleware.SetPrivilegedClusterProvider(r.clusterProviderGetter, r.seedsGetter),
@@ -2383,7 +2411,7 @@ func (r Routing) listAWSSizesNoCredentials() http.Handler {
 func (r Routing) listAWSSubnetsNoCredentials() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
 			middleware.SetPrivilegedClusterProvider(r.clusterProviderGetter, r.seedsGetter),
@@ -2407,7 +2435,7 @@ func (r Routing) listAWSSubnetsNoCredentials() http.Handler {
 func (r Routing) listGCPSizesNoCredentials() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
 			middleware.SetPrivilegedClusterProvider(r.clusterProviderGetter, r.seedsGetter),
@@ -2431,7 +2459,7 @@ func (r Routing) listGCPSizesNoCredentials() http.Handler {
 func (r Routing) listGCPDiskTypesNoCredentials() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
 			middleware.SetPrivilegedClusterProvider(r.clusterProviderGetter, r.seedsGetter),
@@ -2455,7 +2483,7 @@ func (r Routing) listGCPDiskTypesNoCredentials() http.Handler {
 func (r Routing) listGCPZonesNoCredentials() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
 			middleware.SetPrivilegedClusterProvider(r.clusterProviderGetter, r.seedsGetter),
@@ -2479,7 +2507,7 @@ func (r Routing) listGCPZonesNoCredentials() http.Handler {
 func (r Routing) listGCPNetworksNoCredentials() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
 			middleware.SetPrivilegedClusterProvider(r.clusterProviderGetter, r.seedsGetter),
@@ -2503,7 +2531,7 @@ func (r Routing) listGCPNetworksNoCredentials() http.Handler {
 func (r Routing) listGCPSubnetworksNoCredentials() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
 			middleware.SetPrivilegedClusterProvider(r.clusterProviderGetter, r.seedsGetter),
@@ -2527,7 +2555,7 @@ func (r Routing) listGCPSubnetworksNoCredentials() http.Handler {
 func (r Routing) listHetznerSizesNoCredentials() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
 			middleware.SetPrivilegedClusterProvider(r.clusterProviderGetter, r.seedsGetter),
@@ -2551,7 +2579,7 @@ func (r Routing) listHetznerSizesNoCredentials() http.Handler {
 func (r Routing) listDigitaloceanSizesNoCredentials() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
 			middleware.SetPrivilegedClusterProvider(r.clusterProviderGetter, r.seedsGetter),
@@ -2575,7 +2603,7 @@ func (r Routing) listDigitaloceanSizesNoCredentials() http.Handler {
 func (r Routing) listAzureSizesNoCredentials() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
 			middleware.SetPrivilegedClusterProvider(r.clusterProviderGetter, r.seedsGetter),
@@ -2599,7 +2627,7 @@ func (r Routing) listAzureSizesNoCredentials() http.Handler {
 func (r Routing) listAzureAvailabilityZonesNoCredentials() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
 			middleware.SetPrivilegedClusterProvider(r.clusterProviderGetter, r.seedsGetter),
@@ -2623,7 +2651,7 @@ func (r Routing) listAzureAvailabilityZonesNoCredentials() http.Handler {
 func (r Routing) listOpenstackSizesNoCredentials() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
 			middleware.SetPrivilegedClusterProvider(r.clusterProviderGetter, r.seedsGetter),
@@ -2647,7 +2675,7 @@ func (r Routing) listOpenstackSizesNoCredentials() http.Handler {
 func (r Routing) listOpenstackTenantsNoCredentials() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
 			middleware.SetPrivilegedClusterProvider(r.clusterProviderGetter, r.seedsGetter),
@@ -2671,7 +2699,7 @@ func (r Routing) listOpenstackTenantsNoCredentials() http.Handler {
 func (r Routing) listOpenstackNetworksNoCredentials() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
 			middleware.SetPrivilegedClusterProvider(r.clusterProviderGetter, r.seedsGetter),
@@ -2695,7 +2723,7 @@ func (r Routing) listOpenstackNetworksNoCredentials() http.Handler {
 func (r Routing) listOpenstackSecurityGroupsNoCredentials() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
 			middleware.SetPrivilegedClusterProvider(r.clusterProviderGetter, r.seedsGetter),
@@ -2719,7 +2747,7 @@ func (r Routing) listOpenstackSecurityGroupsNoCredentials() http.Handler {
 func (r Routing) listOpenstackSubnetsNoCredentials() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
 			middleware.SetPrivilegedClusterProvider(r.clusterProviderGetter, r.seedsGetter),
@@ -2743,7 +2771,7 @@ func (r Routing) listOpenstackSubnetsNoCredentials() http.Handler {
 func (r Routing) listVSphereNetworksNoCredentials() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
 			middleware.SetPrivilegedClusterProvider(r.clusterProviderGetter, r.seedsGetter),
@@ -2767,7 +2795,7 @@ func (r Routing) listVSphereNetworksNoCredentials() http.Handler {
 func (r Routing) listVSphereFoldersNoCredentials() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
 			middleware.SetPrivilegedClusterProvider(r.clusterProviderGetter, r.seedsGetter),
@@ -2791,7 +2819,7 @@ func (r Routing) listVSphereFoldersNoCredentials() http.Handler {
 func (r Routing) listAlibabaInstanceTypesNoCredentials() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
 			middleware.SetPrivilegedClusterProvider(r.clusterProviderGetter, r.seedsGetter),
@@ -2815,7 +2843,7 @@ func (r Routing) listAlibabaInstanceTypesNoCredentials() http.Handler {
 func (r Routing) listAlibabaZonesNoCredentials() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
 			middleware.SetPrivilegedClusterProvider(r.clusterProviderGetter, r.seedsGetter),
@@ -2844,7 +2872,7 @@ func (r Routing) listAlibabaZonesNoCredentials() http.Handler {
 func (r Routing) createNodeDeployment() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
 			middleware.SetPrivilegedClusterProvider(r.clusterProviderGetter, r.seedsGetter),
@@ -2870,7 +2898,7 @@ func (r Routing) createNodeDeployment() http.Handler {
 func (r Routing) listNodeDeployments() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
 			middleware.SetPrivilegedClusterProvider(r.clusterProviderGetter, r.seedsGetter),
@@ -2896,7 +2924,7 @@ func (r Routing) listNodeDeployments() http.Handler {
 func (r Routing) getNodeDeployment() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
 			middleware.SetPrivilegedClusterProvider(r.clusterProviderGetter, r.seedsGetter),
@@ -2922,7 +2950,7 @@ func (r Routing) getNodeDeployment() http.Handler {
 func (r Routing) listNodeDeploymentNodes() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
 			middleware.SetPrivilegedClusterProvider(r.clusterProviderGetter, r.seedsGetter),
@@ -2948,7 +2976,7 @@ func (r Routing) listNodeDeploymentNodes() http.Handler {
 func (r Routing) listNodeDeploymentMetrics() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
 			middleware.SetPrivilegedClusterProvider(r.clusterProviderGetter, r.seedsGetter),
@@ -2975,7 +3003,7 @@ func (r Routing) listNodeDeploymentMetrics() http.Handler {
 func (r Routing) listNodeDeploymentNodesEvents() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
 			middleware.SetPrivilegedClusterProvider(r.clusterProviderGetter, r.seedsGetter),
@@ -3005,7 +3033,7 @@ func (r Routing) listNodeDeploymentNodesEvents() http.Handler {
 func (r Routing) patchNodeDeployment() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
 			middleware.SetPrivilegedClusterProvider(r.clusterProviderGetter, r.seedsGetter),
@@ -3031,7 +3059,7 @@ func (r Routing) patchNodeDeployment() http.Handler {
 func (r Routing) deleteNodeDeployment() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
 			middleware.SetPrivilegedClusterProvider(r.clusterProviderGetter, r.seedsGetter),
@@ -3060,7 +3088,7 @@ func (r Routing) deleteNodeDeployment() http.Handler {
 func (r Routing) listAccessibleAddons() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 		)(addon.ListAccessibleAddons(r.accessibleAddons)),
 		decodeEmptyReq,
@@ -3084,7 +3112,7 @@ func (r Routing) listAccessibleAddons() http.Handler {
 func (r Routing) listInstallableAddons() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
 			middleware.SetPrivilegedClusterProvider(r.clusterProviderGetter, r.seedsGetter),
@@ -3115,7 +3143,7 @@ func (r Routing) listInstallableAddons() http.Handler {
 func (r Routing) createAddon() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
 			middleware.SetPrivilegedClusterProvider(r.clusterProviderGetter, r.seedsGetter),
@@ -3143,7 +3171,7 @@ func (r Routing) createAddon() http.Handler {
 func (r Routing) listAddons() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
 			middleware.SetPrivilegedClusterProvider(r.clusterProviderGetter, r.seedsGetter),
@@ -3171,7 +3199,7 @@ func (r Routing) listAddons() http.Handler {
 func (r Routing) getAddon() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
 			middleware.SetPrivilegedClusterProvider(r.clusterProviderGetter, r.seedsGetter),
@@ -3202,7 +3230,7 @@ func (r Routing) getAddon() http.Handler {
 func (r Routing) patchAddon() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
 			middleware.SetPrivilegedClusterProvider(r.clusterProviderGetter, r.seedsGetter),
@@ -3230,7 +3258,7 @@ func (r Routing) patchAddon() http.Handler {
 func (r Routing) deleteAddon() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
 			middleware.SetPrivilegedClusterProvider(r.clusterProviderGetter, r.seedsGetter),
@@ -3258,7 +3286,7 @@ func (r Routing) deleteAddon() http.Handler {
 func (r Routing) getClusterMetrics() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
 			middleware.SetPrivilegedClusterProvider(r.clusterProviderGetter, r.seedsGetter),
@@ -3287,7 +3315,7 @@ func (r Routing) getClusterMetrics() http.Handler {
 func (r Routing) createClusterRole() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
 		)(cluster.CreateClusterRoleEndpoint(r.userInfoGetter)),
@@ -3320,7 +3348,7 @@ func (r Routing) openshiftConsoleLogin() http.Handler {
 		r.privilegedProjectProvider,
 		r.userInfoGetter,
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 			// TODO: Instead of using an admin client to talk to the seed, we should provide a seed
 			// client that allows access to the cluster namespace only
@@ -3345,7 +3373,7 @@ func (r Routing) openshiftConsoleProxy() http.Handler {
 		r.privilegedProjectProvider,
 		r.userInfoGetter,
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 			// TODO: Instead of using an admin client to talk to the seed, we should provide a seed
 			// client that allows access to the cluster namespace only
@@ -3371,7 +3399,7 @@ func (r Routing) kubernetesDashboardProxy() http.Handler {
 		r.userInfoGetter,
 		r.settingsProvider,
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 			// TODO: Instead of using an admin client to talk to the seed, we should provide a seed
 			// client that allows access to the cluster namespace only
@@ -3398,7 +3426,7 @@ func (r Routing) kubernetesDashboardProxy() http.Handler {
 func (r Routing) createRole() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
 		)(cluster.CreateRoleEndpoint(r.userInfoGetter)),
@@ -3423,7 +3451,7 @@ func (r Routing) createRole() http.Handler {
 func (r Routing) listClusterRole() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
 		)(cluster.ListClusterRoleEndpoint(r.userInfoGetter)),
@@ -3448,7 +3476,7 @@ func (r Routing) listClusterRole() http.Handler {
 func (r Routing) listClusterRoleNames() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
 		)(cluster.ListClusterRoleNamesEndpoint(r.userInfoGetter)),
@@ -3473,7 +3501,7 @@ func (r Routing) listClusterRoleNames() http.Handler {
 func (r Routing) listRole() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
 		)(cluster.ListRoleEndpoint(r.userInfoGetter)),
@@ -3498,7 +3526,7 @@ func (r Routing) listRole() http.Handler {
 func (r Routing) listRoleNames() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
 		)(cluster.ListRoleNamesEndpoint(r.userInfoGetter)),
@@ -3523,7 +3551,7 @@ func (r Routing) listRoleNames() http.Handler {
 func (r Routing) getClusterRole() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
 		)(cluster.GetClusterRoleEndpoint(r.userInfoGetter)),
@@ -3548,7 +3576,7 @@ func (r Routing) getClusterRole() http.Handler {
 func (r Routing) getRole() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
 		)(cluster.GetRoleEndpoint(r.userInfoGetter)),
@@ -3573,7 +3601,7 @@ func (r Routing) getRole() http.Handler {
 func (r Routing) deleteClusterRole() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
 		)(cluster.DeleteClusterRoleEndpoint(r.userInfoGetter)),
@@ -3598,7 +3626,7 @@ func (r Routing) deleteClusterRole() http.Handler {
 func (r Routing) deleteRole() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
 		)(cluster.DeleteRoleEndpoint(r.userInfoGetter)),
@@ -3623,7 +3651,7 @@ func (r Routing) deleteRole() http.Handler {
 func (r Routing) listNamespace() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
 			middleware.SetPrivilegedClusterProvider(r.clusterProviderGetter, r.seedsGetter),
@@ -3649,7 +3677,7 @@ func (r Routing) listNamespace() http.Handler {
 func (r Routing) patchRole() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
 		)(cluster.PatchRoleEndpoint(r.userInfoGetter)),
@@ -3674,7 +3702,7 @@ func (r Routing) patchRole() http.Handler {
 func (r Routing) patchClusterRole() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
 		)(cluster.PatchClusterRoleEndpoint(r.userInfoGetter)),
@@ -3702,7 +3730,7 @@ func (r Routing) patchClusterRole() http.Handler {
 func (r Routing) bindUserToRole() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
 			middleware.SetPrivilegedClusterProvider(r.clusterProviderGetter, r.seedsGetter),
@@ -3731,7 +3759,7 @@ func (r Routing) bindUserToRole() http.Handler {
 func (r Routing) unbindUserFromRoleBinding() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
 			middleware.SetPrivilegedClusterProvider(r.clusterProviderGetter, r.seedsGetter),
@@ -3758,7 +3786,7 @@ func (r Routing) unbindUserFromRoleBinding() http.Handler {
 func (r Routing) listRoleBinding() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
 			middleware.SetPrivilegedClusterProvider(r.clusterProviderGetter, r.seedsGetter),
@@ -3787,7 +3815,7 @@ func (r Routing) listRoleBinding() http.Handler {
 func (r Routing) bindUserToClusterRole() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
 			middleware.SetPrivilegedClusterProvider(r.clusterProviderGetter, r.seedsGetter),
@@ -3816,7 +3844,7 @@ func (r Routing) bindUserToClusterRole() http.Handler {
 func (r Routing) unbindUserFromClusterRoleBinding() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
 			middleware.SetPrivilegedClusterProvider(r.clusterProviderGetter, r.seedsGetter),
@@ -3843,7 +3871,7 @@ func (r Routing) unbindUserFromClusterRoleBinding() http.Handler {
 func (r Routing) listClusterRoleBinding() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
 			middleware.SetPrivilegedClusterProvider(r.clusterProviderGetter, r.seedsGetter),
@@ -3870,7 +3898,7 @@ func (r Routing) listClusterRoleBinding() http.Handler {
 func (r Routing) listSystemLabels() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 		)(label.ListSystemLabels()),
 		decodeEmptyReq,
 		encodeJSON,
@@ -3892,7 +3920,7 @@ func (r Routing) listSystemLabels() http.Handler {
 func (r Routing) getAddonConfig() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 		)(addon.GetAddonConfigEndpoint(r.addonConfigProvider)),
 		addon.DecodeGetConfig,
@@ -3915,7 +3943,7 @@ func (r Routing) getAddonConfig() http.Handler {
 func (r Routing) listAddonConfigs() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 		)(addon.ListAddonConfigsEndpoint(r.addonConfigProvider)),
 		decodeEmptyReq,
@@ -3938,7 +3966,7 @@ func (r Routing) listAddonConfigs() http.Handler {
 func (r Routing) getAdmissionPlugins() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 		)(admissionplugin.GetAdmissionPluginEndpoint(r.admissionPluginProvider)),
 		admissionplugin.DecodeGetAdmissionPlugin,

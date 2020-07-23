@@ -333,6 +333,7 @@ type GCPSubnetwork struct {
 	SelfLink              string `json:"selfLink"`
 	PrivateIPGoogleAccess bool   `json:"privateIpGoogleAccess"`
 	Kind                  string `json:"kind"`
+	Path                  string `json:"path"`
 }
 
 // DigitaloceanSizeList represents a object of digitalocean sizes.
@@ -858,6 +859,13 @@ func newPublicAWSCloudSpec(internal *kubermaticv1.AWSCloudSpec) (public *PublicA
 type PublicOpenstackCloudSpec struct {
 	FloatingIPPool string `json:"floatingIpPool"`
 	SubnetCIDR     string `json:"subnetCIDR,omitempty"`
+	Tenant         string `json:"tenant,omitempty"`
+	TenantID       string `json:"tenantID,omitempty"`
+	Domain         string `json:"domain,omitempty"`
+	Network        string `json:"network"`
+	SecurityGroups string `json:"securityGroups"`
+	RouterID       string `json:"routerID"`
+	SubnetID       string `json:"subnetID"`
 }
 
 func newPublicOpenstackCloudSpec(internal *kubermaticv1.OpenstackCloudSpec) (public *PublicOpenstackCloudSpec) {
@@ -868,6 +876,13 @@ func newPublicOpenstackCloudSpec(internal *kubermaticv1.OpenstackCloudSpec) (pub
 	return &PublicOpenstackCloudSpec{
 		FloatingIPPool: internal.FloatingIPPool,
 		SubnetCIDR:     internal.SubnetCIDR,
+		Tenant:         internal.Tenant,
+		TenantID:       internal.TenantID,
+		Domain:         internal.Domain,
+		Network:        internal.Network,
+		SecurityGroups: internal.SecurityGroups,
+		RouterID:       internal.RouterID,
+		SubnetID:       internal.SubnetID,
 	}
 }
 

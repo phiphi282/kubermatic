@@ -15,11 +15,32 @@ import (
 // swagger:model PublicOpenstackCloudSpec
 type PublicOpenstackCloudSpec struct {
 
+	// domain
+	Domain string `json:"domain,omitempty"`
+
 	// floating IP pool
 	FloatingIPPool string `json:"floatingIpPool,omitempty"`
 
+	// network
+	Network string `json:"network,omitempty"`
+
+	// router ID
+	RouterID string `json:"routerID,omitempty"`
+
+	// security groups
+	SecurityGroups string `json:"securityGroups,omitempty"`
+
 	// subnet c ID r
 	SubnetCIDR string `json:"subnetCIDR,omitempty"`
+
+	// subnet ID
+	SubnetID string `json:"subnetID,omitempty"`
+
+	// tenant
+	Tenant string `json:"tenant,omitempty"`
+
+	// tenant ID
+	TenantID string `json:"tenantID,omitempty"`
 }
 
 // Validate validates this public openstack cloud spec

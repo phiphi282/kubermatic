@@ -1,8 +1,11 @@
 package kubernetes
 
 import (
+	"context"
 	"github.com/kubermatic/kubermatic/api/pkg/provider"
 	"github.com/kubermatic/machine-controller/pkg/apis/cluster/v1alpha1"
+	"k8s.io/apimachinery/pkg/api/meta"
+	ctrlruntimeclient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	kubermaticv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
 
@@ -13,13 +16,13 @@ import (
 type MachineDeploymentRequestProvider struct {
 	// createSeedImpersonatedClient is used as a ground for impersonation
 	// whenever a connection to Seed API server is required
-	createSeedImpersonatedClient kubermaticImpersonationClient
+	createSeedImpersonatedClient impersonationClient
 }
 
 // NewMachineDeploymentRequestProvider returns a new MachineDeploymentRequest provider that respects RBAC policies
 // it uses createSeedImpersonatedClient to create a connection that uses user impersonation
 func NewMachineDeploymentRequestProvider(
-	createSeedImpersonatedClient kubermaticImpersonationClient) *MachineDeploymentRequestProvider {
+	createSeedImpersonatedClient impersonationClient) *MachineDeploymentRequestProvider {
 	return &MachineDeploymentRequestProvider{
 		createSeedImpersonatedClient: createSeedImpersonatedClient,
 	}
@@ -27,7 +30,7 @@ func NewMachineDeploymentRequestProvider(
 
 // New creates a new MachineDeploymentRequest for the given cluster
 func (p *MachineDeploymentRequestProvider) New(userInfo *provider.UserInfo, cluster *kubermaticv1.Cluster, mdrName string, md *v1alpha1.MachineDeployment) (*kubermaticv1.MachineDeploymentRequest, error) {
-	seedImpersonatedClient, err := createKubermaticImpersonationClientWrapperFromUserInfo(userInfo, p.createSeedImpersonatedClient)
+	seedImpersonatedClient, err := createImpersonationClientWrapperFromUserInfo(userInfo, p.createSeedImpersonatedClient)
 	if err != nil {
 		return nil, err
 	}
@@ -46,8 +49,7 @@ func (p *MachineDeploymentRequestProvider) New(userInfo *provider.UserInfo, clus
 		},
 	}
 
-	mdr, err = seedImpersonatedClient.MachineDeploymentRequests(cluster.Status.NamespaceName).Create(mdr)
-	if err != nil {
+	if err = seedImpersonatedClient.Create(context.Background(), mdr); err != nil {
 		return nil, err
 	}
 
@@ -56,13 +58,13 @@ func (p *MachineDeploymentRequestProvider) New(userInfo *provider.UserInfo, clus
 
 // Get returns the given MachineDeploymentRequest
 func (p *MachineDeploymentRequestProvider) Get(userInfo *provider.UserInfo, cluster *kubermaticv1.Cluster, mdrName string) (*kubermaticv1.MachineDeploymentRequest, error) {
-	seedImpersonatedClient, err := createKubermaticImpersonationClientWrapperFromUserInfo(userInfo, p.createSeedImpersonatedClient)
+	seedImpersonatedClient, err := createImpersonationClientWrapperFromUserInfo(userInfo, p.createSeedImpersonatedClient)
 	if err != nil {
 		return nil, err
 	}
 
-	mdr, err := seedImpersonatedClient.MachineDeploymentRequests(cluster.Status.NamespaceName).Get(mdrName, metav1.GetOptions{})
-	if err != nil {
+	mdr := &kubermaticv1.MachineDeploymentRequest{}
+	if err := seedImpersonatedClient.Get(context.Background(), ctrlruntimeclient.ObjectKey{Namespace: cluster.Status.NamespaceName, Name: mdrName}, mdr); err != nil {
 		return nil, err
 	}
 	return mdr, nil
@@ -70,13 +72,13 @@ func (p *MachineDeploymentRequestProvider) Get(userInfo *provider.UserInfo, clus
 
 // List returns all MachineDeploymentRequests in the given cluster
 func (p *MachineDeploymentRequestProvider) List(userInfo *provider.UserInfo, cluster *kubermaticv1.Cluster) ([]*kubermaticv1.MachineDeploymentRequest, error) {
-	seedImpersonatedClient, err := createKubermaticImpersonationClientWrapperFromUserInfo(userInfo, p.createSeedImpersonatedClient)
+	seedImpersonatedClient, err := createImpersonationClientWrapperFromUserInfo(userInfo, p.createSeedImpersonatedClient)
 	if err != nil {
 		return nil, err
 	}
 
-	mdrList, err := seedImpersonatedClient.MachineDeploymentRequests(cluster.Status.NamespaceName).List(metav1.ListOptions{})
-	if err != nil {
+	mdrList := &kubermaticv1.MachineDeploymentRequestList{}
+	if err := seedImpersonatedClient.List(context.Background(), mdrList, ctrlruntimeclient.InNamespace(cluster.Status.NamespaceName)); err != nil {
 		return nil, err
 	}
 
@@ -90,13 +92,13 @@ func (p *MachineDeploymentRequestProvider) List(userInfo *provider.UserInfo, clu
 
 // Update updates an MachineDeploymentRequest
 func (p *MachineDeploymentRequestProvider) Update(userInfo *provider.UserInfo, cluster *kubermaticv1.Cluster, newMdRequest *kubermaticv1.MachineDeploymentRequest) (*kubermaticv1.MachineDeploymentRequest, error) {
-	seedImpersonatedClient, err := createKubermaticImpersonationClientWrapperFromUserInfo(userInfo, p.createSeedImpersonatedClient)
+	seedImpersonatedClient, err := createImpersonationClientWrapperFromUserInfo(userInfo, p.createSeedImpersonatedClient)
 	if err != nil {
 		return nil, err
 	}
 
-	newMdRequest, err = seedImpersonatedClient.MachineDeploymentRequests(cluster.Status.NamespaceName).Update(newMdRequest)
-	if err != nil {
+	newMdRequest.Namespace = cluster.Status.NamespaceName
+	if err := seedImpersonatedClient.Update(context.Background(), newMdRequest); err != nil {
 		return nil, err
 	}
 
@@ -105,22 +107,22 @@ func (p *MachineDeploymentRequestProvider) Update(userInfo *provider.UserInfo, c
 
 // Delete deletes the given MachineDeploymentRequest
 func (p *MachineDeploymentRequestProvider) Delete(userInfo *provider.UserInfo, cluster *kubermaticv1.Cluster, mdrName string) error {
-	seedImpersonatedClient, err := createKubermaticImpersonationClientWrapperFromUserInfo(userInfo, p.createSeedImpersonatedClient)
+	seedImpersonatedClient, err := createImpersonationClientWrapperFromUserInfo(userInfo, p.createSeedImpersonatedClient)
 	if err != nil {
 		return err
 	}
 
-	return seedImpersonatedClient.MachineDeploymentRequests(cluster.Status.NamespaceName).Delete(mdrName, &metav1.DeleteOptions{})
+	return seedImpersonatedClient.Delete(context.Background(), &kubermaticv1.MachineDeploymentRequest{ObjectMeta: metav1.ObjectMeta{Name: mdrName, Namespace: cluster.Status.NamespaceName}})
 }
 
-func MachineDeploymentRequestProviderFactory(seedKubeconfigGetter provider.SeedKubeconfigGetter) provider.MachineDeploymentRequestProviderGetter {
+func MachineDeploymentRequestProviderFactory(mapper meta.RESTMapper, seedKubeconfigGetter provider.SeedKubeconfigGetter) provider.MachineDeploymentRequestProviderGetter {
 	return func(seed *kubermaticv1.Seed) (provider.MachineDeploymentRequestProvider, error) {
 		cfg, err := seedKubeconfigGetter(seed)
 		if err != nil {
 			return nil, err
 		}
-		defaultImpersonationClientForSeed := NewKubermaticImpersonationClient(cfg)
+		defaultImpersonationClientForSeed := NewImpersonationClient(cfg, mapper)
 
-		return NewMachineDeploymentRequestProvider(defaultImpersonationClientForSeed.CreateImpersonatedKubermaticClientSet), nil
+		return NewMachineDeploymentRequestProvider(defaultImpersonationClientForSeed.CreateImpersonatedClient), nil
 	}
 }

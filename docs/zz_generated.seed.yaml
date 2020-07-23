@@ -75,9 +75,6 @@ spec:
         # EnforceAuditLogging enforces audit logging on every cluster within the DC,
         # ignoring cluster-specific settings.
         enforceAuditLogging: false
-        # nolint:staticcheck
-        # lint:ignore SA5008 omitempty is used by the example-yaml-generator
-        fake: null
         gcp:
           # Region to use, for example "europe-west3", for a full list of regions see
           # https://cloud.google.com/compute/docs/regions-zones/

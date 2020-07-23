@@ -107,7 +107,7 @@ func (r Routing) RegisterV1SysEleven(mux *mux.Router) {
 func (r Routing) listOpenstackImages() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 		)(provider.OpenstackImageEndpoint(r.seedsGetter, r.presetsProvider, r.userInfoGetter)),
 		provider.DecodeOpenstackReq,
@@ -129,7 +129,7 @@ func (r Routing) listOpenstackImages() http.Handler {
 func (r Routing) listOpenstackQuotaLimits() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 		)(provider.OpenstackQuotaLimitEndpoint(r.seedsGetter, r.presetsProvider, r.userInfoGetter)),
 		provider.DecodeOpenstackReq,
@@ -151,7 +151,7 @@ func (r Routing) listOpenstackQuotaLimits() http.Handler {
 func (r Routing) listOpenstackImagesNoCredentials() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
 			middleware.SetPrivilegedClusterProvider(r.clusterProviderGetter, r.seedsGetter),
@@ -175,7 +175,7 @@ func (r Routing) listOpenstackImagesNoCredentials() http.Handler {
 func (r Routing) listOpenstackQuotaLimitsNoCredentials() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
 			middleware.SetPrivilegedClusterProvider(r.clusterProviderGetter, r.seedsGetter),
@@ -201,7 +201,7 @@ func (r Routing) listOpenstackQuotaLimitsNoCredentials() http.Handler {
 func (r Routing) getKubeLoginClusterKubeconfig() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
 			middleware.Keycloak(r.keycloakFacade),
@@ -227,7 +227,7 @@ func (r Routing) getKubeLoginClusterKubeconfig() http.Handler {
 func (r Routing) unsealVaultAddon() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
 			middleware.Addons(r.addonProviderGetter, r.seedsGetter),
@@ -256,7 +256,7 @@ func (r Routing) unsealVaultAddon() http.Handler {
 func (r Routing) createNodeDeploymentRequest() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
 			middleware.MachineDeploymentRequests(r.mdRequestProviderGetter, r.seedsGetter),
@@ -282,7 +282,7 @@ func (r Routing) createNodeDeploymentRequest() http.Handler {
 func (r Routing) listNodeDeploymentRequests() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
 			middleware.MachineDeploymentRequests(r.mdRequestProviderGetter, r.seedsGetter),
@@ -308,7 +308,7 @@ func (r Routing) listNodeDeploymentRequests() http.Handler {
 func (r Routing) getNodeDeploymentRequest() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
 			middleware.MachineDeploymentRequests(r.mdRequestProviderGetter, r.seedsGetter),
@@ -337,7 +337,7 @@ func (r Routing) getNodeDeploymentRequest() http.Handler {
 func (r Routing) patchNodeDeploymentRequest() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
 			middleware.MachineDeploymentRequests(r.mdRequestProviderGetter, r.seedsGetter),
@@ -363,7 +363,7 @@ func (r Routing) patchNodeDeploymentRequest() http.Handler {
 func (r Routing) deleteNodeDeploymentRequest() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
 			middleware.MachineDeploymentRequests(r.mdRequestProviderGetter, r.seedsGetter),

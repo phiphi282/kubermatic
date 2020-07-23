@@ -40,7 +40,7 @@ var csvColumns = []string{"time", "cluster_id", "project_id", "seed_cluster_name
 func (r Routing) resourceUsageCollectorProxyHandler() http.Handler {
 	return httptransport.NewServer(
 		endpoint.Chain(
-			middleware.TokenVerifier(r.tokenVerifiers),
+			middleware.TokenVerifier(r.tokenVerifiers, r.userProvider),
 			middleware.UserSaver(r.userProvider),
 			middleware.SetClusterProvider(r.clusterProviderGetter, r.seedsGetter),
 		)(getResourceUsageCollectorProxyEndpoint(r.seedsGetter, r.userInfoGetter)),
