@@ -144,6 +144,7 @@ spec:
         - -apiserver-default-replicas={{ .Values.kubermatic.apiserverDefaultReplicas }}
         - -controller-manager-default-replicas={{ .Values.kubermatic.controllerManagerDefaultReplicas}}
         - -scheduler-default-replicas={{ .Values.kubermatic.schedulerDefaultReplicas}}
+        - -etcd-default-replicas={{ .Values.kubermatic.etcdDefaultReplicas}}
         - -max-parallel-reconcile={{ .Values.kubermatic.maxParallelReconcile}}
         - -namespace=$(NAMESPACE)
         - -seed-admissionwebhook-cert-file=/opt/seed-webhook-serving-cert/serverCert.pem

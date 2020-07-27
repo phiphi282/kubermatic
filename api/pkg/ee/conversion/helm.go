@@ -89,6 +89,7 @@ type kubermaticValues struct {
 	APIServerDefaultReplicas             *string `yaml:"apiserverDefaultReplicas"`
 	ControllerManagerDefaultReplicas     *string `yaml:"controllerManagerDefaultReplicas"`
 	SchedulerDefaultReplicas             *string `yaml:"schedulerDefaultReplicas"`
+	EtcdDefaultReplicas                  *string `yaml:"etcdDefaultReplicas"`
 	MaxParallelReconcile                 string  `yaml:"maxParallelReconcile"`
 	APIServerEndpointReconcilingDisabled bool    `yaml:"apiserverEndpointReconcilingDisabled"`
 	DynamicDatacenters                   bool    `yaml:"dynamicDatacenters"`

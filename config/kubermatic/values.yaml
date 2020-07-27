@@ -53,6 +53,7 @@ kubermatic:
   apiserverDefaultReplicas: "2"
   controllerManagerDefaultReplicas: "1"
   schedulerDefaultReplicas: "1"
+  etcdDefaultReplicas: "3"
   maxParallelReconcile: "10"
 
   # Whether to disable reconciling for the apiserver endpoints
