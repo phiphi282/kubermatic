@@ -34,8 +34,9 @@ const (
 type AddonCollector struct {
 	client ctrlruntimeclient.Reader
 
-	addonCreated *prometheus.Desc
-	addonDeleted *prometheus.Desc
+	addonCreated       *prometheus.Desc
+	addonDeleted       *prometheus.Desc
+	addonReconcileFail *prometheus.Desc
 }
 
 // MustRegisterAddonCollector registers the addon collector at the given prometheus registry
@@ -45,12 +46,18 @@ func MustRegisterAddonCollector(registry prometheus.Registerer, client ctrlrunti
 		addonCreated: prometheus.NewDesc(
 			addonPrefix+"created",
 			"Unix creation timestamp",
-			[]string{"cluster", "addon", "resourcesCreated"},
+			[]string{"cluster", "addon"},
 			nil,
 		),
 		addonDeleted: prometheus.NewDesc(
 			addonPrefix+"deleted",
 			"Unix deletion timestamp",
+			[]string{"cluster", "addon"},
+			nil,
+		),
+		addonReconcileFail: prometheus.NewDesc(
+			addonPrefix+"reconcile_failed",
+			"Reconcile is failing",
 			[]string{"cluster", "addon"},
 			nil,
 		),
@@ -63,6 +70,7 @@ func MustRegisterAddonCollector(registry prometheus.Registerer, client ctrlrunti
 func (cc AddonCollector) Describe(ch chan<- *prometheus.Desc) {
 	ch <- cc.addonCreated
 	ch <- cc.addonDeleted
+	ch <- cc.addonReconcileFail
 }
 
 // Collect gets called by prometheus to collect the metrics
@@ -83,17 +91,25 @@ func (cc AddonCollector) Collect(ch chan<- prometheus.Metric) {
 func (cc *AddonCollector) collectAddon(ch chan<- prometheus.Metric, addon *kubermaticv1.Addon) {
 	if len(addon.OwnerReferences) < 1 || addon.OwnerReferences[0].Kind != kubermaticv1.ClusterKindName {
 		utilruntime.HandleError(fmt.Errorf("No owning cluster for addon %v/%v", addon.Namespace, addon.Name))
+		return
 	}
 
 	clusterName := addon.OwnerReferences[0].Name
 
-	resourcesCreated := "0"
-
+	notCreated := 1
 	for _, cond := range addon.Status.Conditions {
 		if cond.Type == kubermaticv1.AddonResourcesCreated {
-			resourcesCreated = "1"
+			notCreated = 0
+			break
 		}
 	}
+	ch <- prometheus.MustNewConstMetric(
+		cc.addonReconcileFail,
+		prometheus.GaugeValue,
+		float64(notCreated),
+		clusterName,
+		addon.Name,
+	)
 
 	ch <- prometheus.MustNewConstMetric(
 		cc.addonCreated,
@@ -101,7 +117,6 @@ func (cc *AddonCollector) collectAddon(ch chan<- prometheus.Metric, addon *kuber
 		float64(addon.CreationTimestamp.Unix()),
 		clusterName,
 		addon.Name,
-		resourcesCreated,
 	)
 
 	if addon.DeletionTimestamp != nil {
