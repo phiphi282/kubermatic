@@ -72,6 +72,9 @@ func StatefulSetCreator(data etcdStatefulSetCreatorData, enableDataCorruptionChe
 			set.Name = resources.EtcdStatefulSetName
 
 			set.Spec.Replicas = resources.Int32(resources.EtcdClusterSize)
+			if data.Cluster().Spec.ComponentsOverride.Etcd.Replicas != nil {
+				set.Spec.Replicas = data.Cluster().Spec.ComponentsOverride.Etcd.Replicas
+			}
 			set.Spec.UpdateStrategy.Type = appsv1.RollingUpdateStatefulSetStrategyType
 			set.Spec.PodManagementPolicy = appsv1.ParallelPodManagement
 			set.Spec.ServiceName = resources.EtcdServiceName
