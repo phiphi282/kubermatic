@@ -27,8 +27,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kubermatic/kubermatic/api/pkg/keycloak"
-
 	"go.uber.org/zap"
 
 	"github.com/kubermatic/kubermatic/api/pkg/cluster/client"
@@ -36,6 +34,7 @@ import (
 	backupcontroller "github.com/kubermatic/kubermatic/api/pkg/controller/seed-controller-manager/backup"
 	kubermaticv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
 	"github.com/kubermatic/kubermatic/api/pkg/features"
+	"github.com/kubermatic/kubermatic/api/pkg/keycloak"
 	"github.com/kubermatic/kubermatic/api/pkg/provider"
 	"github.com/kubermatic/kubermatic/api/pkg/resources"
 	seedvalidation "github.com/kubermatic/kubermatic/api/pkg/validation/seed"
@@ -87,7 +86,6 @@ type controllerRunOptions struct {
 	apiServerEndpointReconcilingDisabled             bool
 	controllerManagerDefaultReplicas                 int
 	schedulerDefaultReplicas                         int
-	etcdDefaultReplicas                              int
 	seedValidationHook                               seedvalidation.WebhookOpts
 	concurrentClusterUpdate                          int
 	addonEnforceInterval                             int
@@ -154,7 +152,6 @@ func newControllerRunOptions() (controllerRunOptions, error) {
 	flag.BoolVar(&c.apiServerEndpointReconcilingDisabled, "apiserver-reconciling-disabled-by-default", false, "Whether to disable reconciling for the apiserver endpoints by default")
 	flag.IntVar(&c.controllerManagerDefaultReplicas, "controller-manager-default-replicas", 1, "The default number of replicas for usercluster controller managers")
 	flag.IntVar(&c.schedulerDefaultReplicas, "scheduler-default-replicas", 1, "The default number of replicas for usercluster schedulers")
-	flag.IntVar(&c.etcdDefaultReplicas, "etcd-default-replicas", 3, "The default number of replicas for usercluster etcd")
 	flag.IntVar(&c.concurrentClusterUpdate, "max-parallel-reconcile", 10, "The default number of resources updates per cluster")
 	flag.IntVar(&c.addonEnforceInterval, "addon-enforce-interval", 5, "Check and ensure default usercluster addons are deployed every interval in minutes. Set to 0 to disable.")
 	c.seedValidationHook.AddFlags(flag.CommandLine)
@@ -238,9 +235,6 @@ func (o controllerRunOptions) validate() error {
 	}
 	if o.schedulerDefaultReplicas < 1 {
 		return fmt.Errorf("--scheduler-default-replicas must be > 0 (was %d)", o.schedulerDefaultReplicas)
-	}
-	if o.etcdDefaultReplicas < 1 {
-		return fmt.Errorf("--etcd-default-replicas must be > 0 (was %d)", o.etcdDefaultReplicas)
 	}
 	if o.concurrentClusterUpdate < 1 {
 		return fmt.Errorf("--max-parallel-reconcile must be > 0 (was %d)", o.concurrentClusterUpdate)

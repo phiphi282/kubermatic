@@ -295,25 +295,26 @@ type AuditLoggingSettings struct {
 	Enabled bool `json:"enabled,omitempty"`
 }
 
-// ComponentSettings holds configuration for some of cluster components.
 type ComponentSettings struct {
-	Apiserver         APIServerSettings `json:"apiserver"`
-	ControllerManager ResourceSettings  `json:"controllerManager"`
-	Scheduler         ResourceSettings  `json:"scheduler"`
-	Etcd              ResourceSettings  `json:"etcd"`
-	Prometheus        ResourceSettings  `json:"prometheus"`
+	Apiserver         APIServerSettings   `json:"apiserver"`
+	ControllerManager DeploymentSettings  `json:"controllerManager"`
+	Scheduler         DeploymentSettings  `json:"scheduler"`
+	Etcd              StatefulSetSettings `json:"etcd"`
+	Prometheus        StatefulSetSettings `json:"prometheus"`
 }
 
-// APIServerSettings configuration of api server.
 type APIServerSettings struct {
-	ResourceSettings `json:",inline"`
+	DeploymentSettings `json:",inline"`
 
 	EndpointReconcilingDisabled *bool `json:"endpointReconcilingDisabled,omitempty"`
 }
 
-// ResourceSettings settings for replicated resource, like Deployment, StatefulSet.
-type ResourceSettings struct {
+type DeploymentSettings struct {
 	Replicas  *int32                       `json:"replicas,omitempty"`
+	Resources *corev1.ResourceRequirements `json:"resources,omitempty"`
+}
+
+type StatefulSetSettings struct {
 	Resources *corev1.ResourceRequirements `json:"resources,omitempty"`
 }
 
