@@ -84,16 +84,13 @@ func createSeedConditionUpToDateController(ctrlCtx *controllerContext) error {
 func createClusterComponentDefaulter(ctrlCtx *controllerContext) error {
 	defaultCompontentsOverrides := kubermaticv1.ComponentSettings{
 		Apiserver: kubermaticv1.APIServerSettings{
-			ResourceSettings:            kubermaticv1.ResourceSettings{Replicas: utilpointer.Int32Ptr(int32(ctrlCtx.runOptions.apiServerDefaultReplicas))},
+			DeploymentSettings:          kubermaticv1.DeploymentSettings{Replicas: utilpointer.Int32Ptr(int32(ctrlCtx.runOptions.apiServerDefaultReplicas))},
 			EndpointReconcilingDisabled: utilpointer.BoolPtr(ctrlCtx.runOptions.apiServerEndpointReconcilingDisabled),
 		},
-		ControllerManager: kubermaticv1.ResourceSettings{
+		ControllerManager: kubermaticv1.DeploymentSettings{
 			Replicas: utilpointer.Int32Ptr(int32(ctrlCtx.runOptions.controllerManagerDefaultReplicas))},
-		Scheduler: kubermaticv1.ResourceSettings{
+		Scheduler: kubermaticv1.DeploymentSettings{
 			Replicas: utilpointer.Int32Ptr(int32(ctrlCtx.runOptions.schedulerDefaultReplicas))},
-		Etcd: kubermaticv1.ResourceSettings{
-			Replicas: utilpointer.Int32Ptr(int32(ctrlCtx.runOptions.etcdDefaultReplicas)),
-		},
 	}
 	return clustercomponentdefaulter.Add(
 		context.Background(),
