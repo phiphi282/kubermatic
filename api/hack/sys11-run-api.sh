@@ -11,6 +11,7 @@ set -x
 : "${KUBERMATIC_CLUSTER:=dbl1}"
 : "${RESOURCES_DIR:=${INSTALLER_DIR}/environments/${KUBERMATIC_ENV}/clusters/${KUBERMATIC_CLUSTER}/kubermatic/versions}"
 : "${CONFIG_DIR:=${INSTALLER_DIR}/environments/${KUBERMATIC_ENV}/kubermatic}"
+: "${KUBERMATIC_EDITION:=ee}"
 if [[ -z "$SKIP_INSTALLER" ]]; then
 KUBERMATIC_ENV=${KUBERMATIC_ENV} KUBERMATIC_CLUSTER=${KUBERMATIC_CLUSTER} make -C ${INSTALLER_DIR}/kubermatic values.yaml
 fi
@@ -32,9 +33,9 @@ else
 fi
 
 if [[ "${DEBUG}" == "true" ]]; then
-    GOTOOLFLAGS="-v -gcflags='all=-N -l'" make -C ${SRC_DIR} KUBERMATIC_EDITION=ee kubermatic-api
+    GOTOOLFLAGS="-v -gcflags='all=-N -l'" make -C ${SRC_DIR} KUBERMATIC_EDITION=${KUBERMATIC_EDITION} kubermatic-api
 else
-    make -C ${SRC_DIR} KUBERMATIC_EDITION=ee kubermatic-api
+    make -C ${SRC_DIR} KUBERMATIC_EDITION=${KUBERMATIC_EDITION} kubermatic-api
 fi
 
 # Please make sure to set -feature-gates=PrometheusEndpoint=true if you want to use that endpoint.

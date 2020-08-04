@@ -62,9 +62,9 @@ fi
 # TODO extract hack/sys11-store-container.yaml / hack/sys11-cleanup-container.yaml from the installer
 
 if [[ "${DEBUG}" == "true" ]]; then
-    make KUBERMATICCOMMIT=$KUBERMATICCOMMIT GITTAG=$GITTAG GOTOOLFLAGS_EXTRA="-gcflags='all=-N -l'" LDFLAGS_EXTRA="" -C ${SRC_DIR} seed-controller-manager
+    make KUBERMATIC_EDITION="ee" KUBERMATICCOMMIT=$KUBERMATICCOMMIT GITTAG=$GITTAG GOTOOLFLAGS_EXTRA="-gcflags='all=-N -l'" LDFLAGS_EXTRA="" -C ${SRC_DIR} seed-controller-manager
 else
-    make KUBERMATICCOMMIT=$KUBERMATICCOMMIT GITTAG=$GITTAG -C ${SRC_DIR} seed-controller-manager
+    make KUBERMATIC_EDITION="ee" KUBERMATICCOMMIT=$KUBERMATICCOMMIT GITTAG=$GITTAG -C ${SRC_DIR} seed-controller-manager
 fi
 
 cd ${SRC_DIR}
