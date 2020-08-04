@@ -1,0 +1,2 @@
+#!/bin/sh
+KUBERMATIC_EDITION=ee make -C api test
