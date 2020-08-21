@@ -9,7 +9,7 @@ variables:
 
 before_script:
 - mkdir -p /go/src/github.com/kubermatic/
-- ln -s $PWD /go/src/github.com/kubermatic/kubermatic
+- cp -r $PWD /go/src/github.com/kubermatic/kubermatic
 - cd /go/src/github.com/kubermatic/kubermatic
 
 dep:
@@ -56,7 +56,7 @@ verify-codegen:
   script:
   - apt-get update && apt-get install -y --no-install-recommends bzr
   - cd api
-  - GO111MODULE=on ./hack/verify-codegen.sh
+  - ./hack/verify-codegen.sh
   tags:
   - shared
   - small
