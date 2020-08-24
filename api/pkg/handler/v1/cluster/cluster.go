@@ -216,9 +216,9 @@ func CreateEndpoint(sshKeyProvider provider.SSHKeyProvider, projectProvider prov
 
 		log := kubermaticlog.Logger.With("cluster", newCluster.Name)
 
-		// Block for up to 10 seconds to give the rbac controller time to create the bindings.
+		// Block for up to 60 seconds to give the rbac controller time to create the bindings.
 		// During that time we swallow all errors
-		if err := wait.PollImmediate(time.Second, 30*time.Second, func() (bool, error) {
+		if err := wait.PollImmediate(time.Second, 60*time.Second, func() (bool, error) {
 			_, err := getInternalCluster(ctx, userInfoGetter, clusterProvider, privilegedClusterProvider, project, req.ProjectID, newCluster.Name, &provider.ClusterGetOptions{})
 			if err != nil {
 				log.Debugw("Error when waiting for cluster to become ready after creation", zap.Error(err))
