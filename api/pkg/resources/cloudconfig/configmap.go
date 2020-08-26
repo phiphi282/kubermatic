@@ -21,7 +21,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/kubermatic/machine-controller/pkg/ini"
 	"net/url"
+	"time"
 
 	kubermaticv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
 	gcp "github.com/kubermatic/kubermatic/api/pkg/provider/cloud/gcp"
@@ -149,6 +151,16 @@ func CloudConfig(
 			Version: cluster.Spec.Version.String(),
 		}
 		cloudConfig, err = openstack.CloudConfigToString(openstackCloudConfig)
+		if cluster.Spec.Version.Minor() >= 18 {
+			openstackCloudConfig.LoadBalancer = openstack.LoadBalancerOpts{
+				// NetworkID for the ext-net floating-network
+				FloatingNetworkID: "8bb661f5-76b9-45f1-9ef9-eeffcd025fe4",
+				CreateMonitor:     true,
+				MonitorDelay:      ini.Duration{Duration: 60 * time.Second},
+				MonitorTimeout:    ini.Duration{Duration: 30 * time.Second},
+				MonitorMaxRetries: 5,
+			}
+		}
 		if err != nil {
 			return cloudConfig, err
 		}

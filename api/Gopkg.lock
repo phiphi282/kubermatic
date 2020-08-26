@@ -889,7 +889,6 @@
   version = "v0.1.0"
 
 [[projects]]
-  branch = "fkasymovgeniiuulu/soft-anti-affinity-server-group"
   digest = "1:6569052c4360c7b710462ac315721c0c88fdf467a2783e46e0d35c7d3e28abf9"
   name = "github.com/kubermatic/machine-controller"
   packages = [
@@ -919,8 +918,9 @@
     "pkg/userdata/ubuntu",
   ]
   pruneopts = "NUT"
-  revision = "b50592ef32513e5a802f0234eaf5f633e43faf01"
+  revision = "2dc79284bd68b5cd2ab51b5025cdc8e70c9d81ed"
   source = "https://github.com/syseleven/machine-controller"
+  version = "v1.14.2-sys11-7"
 
 [[projects]]
   digest = "1:d244f8666a838fe6ad70ec8fe77f50ebc29fdc3331a2729ba5886bef8435d10d"
@@ -2268,6 +2268,7 @@
     "github.com/kubermatic/machine-controller/pkg/cloudprovider/provider/openstack/types",
     "github.com/kubermatic/machine-controller/pkg/cloudprovider/provider/packet/types",
     "github.com/kubermatic/machine-controller/pkg/cloudprovider/provider/vsphere/types",
+    "github.com/kubermatic/machine-controller/pkg/ini",
     "github.com/kubermatic/machine-controller/pkg/node/eviction/types",
     "github.com/kubermatic/machine-controller/pkg/providerconfig/types",
     "github.com/kubermatic/machine-controller/pkg/userdata/centos",
