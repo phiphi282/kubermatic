@@ -80,6 +80,7 @@ func DeploymentCreator(data *resources.TemplateData) reconciling.NamedDeployment
 			}
 
 			volumes := getVolumes(data.Cluster())
+			volumeMounts := getVolumeMounts()
 			podLabels, err := data.GetPodTemplateLabels(name, volumes, nil)
 			if err != nil {
 				return nil, fmt.Errorf("failed to create pod labels: %v", err)
@@ -109,18 +110,6 @@ func DeploymentCreator(data *resources.TemplateData) reconciling.NamedDeployment
 
 			dep.Spec.Template.Spec.Volumes = volumes
 
-			volumeMounts := []corev1.VolumeMount{
-				{
-					Name:      resources.SchedulerKubeconfigSecretName,
-					MountPath: "/etc/kubernetes/kubeconfig",
-					ReadOnly:  true,
-				},
-				{
-					Name:      resources.CASecretName,
-					MountPath: "/etc/kubernetes/pki/ca",
-					ReadOnly:  true,
-				},
-			}
 			if data.Cluster().Spec.Version.Semver().Minor() >= 14 {
 				volumeMounts = append(volumeMounts, corev1.VolumeMount{
 					Name:      resources.SchedulerConfigMapName,
@@ -139,8 +128,8 @@ func DeploymentCreator(data *resources.TemplateData) reconciling.NamedDeployment
 				*openvpnSidecar,
 				{
 					Name:         resources.SchedulerDeploymentName,
-					Image:        data.ImageRegistry(resources.RegistryGCR) + "/google_containers/hyperkube-amd64:v" + data.Cluster().Spec.Version.String(),
-					Command:      []string{"/hyperkube", "kube-scheduler"},
+					Image:        data.ImageRegistry(resources.RegistryK8SGCR) + "/kube-scheduler:v" + data.Cluster().Spec.Version.String(),
+					Command:      []string{"/usr/local/bin/kube-scheduler"},
 					Args:         flags,
 					VolumeMounts: volumeMounts,
 					ReadinessProbe: &corev1.Probe{
@@ -186,6 +175,21 @@ func DeploymentCreator(data *resources.TemplateData) reconciling.NamedDeployment
 	}
 }
 
+func getVolumeMounts() []corev1.VolumeMount {
+	return append([]corev1.VolumeMount{
+		{
+			Name:      resources.SchedulerKubeconfigSecretName,
+			MountPath: "/etc/kubernetes/kubeconfig",
+			ReadOnly:  true,
+		},
+		{
+			Name:      resources.CASecretName,
+			MountPath: "/etc/kubernetes/pki/ca",
+			ReadOnly:  true,
+		},
+	}, resources.GetHostCACertVolumeMounts()...)
+}
+
 func getVolumes(cluster *kubermaticv1.Cluster) []corev1.Volume {
 	volumes := []corev1.Volume{
 		{
@@ -219,6 +223,7 @@ func getVolumes(cluster *kubermaticv1.Cluster) []corev1.Volume {
 			},
 		},
 	}
+	volumes = append(volumes, resources.GetHostCACertVolumes()...)
 
 	if cluster.Spec.Version.Semver().Minor() >= 14 {
 		volumes = append(volumes, corev1.Volume{

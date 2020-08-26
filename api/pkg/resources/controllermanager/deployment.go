@@ -76,6 +76,8 @@ func DeploymentCreator(data *resources.TemplateData) reconciling.NamedDeployment
 			dep.Spec.Template.Spec.ImagePullSecrets = []corev1.LocalObjectReference{{Name: resources.ImagePullSecretName}}
 
 			volumes := getVolumes()
+			volumeMounts := getVolumeMounts()
+
 			if data.Cluster().Spec.Cloud.GCP != nil {
 				serviceAccountVolume := corev1.Volume{
 					Name: resources.GoogleServiceAccountVolumeName,
@@ -115,28 +117,6 @@ func DeploymentCreator(data *resources.TemplateData) reconciling.NamedDeployment
 				return nil, fmt.Errorf("failed to get openvpn sidecar: %v", err)
 			}
 
-			controllerManagerMounts := []corev1.VolumeMount{
-				{
-					Name:      resources.CASecretName,
-					MountPath: "/etc/kubernetes/pki/ca",
-					ReadOnly:  true,
-				},
-				{
-					Name:      resources.ServiceAccountKeySecretName,
-					MountPath: "/etc/kubernetes/service-account-key",
-					ReadOnly:  true,
-				},
-				{
-					Name:      resources.CloudConfigConfigMapName,
-					MountPath: "/etc/kubernetes/cloud",
-					ReadOnly:  true,
-				},
-				{
-					Name:      resources.ControllerManagerKubeconfigSecretName,
-					MountPath: "/etc/kubernetes/kubeconfig",
-					ReadOnly:  true,
-				},
-			}
 			if data.Cluster().Spec.Cloud.VSphere != nil {
 				fakeVMWareUUIDMount := corev1.VolumeMount{
 					Name:      resources.CloudConfigConfigMapName,
@@ -145,7 +125,7 @@ func DeploymentCreator(data *resources.TemplateData) reconciling.NamedDeployment
 					ReadOnly:  true,
 				}
 				// Required because of https://github.com/kubernetes/kubernetes/issues/65145
-				controllerManagerMounts = append(controllerManagerMounts, fakeVMWareUUIDMount)
+				volumeMounts = append(volumeMounts, fakeVMWareUUIDMount)
 			}
 			if data.Cluster().Spec.Cloud.GCP != nil {
 				serviceAccountMount := corev1.VolumeMount{
@@ -153,7 +133,7 @@ func DeploymentCreator(data *resources.TemplateData) reconciling.NamedDeployment
 					MountPath: "/etc/gcp",
 					ReadOnly:  true,
 				}
-				controllerManagerMounts = append(controllerManagerMounts, serviceAccountMount)
+				volumeMounts = append(volumeMounts, serviceAccountMount)
 			}
 
 			envVars, err := GetEnvVars(data)
@@ -163,27 +143,34 @@ func DeploymentCreator(data *resources.TemplateData) reconciling.NamedDeployment
 
 			// Use sys11-patched controller-manager where necessary (https://github.com/kubernetes/kubernetes/pull/82264)
 			var controllerImage string
+			var controllerCommand []string
 			{
-				upstreamImage := data.ImageRegistry(resources.RegistryGCR) + "/google_containers/hyperkube-amd64:v" + data.Cluster().Spec.Version.String()
+				upstreamImage := data.ImageRegistry(resources.RegistryK8SGCR) + "/kube-controller-manager:v" + data.Cluster().Spec.Version.String()
+				upstreamCommand := []string{"/usr/local/bin/kube-controller-manager"}
 				sys11Image := data.ImageRegistry(resources.RegistryDocker) + "/syseleven/hyperkube-amd64:v" + data.Cluster().Spec.Version.String() + "-sys11-1"
+				sys11Command := []string{"/hyperkube", "kube-controller-manager"}
 
 				controllerImage = upstreamImage
+				controllerCommand = upstreamCommand
 
 				semVersion := data.Cluster().Spec.Version
 
 				if semVersion.Minor() < 15 {
 					controllerImage = sys11Image
+					controllerCommand = sys11Command
 
 				} else {
 					switch semVersion.Minor() {
 					case 15:
 						if semVersion.Patch() < 10 {
 							controllerImage = sys11Image
+							controllerCommand = sys11Command
 						}
 
 					case 16:
 						if semVersion.Patch() < 7 {
 							controllerImage = sys11Image
+							controllerCommand = sys11Command
 						}
 					}
 				}
@@ -200,7 +187,7 @@ func DeploymentCreator(data *resources.TemplateData) reconciling.NamedDeployment
 				{
 					Name:    resources.ControllerManagerDeploymentName,
 					Image:   controllerImage,
-					Command: []string{"/hyperkube", "kube-controller-manager"},
+					Command: controllerCommand,
 					Args:    flags,
 					Env:     envVars,
 					ReadinessProbe: &corev1.Probe{
@@ -222,7 +209,7 @@ func DeploymentCreator(data *resources.TemplateData) reconciling.NamedDeployment
 						SuccessThreshold:    1,
 						TimeoutSeconds:      15,
 					},
-					VolumeMounts: controllerManagerMounts,
+					VolumeMounts: volumeMounts,
 				},
 			}
 			defResourceRequirements := map[string]*corev1.ResourceRequirements{
@@ -297,8 +284,34 @@ func getFlags(data *resources.TemplateData) ([]string, error) {
 	return flags, nil
 }
 
+func getVolumeMounts() []corev1.VolumeMount {
+	return append([]corev1.VolumeMount{
+		{
+			Name:      resources.CASecretName,
+			MountPath: "/etc/kubernetes/pki/ca",
+			ReadOnly:  true,
+		},
+		{
+			Name:      resources.ServiceAccountKeySecretName,
+			MountPath: "/etc/kubernetes/service-account-key",
+			ReadOnly:  true,
+		},
+		{
+			Name:      resources.CloudConfigConfigMapName,
+			MountPath: "/etc/kubernetes/cloud",
+			ReadOnly:  true,
+		},
+		{
+			Name:      resources.ControllerManagerKubeconfigSecretName,
+			MountPath: "/etc/kubernetes/kubeconfig",
+			ReadOnly:  true,
+		},
+	},
+		resources.GetHostCACertVolumeMounts()...)
+}
+
 func getVolumes() []corev1.Volume {
-	return []corev1.Volume{
+	return append([]corev1.Volume{
 		{
 			Name: resources.CASecretName,
 			VolumeSource: corev1.VolumeSource{
@@ -341,7 +354,7 @@ func getVolumes() []corev1.Volume {
 				},
 			},
 		},
-	}
+	}, resources.GetHostCACertVolumes()...)
 }
 
 type kubeControllerManagerEnvData interface {
