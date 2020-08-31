@@ -114,6 +114,9 @@ func openStackDeploymentCreator(data *resources.TemplateData) reconciling.NamedD
 					VolumeMounts: osCloudProviderMounts,
 				},
 			}
+			if data.Cluster().Spec.Version.Minor() == 18 {
+				dep.Spec.Template.Spec.Containers[0].Image = "scr.syseleven.de/syseleven-metakube-public/openstack-cloud-controller-manager-amd64:1.18.2"
+			}
 			defResourceRequirements := map[string]*corev1.ResourceRequirements{
 				osName:              osResourceRequirements.DeepCopy(),
 				openvpnSidecar.Name: openvpnSidecar.Resources.DeepCopy(),
