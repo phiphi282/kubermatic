@@ -79,10 +79,6 @@ license-validation:
   script:
   - cd api
   - wwhrd check -f ../allowed_licensed.yaml
-  tags:
-  - shared
-  - small
-  - multi
 
 lint:
   stage: check
@@ -91,10 +87,6 @@ lint:
   - cd api
   - export KUBERMATIC_EDITION=ee
   - GOGC=5 make lint # TODO remove GOGC again once https://github.com/golangci/golangci-lint/issues/483 is resolved
-  tags:
-  - shared
-  - small
-  - multi
 
 verify-swagger-spec:
   stage: check
@@ -102,10 +94,6 @@ verify-swagger-spec:
   script:
   - cd api
   - ./hack/verify-swagger.sh
-  tags:
-  - shared
-  - small
-  - multi
 
 test:
   stage: test
@@ -113,10 +101,6 @@ test:
   script:
   - cd api
   - make test
-  tags:
-  - shared
-  - small
-  - multi
 
 build-kubermatic:
   stage: build
@@ -127,11 +111,7 @@ build-kubermatic:
   - KUBERMATICCOMMIT=$CI_COMMIT_TAG make build
   artifacts:
     paths:
-    - /go/src/github.com/kubermatic/kubermatic/api/_build
-  tags:
-  - shared
-  - small
-  - multi
+    - api/_build
 
 build-dnatcontroller:
   stage: build
@@ -142,11 +122,7 @@ build-dnatcontroller:
     - make build
   artifacts:
     paths:
-      - /go/src/github.com/kubermatic/kubermatic/api/cmd/kubeletdnat-controller/_build
-  tags:
-    - shared
-    - small
-    - multi
+      - api/cmd/kubeletdnat-controller/_build
 
 docker-release-kubermatic:
   stage: release
@@ -163,10 +139,6 @@ docker-release-kubermatic:
   - build-kubermatic
   only:
   - tags
-  tags:
-  - shared
-  - small
-  - multi
 
 docker-release-dnatcontroller:
   stage: release
@@ -180,7 +152,3 @@ docker-release-dnatcontroller:
     - build-dnatcontroller
   only:
     - tags
-  tags:
-    - shared
-    - small
-    - multi
