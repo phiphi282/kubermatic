@@ -127,7 +127,7 @@ build-kubermatic:
   - KUBERMATICCOMMIT=$CI_COMMIT_TAG make build
   artifacts:
     paths:
-    - /go/src/github.com/kubermatic/api/_build
+    - /go/src/github.com/kubermatic/kubermatic/api/_build
   tags:
   - shared
   - small
@@ -142,7 +142,7 @@ build-dnatcontroller:
     - make build
   artifacts:
     paths:
-      - /go/src/github.com/kubermatic/api/cmd/kubeletdnat-controller/_build
+      - /go/src/github.com/kubermatic/kubermatic/api/cmd/kubeletdnat-controller/_build
   tags:
     - shared
     - small
