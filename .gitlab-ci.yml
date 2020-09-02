@@ -6,6 +6,7 @@ stages:
 
 variables:
   GO_VERSION: "1.12.9"
+  KUBERMATIC_EDITION: ce
 
 before_script:
 - mkdir -p /go/src/github.com/kubermatic/
