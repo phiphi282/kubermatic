@@ -21,10 +21,6 @@ dep:
   - cd api
   - dep ensure -v
   - '[[ -z "$(git diff)" ]]'
-  tags:
-  - shared
-  - small
-  - multi
 
 gofmt:
   stage: check
@@ -32,10 +28,6 @@ gofmt:
   script:
   - cd api
   - make gofmt
-  tags:
-  - shared
-  - small
-  - multi
 
 lint-docker:
   stage: check
@@ -45,11 +37,6 @@ lint-docker:
   script:
     - hadolint api/Dockerfile
 
-  tags:
-    - shared
-    - small
-    - multi
-
 verify-codegen:
   stage: check
   image: golang:${GO_VERSION}
@@ -57,10 +44,6 @@ verify-codegen:
   - apt-get update && apt-get install -y --no-install-recommends bzr
   - cd api
   - ./hack/verify-codegen.sh
-  tags:
-  - shared
-  - small
-  - multi
 
 #verify-api-client:
 #  stage: check
@@ -68,10 +51,6 @@ verify-codegen:
 #  script:
 #    - cd api
 #    - GO111MODULE=on ./hack/verify-api-client.sh
-#  tags:
-#    - shared
-#    - small
-#    - multi
 
 license-validation:
   stage: check
