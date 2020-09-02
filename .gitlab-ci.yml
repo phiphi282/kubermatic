@@ -74,12 +74,40 @@ verify-swagger-spec:
   - cd api
   - ./hack/verify-swagger.sh
 
-test:
+test-go:
   stage: test
   image: golang:${GO_VERSION}
   script:
   - cd api
-  - make test
+  - CGO_ENABLED=1 go test -tags "unit ${KUBERMATIC_EDITION}" -race ./...
+
+test-cloud:
+  stage: test
+  image: golang:${GO_VERSION}
+  script:
+  - cd api
+  - go test -tags "cloud ${KUBERMATIC_EDITION}" -run nope ./pkg/test/e2e/api/...
+
+test-create:
+  stage: test
+  image: golang:${GO_VERSION}
+  script:
+  - cd api
+  - go test -tags "create ${KUBERMATIC_EDITION}" -run nope ./pkg/test/e2e/api/...
+
+test-e2e:
+  stage: test
+  image: golang:${GO_VERSION}
+  script:
+  - cd api
+  - go test -tags "e2e ${KUBERMATIC_EDITION}" -run nope ./pkg/test/e2e/api/...
+
+test-integration:
+  stage: test
+  image: golang:${GO_VERSION}
+  script:
+  - cd api
+  - go test -tags "integration ${KUBERMATIC_EDITION}" -run nope ./...
 
 build-kubermatic:
   stage: build
