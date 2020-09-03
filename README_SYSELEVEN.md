@@ -29,7 +29,7 @@ git config core.hooksPath .githooks
 ### Python environment
 The project has some python dependencies to run locally. You should create a python virtualenvironment and install the dependencies. The dependencies are in the file requirements.txt at kubermatic-installer repository.
 
-Instructions about [virtual-environments](https://github.com/kubermatic/terraform-provider-kubermatic/pull/18) and the [kubermatic-installer](https://gitlab.syseleven.de/kubernetes/kubermatic-installer) are out of the scope of this README.
+Instructions about [virtual-environments](https://docs.python.org/3/tutorial/venv.html) and the [kubermatic-installer](https://gitlab.syseleven.de/kubernetes/kubermatic-installer) are out of the scope of this README.
 
 
 ## Environment variables
