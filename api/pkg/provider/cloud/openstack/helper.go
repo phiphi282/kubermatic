@@ -153,7 +153,7 @@ func deleteSecurityGroup(netClient *gophercloud.ServiceClient, sgName string) er
 	return nil
 }
 
-func createKubermaticSecurityGroup(netClient *gophercloud.ServiceClient, clusterName string) (string, error) {
+func createKubermaticSecurityGroup(netClient *gophercloud.ServiceClient, clusterName string, customSubnetCIDR string) (string, error) {
 	secGroupName := resourceNamePrefix + clusterName
 	secGroups, err := getSecurityGroups(netClient, ossecuritygroups.ListOpts{Name: secGroupName})
 	if err != nil {
@@ -180,6 +180,11 @@ func createKubermaticSecurityGroup(netClient *gophercloud.ServiceClient, cluster
 	default:
 		return "", fmt.Errorf("there are already %d security groups with name %q, dont know which one to use",
 			len(secGroups), secGroupName)
+	}
+
+	currentCidr := subnetCIDR
+	if customSubnetCIDR != "" {
+		currentCidr = customSubnetCIDR
 	}
 
 	rules := []osecuritygrouprules.CreateOpts{
@@ -219,6 +224,16 @@ func createKubermaticSecurityGroup(netClient *gophercloud.ServiceClient, cluster
 			EtherType:  osecuritygrouprules.EtherType6,
 			SecGroupID: securityGroupID,
 			Protocol:   osecuritygrouprules.ProtocolIPv6ICMP,
+		},
+		{
+			// Allow octavia high ports
+			Direction:      osecuritygrouprules.DirIngress,
+			EtherType:      osecuritygrouprules.EtherType4,
+			Protocol:       osecuritygrouprules.ProtocolTCP,
+			SecGroupID:     securityGroupID,
+			PortRangeMin:   30000,
+			PortRangeMax:   32767,
+			RemoteIPPrefix: currentCidr,
 		},
 	}
 
