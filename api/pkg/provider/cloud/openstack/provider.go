@@ -183,7 +183,7 @@ func (os *Provider) InitializeCloudProvider(cluster *kubermaticv1.Cluster, updat
 	}
 
 	if cluster.Spec.Cloud.Openstack.SecurityGroups == "" {
-		secGroupName, err := createKubermaticSecurityGroup(netClient, cluster.Name)
+		secGroupName, err := createKubermaticSecurityGroup(netClient, cluster.Name, cluster.Spec.Cloud.Openstack.SubnetCIDR)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create the kubermatic security group: %v", err)
 		}
