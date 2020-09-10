@@ -16,6 +16,7 @@ limitations under the License.
 
 package resources
 
+
 import (
 	"github.com/kubermatic/kubermatic/api/pkg/resources/reconciling"
 
@@ -23,12 +24,13 @@ import (
 )
 
 const (
-	ClusterRoleName = "container-linux-update-operator"
+	OperatorClusterRoleName = "flatcar-linux-update-operator"
+	AgentClusterRoleName    = "flatcar-linux-update-agent"
 )
 
-func ClusterRoleCreator() reconciling.NamedClusterRoleCreatorGetter {
+func OperatorClusterRoleCreator() reconciling.NamedClusterRoleCreatorGetter {
 	return func() (string, reconciling.ClusterRoleCreator) {
-		return ClusterRoleName, func(cr *rbacv1.ClusterRole) (*rbacv1.ClusterRole, error) {
+		return OperatorClusterRoleName, func(cr *rbacv1.ClusterRole) (*rbacv1.ClusterRole, error) {
 			cr.Rules = []rbacv1.PolicyRule{
 				{
 					APIGroups: []string{""},
@@ -69,14 +71,84 @@ func ClusterRoleCreator() reconciling.NamedClusterRoleCreatorGetter {
 					},
 				},
 				{
-					APIGroups: []string{"extensions"},
+					APIGroups: []string{"apps"},
 					Resources: []string{"daemonsets"},
 					Verbs: []string{
 						"get",
 					},
 				},
+				{
+					APIGroups: []string{"policy"},
+					ResourceNames: []string{"flatcar-linux-update-operator"},
+					Resources: []string{"podsecuritypolicies"},
+					Verbs: []string{
+						"use",
+					},
+				},
 			}
+			return cr, nil
+		}
+	}
+}
 
+func AgentClusterRoleCreator() reconciling.NamedClusterRoleCreatorGetter {
+	return func() (string, reconciling.ClusterRoleCreator) {
+		return AgentClusterRoleName, func(cr *rbacv1.ClusterRole) (*rbacv1.ClusterRole, error) {
+			cr.Rules = []rbacv1.PolicyRule{
+				{
+					APIGroups: []string{""},
+					Resources: []string{"nodes"},
+					Verbs: []string{
+						"get",
+						"list",
+						"watch",
+						"update",
+					},
+				},
+				{
+					APIGroups: []string{""},
+					Resources: []string{"configmaps"},
+					Verbs: []string{
+						"create",
+						"get",
+						"update",
+						"list",
+						"watch",
+					},
+				},
+				{
+					APIGroups: []string{""},
+					Resources: []string{"events"},
+					Verbs: []string{
+						"create",
+						"watch",
+					},
+				},
+				{
+					APIGroups: []string{""},
+					Resources: []string{"pods"},
+					Verbs: []string{
+						"get",
+						"list",
+						"delete",
+					},
+				},
+				{
+					APIGroups: []string{"apps"},
+					Resources: []string{"daemonsets"},
+					Verbs: []string{
+						"get",
+					},
+				},
+				{
+					APIGroups: []string{"policy"},
+					ResourceNames: []string{"flatcar-linux-update-agentß"},
+					Resources: []string{"podsecuritypolicies"},
+					Verbs: []string{
+						"use",
+					},
+				},
+			}
 			return cr, nil
 		}
 	}

@@ -20,7 +20,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/kubermatic/kubermatic/api/pkg/controller/user-cluster-controller-manager/container-linux/resources"
+	"github.com/kubermatic/kubermatic/api/pkg/controller/user-cluster-controller-manager/flatcar/resources"
 	nodelabelerapi "github.com/kubermatic/kubermatic/api/pkg/controller/user-cluster-controller-manager/node-labeler/api"
 	predicateutil "github.com/kubermatic/kubermatic/api/pkg/controller/util/predicate"
 	kubermaticv1 "github.com/kubermatic/kubermatic/api/pkg/crd/kubermatic/v1"
@@ -38,7 +38,7 @@ import (
 )
 
 const (
-	ControllerName = "kubermatic_container_linux_controller"
+	ControllerName = "kubermatic_flatcar_controller"
 )
 
 type Reconciler struct {
@@ -66,7 +66,7 @@ func Add(mgr manager.Manager, overwriteRegistry string, updateWindow kubermaticv
 	}
 
 	predicates := predicateutil.Factory(func(m metav1.Object, _ runtime.Object) bool {
-		return m.GetLabels()[nodelabelerapi.DistributionLabelKey] == nodelabelerapi.ContainerLinuxLabelValue
+		return m.GetLabels()[nodelabelerapi.DistributionLabelKey] == nodelabelerapi.FlatcarLabelValue
 	})
 	return c.Watch(&source.Kind{Type: &corev1.Node{}}, &handler.EnqueueRequestForObject{}, predicates)
 }
@@ -82,36 +82,39 @@ func (r *Reconciler) Reconcile(_ reconcile.Request) (reconcile.Result, error) {
 	return reconcile.Result{}, nil
 }
 
-// reconcileUpdateOperatorResources deploys the ContainerLinuxUpdateOperator
-// https://github.com/coreos/container-linux-update-operator
+// reconcileUpdateOperatorResources deploys the FlatcarUpdateOperator
+// https://github.com/kinvolk/flatcar-linux-update-operator
 func (r *Reconciler) reconcileUpdateOperatorResources(ctx context.Context) error {
 	saCreators := []reconciling.NamedServiceAccountCreatorGetter{
-		resources.ServiceAccountCreator(),
+		resources.OperatorServiceAccountCreator(),
+		resources.AgentServiceAccountCreator(),
 	}
 	if err := reconciling.ReconcileServiceAccounts(ctx, saCreators, metav1.NamespaceSystem, r.Client); err != nil {
 		return fmt.Errorf("failed to reconcile the ServiceAccounts: %v", err)
 	}
 
 	crCreators := []reconciling.NamedClusterRoleCreatorGetter{
-		resources.ClusterRoleCreator(),
+		resources.OperatorClusterRoleCreator(),
+		resources.AgentClusterRoleCreator(),
 	}
 	if err := reconciling.ReconcileClusterRoles(ctx, crCreators, metav1.NamespaceNone, r.Client); err != nil {
 		return fmt.Errorf("failed to reconcile the ClusterRoles: %v", err)
 	}
 
 	crbCreators := []reconciling.NamedClusterRoleBindingCreatorGetter{
-		resources.ClusterRoleBindingCreator(),
+		resources.OperatorClusterRoleBindingCreator(),
+		resources.AgentClusterRoleBindingCreator(),
 	}
 	if err := reconciling.ReconcileClusterRoleBindings(ctx, crbCreators, metav1.NamespaceNone, r.Client); err != nil {
 		return fmt.Errorf("failed to reconcile the ClusterRoleBindings: %v", err)
 	}
 
-	depCreators := GetDeploymentCreators(r.overwriteRegistry, r.updateWindow)
+	depCreators := getDeploymentCreators(r.overwriteRegistry, r.updateWindow)
 	if err := reconciling.ReconcileDeployments(ctx, depCreators, metav1.NamespaceSystem, r.Client); err != nil {
 		return fmt.Errorf("failed to reconcile the Deployments: %v", err)
 	}
 
-	dsCreators := GetDaemonSetCreators(r.overwriteRegistry)
+	dsCreators := getDaemonSetCreators(r.overwriteRegistry)
 	if err := reconciling.ReconcileDaemonSets(ctx, dsCreators, metav1.NamespaceSystem, r.Client); err != nil {
 		return fmt.Errorf("failed to reconcile the DaemonSet: %v", err)
 	}
@@ -128,13 +131,14 @@ func getRegistryDefaultFunc(overwriteRegistry string) func(defaultRegistry strin
 	}
 }
 
-func GetDeploymentCreators(overwriteRegistry string, updateWindow kubermaticv1.UpdateWindow) []reconciling.NamedDeploymentCreatorGetter {
+func getDeploymentCreators(overwriteRegistry string, updateWindow kubermaticv1.UpdateWindow) []reconciling.NamedDeploymentCreatorGetter {
 	return []reconciling.NamedDeploymentCreatorGetter{
-		resources.DeploymentCreator(getRegistryDefaultFunc(overwriteRegistry), updateWindow),
+		resources.OperatorDeploymentCreator(getRegistryDefaultFunc(overwriteRegistry), updateWindow),
 	}
 }
-func GetDaemonSetCreators(overwriteRegistry string) []reconciling.NamedDaemonSetCreatorGetter {
+
+func getDaemonSetCreators(overwriteRegistry string) []reconciling.NamedDaemonSetCreatorGetter {
 	return []reconciling.NamedDaemonSetCreatorGetter{
-		resources.DaemonSetCreator(getRegistryDefaultFunc(overwriteRegistry)),
+		resources.AgentDaemonSetCreator(getRegistryDefaultFunc(overwriteRegistry)),
 	}
 }

@@ -28,7 +28,7 @@ import (
 )
 
 const (
-	DaemonSetName = "container-linux-update-agent"
+	AgentDaemonSetName = "flatcar-linux-update-agent"
 )
 
 var (
@@ -36,9 +36,9 @@ var (
 	hostPathType            = corev1.HostPathUnset
 )
 
-func DaemonSetCreator(getRegistry GetImageRegistry) reconciling.NamedDaemonSetCreatorGetter {
+func AgentDaemonSetCreator(getRegistry GetImageRegistry) reconciling.NamedDaemonSetCreatorGetter {
 	return func() (string, reconciling.DaemonSetCreator) {
-		return DaemonSetName, func(ds *appsv1.DaemonSet) (*appsv1.DaemonSet, error) {
+		return AgentDaemonSetName, func(ds *appsv1.DaemonSet) (*appsv1.DaemonSet, error) {
 			ds.Spec.UpdateStrategy = appsv1.DaemonSetUpdateStrategy{
 				Type: appsv1.RollingUpdateDaemonSetStrategyType,
 				RollingUpdate: &appsv1.RollingUpdateDaemonSet{
@@ -46,19 +46,19 @@ func DaemonSetCreator(getRegistry GetImageRegistry) reconciling.NamedDaemonSetCr
 				},
 			}
 
-			labels := map[string]string{"app": "container-linux-update-agent"}
+			labels := map[string]string{"app": AgentDaemonSetName}
 			ds.Spec.Selector = &metav1.LabelSelector{MatchLabels: labels}
 			ds.Spec.Template.ObjectMeta.Labels = labels
 
-			// The agent should only run on ContainerLinux nodes
-			ds.Spec.Template.Spec.NodeSelector = map[string]string{nodelabelerapi.DistributionLabelKey: nodelabelerapi.ContainerLinuxLabelValue}
+			// The agent should only run on Flatcar nodes
+			ds.Spec.Template.Spec.NodeSelector = map[string]string{nodelabelerapi.DistributionLabelKey: nodelabelerapi.FlatcarLabelValue}
 
-			ds.Spec.Template.Spec.ServiceAccountName = ServiceAccountName
+			ds.Spec.Template.Spec.ServiceAccountName = AgentServiceAccountName
 
 			ds.Spec.Template.Spec.Containers = []corev1.Container{
 				{
 					Name:    "update-agent",
-					Image:   getRegistry(resources.RegistryQuay) + "/coreos/container-linux-update-operator:v0.7.0",
+					Image:   getRegistry(resources.RegistryQuay) + "/kinvolk/flatcar-linux-update-operator:v0.7.3",
 					Command: []string{"/bin/update-agent"},
 					Env: []corev1.EnvVar{
 						{
@@ -86,12 +86,12 @@ func DaemonSetCreator(getRegistry GetImageRegistry) reconciling.NamedDaemonSetCr
 							MountPath: "/var/run/dbus",
 						},
 						{
-							Name:      "etc-coreos",
-							MountPath: "/etc/coreos",
+							Name:      "etc-flatcar",
+							MountPath: "/etc/flatcar",
 						},
 						{
-							Name:      "usr-share-coreos",
-							MountPath: "/usr/share/coreos",
+							Name:      "usr-share-flatcar",
+							MountPath: "/usr/share/flatcar",
 						},
 						{
 							Name:      "etc-os-release",
@@ -103,12 +103,9 @@ func DaemonSetCreator(getRegistry GetImageRegistry) reconciling.NamedDaemonSetCr
 
 			ds.Spec.Template.Spec.Tolerations = []corev1.Toleration{
 				{
-					Effect:   corev1.TaintEffectNoSchedule,
-					Operator: corev1.TolerationOpExists,
-				},
-				{
-					Effect:   corev1.TaintEffectNoExecute,
-					Operator: corev1.TolerationOpExists,
+					Key: "node-role.kubernetes.io/master",
+					Operator: "Exists",
+					Effect: "NoSchedule",
 				},
 			}
 
@@ -123,19 +120,19 @@ func DaemonSetCreator(getRegistry GetImageRegistry) reconciling.NamedDaemonSetCr
 					},
 				},
 				{
-					Name: "etc-coreos",
+					Name: "etc-flatcar",
 					VolumeSource: corev1.VolumeSource{
 						HostPath: &corev1.HostPathVolumeSource{
-							Path: "/etc/coreos",
+							Path: "/etc/flatcar",
 							Type: &hostPathType,
 						},
 					},
 				},
 				{
-					Name: "usr-share-coreos",
+					Name: "usr-share-flatcar",
 					VolumeSource: corev1.VolumeSource{
 						HostPath: &corev1.HostPathVolumeSource{
-							Path: "/usr/share/coreos",
+							Path: "/usr/share/flatcar",
 							Type: &hostPathType,
 						},
 					},

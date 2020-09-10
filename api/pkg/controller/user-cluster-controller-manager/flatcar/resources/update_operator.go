@@ -29,7 +29,7 @@ import (
 )
 
 const (
-	DeploymentName = "container-linux-update-operator"
+	OperatorDeploymentName = "flatcar-linux-update-operator"
 )
 
 var (
@@ -40,9 +40,9 @@ var (
 
 type GetImageRegistry func(reg string) string
 
-func DeploymentCreator(getRegistry GetImageRegistry, updateWindow kubermaticv1.UpdateWindow) reconciling.NamedDeploymentCreatorGetter {
+func OperatorDeploymentCreator(getRegistry GetImageRegistry, updateWindow kubermaticv1.UpdateWindow) reconciling.NamedDeploymentCreatorGetter {
 	return func() (string, reconciling.DeploymentCreator) {
-		return DeploymentName, func(dep *appsv1.Deployment) (*appsv1.Deployment, error) {
+		return OperatorDeploymentName, func(dep *appsv1.Deployment) (*appsv1.Deployment, error) {
 			dep.Spec.Replicas = &deploymentReplicas
 
 			dep.Spec.Strategy = appsv1.DeploymentStrategy{
@@ -53,13 +53,13 @@ func DeploymentCreator(getRegistry GetImageRegistry, updateWindow kubermaticv1.U
 				},
 			}
 
-			labels := map[string]string{"app": "container-linux-update-operator"}
+			labels := map[string]string{"app": OperatorDeploymentName}
 			dep.Spec.Selector = &metav1.LabelSelector{MatchLabels: labels}
 			dep.Spec.Template.ObjectMeta.Labels = labels
-			dep.Spec.Template.Spec.ServiceAccountName = ServiceAccountName
+			dep.Spec.Template.Spec.ServiceAccountName = OperatorServiceAccountName
 
-			// The operator should only run on ContainerLinux nodes
-			dep.Spec.Template.Spec.NodeSelector = map[string]string{nodelabelerapi.DistributionLabelKey: nodelabelerapi.ContainerLinuxLabelValue}
+			// The operator should only run on Flatcar nodes
+			dep.Spec.Template.Spec.NodeSelector = map[string]string{nodelabelerapi.DistributionLabelKey: nodelabelerapi.FlatcarLabelValue}
 
 			env := []corev1.EnvVar{
 				{
@@ -90,9 +90,17 @@ func DeploymentCreator(getRegistry GetImageRegistry, updateWindow kubermaticv1.U
 			dep.Spec.Template.Spec.Containers = []corev1.Container{
 				{
 					Name:    "update-operator",
-					Image:   getRegistry(resources.RegistryQuay) + "/coreos/container-linux-update-operator:v0.7.0",
+					Image:   getRegistry(resources.RegistryQuay) + "/kinvolk/flatcar-linux-update-operator:v0.7.3",
 					Command: []string{"/bin/update-operator"},
 					Env:     env,
+				},
+			}
+
+			dep.Spec.Template.Spec.Tolerations = []corev1.Toleration{
+				{
+					Key: "node-role.kubernetes.io/master",
+					Operator: "Exists",
+					Effect: "NoSchedule",
 				},
 			}
 

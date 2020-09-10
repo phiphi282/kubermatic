@@ -24,26 +24,48 @@ import (
 )
 
 const (
-	ClusterRoleBindingName = "container-linux-update-operator"
+	OperatorClusterRoleBindingName = "flatcar-linux-update-operator"
+	AgentClusterRoleBindingName    = "flatcar-linux-update-agent"
 )
 
-func ClusterRoleBindingCreator() reconciling.NamedClusterRoleBindingCreatorGetter {
+func OperatorClusterRoleBindingCreator() reconciling.NamedClusterRoleBindingCreatorGetter {
 	return func() (string, reconciling.ClusterRoleBindingCreator) {
-		return ClusterRoleBindingName, func(crb *rbacv1.ClusterRoleBinding) (*rbacv1.ClusterRoleBinding, error) {
+		return OperatorClusterRoleBindingName, func(crb *rbacv1.ClusterRoleBinding) (*rbacv1.ClusterRoleBinding, error) {
 			crb.RoleRef = rbacv1.RoleRef{
 				APIGroup: rbacv1.GroupName,
 				Kind:     "ClusterRole",
-				Name:     ClusterRoleName,
+				Name:     OperatorClusterRoleName,
 			}
 			crb.Subjects = []rbacv1.Subject{
 				{
 					Kind:      "ServiceAccount",
+					Name:      OperatorServiceAccountName,
 					Namespace: metav1.NamespaceSystem,
-					Name:      ServiceAccountName,
 				},
 			}
-
 			return crb, nil
 		}
 	}
 }
+
+func AgentClusterRoleBindingCreator() reconciling.NamedClusterRoleBindingCreatorGetter {
+	return func() (string, reconciling.ClusterRoleBindingCreator) {
+		return AgentClusterRoleBindingName, func(crb *rbacv1.ClusterRoleBinding) (*rbacv1.ClusterRoleBinding, error) {
+			crb.RoleRef = rbacv1.RoleRef{
+				APIGroup: rbacv1.GroupName,
+				Kind:     "ClusterRole",
+				Name:     AgentClusterRoleName,
+			}
+			crb.Subjects = []rbacv1.Subject{
+				{
+					Kind:      "ServiceAccount",
+					Name:      AgentServiceAccountName,
+					Namespace: metav1.NamespaceSystem,
+				},
+			}
+			return crb, nil
+		}
+	}
+}
+
+

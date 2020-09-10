@@ -23,12 +23,21 @@ import (
 )
 
 const (
-	ServiceAccountName = "container-linux-update-operator"
+	OperatorServiceAccountName = "flatcar-linux-update-operator-sa"
+	AgentServiceAccountName    = "flatcar-linux-update-agent"
 )
 
-func ServiceAccountCreator() reconciling.NamedServiceAccountCreatorGetter {
+func OperatorServiceAccountCreator() reconciling.NamedServiceAccountCreatorGetter {
 	return func() (string, reconciling.ServiceAccountCreator) {
-		return ServiceAccountName, func(sa *corev1.ServiceAccount) (*corev1.ServiceAccount, error) {
+		return OperatorServiceAccountName, func(sa *corev1.ServiceAccount) (*corev1.ServiceAccount, error) {
+			return sa, nil
+		}
+	}
+}
+
+func AgentServiceAccountCreator() reconciling.NamedServiceAccountCreatorGetter {
+	return func() (string, reconciling.ServiceAccountCreator) {
+		return AgentServiceAccountName, func(sa *corev1.ServiceAccount) (*corev1.ServiceAccount, error) {
 			return sa, nil
 		}
 	}
