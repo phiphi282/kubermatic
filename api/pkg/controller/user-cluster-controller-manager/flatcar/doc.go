@@ -15,7 +15,7 @@ limitations under the License.
 */
 
 /*
-Package containerlinux contains the containerlinux controller that is responsible for deploying the
-[Container Linux Update Operator](https://github.com/coreos/container-linux-update-operator) operator and DaemonSet
+Package flatcar linux contains the flatcar linux controller that is responsible for deploying the
+[Flatcar Linux Update Operator](https://github.com/kinvolk/flatcar-linux-update-operator) operator and DaemonSet
 */
 package flatcar
