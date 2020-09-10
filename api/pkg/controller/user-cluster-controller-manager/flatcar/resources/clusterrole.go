@@ -16,7 +16,6 @@ limitations under the License.
 
 package resources
 
-
 import (
 	"github.com/kubermatic/kubermatic/api/pkg/resources/reconciling"
 
@@ -78,9 +77,9 @@ func OperatorClusterRoleCreator() reconciling.NamedClusterRoleCreatorGetter {
 					},
 				},
 				{
-					APIGroups: []string{"policy"},
+					APIGroups:     []string{"policy"},
 					ResourceNames: []string{"flatcar-linux-update-operator"},
-					Resources: []string{"podsecuritypolicies"},
+					Resources:     []string{"podsecuritypolicies"},
 					Verbs: []string{
 						"use",
 					},
@@ -141,9 +140,9 @@ func AgentClusterRoleCreator() reconciling.NamedClusterRoleCreatorGetter {
 					},
 				},
 				{
-					APIGroups: []string{"policy"},
+					APIGroups:     []string{"policy"},
 					ResourceNames: []string{"flatcar-linux-update-agentß"},
-					Resources: []string{"podsecuritypolicies"},
+					Resources:     []string{"podsecuritypolicies"},
 					Verbs: []string{
 						"use",
 					},

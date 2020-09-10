@@ -67,5 +67,3 @@ func AgentClusterRoleBindingCreator() reconciling.NamedClusterRoleBindingCreator
 		}
 	}
 }
-
-

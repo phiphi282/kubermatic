@@ -103,9 +103,9 @@ func AgentDaemonSetCreator(getRegistry GetImageRegistry) reconciling.NamedDaemon
 
 			ds.Spec.Template.Spec.Tolerations = []corev1.Toleration{
 				{
-					Key: "node-role.kubernetes.io/master",
+					Key:      "node-role.kubernetes.io/master",
 					Operator: "Exists",
-					Effect: "NoSchedule",
+					Effect:   "NoSchedule",
 				},
 			}
 
