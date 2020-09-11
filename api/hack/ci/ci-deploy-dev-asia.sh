@@ -17,6 +17,7 @@
 set -euo pipefail
 export DEPLOY_STACK=${DEPLOY_STACK:-kubermatic}
 export GIT_HEAD_HASH="$(git rev-parse HEAD|tr -d '\n')"
+export DEPLOY_NODEPORT_PROXY=false
 cd $(dirname $0)/../../..
 
 source ./api/hack/lib.sh
