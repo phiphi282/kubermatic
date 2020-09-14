@@ -69,10 +69,12 @@ lint:
   - make lint
   variables:
     GOLANGCI_LINT_CACHE: ${CI_PROJECT_DIR}/api/vendor/linter-cache
+    GOCACHE: ${CI_PROJECT_DIR}/api/vendor/cache
   cache:
     key: lintercache
     paths:
       - api/vendor/linter-cache
+      - api/vendor/cache
 
 verify-swagger-spec:
   stage: check
@@ -87,6 +89,12 @@ test-go:
   script:
   - cd api
   - CGO_ENABLED=1 go test -tags "unit ${KUBERMATIC_EDITION}" -race ./...
+  variables:
+    GOCACHE: ${CI_PROJECT_DIR}/api/vendor/cache
+  cache:
+    key: test-go-cache
+    paths:
+      - api/vendor/cache
 
 test-cloud:
   stage: test
@@ -94,6 +102,12 @@ test-cloud:
   script:
   - cd api
   - go test -tags "cloud ${KUBERMATIC_EDITION}" -run nope ./pkg/test/e2e/api/...
+  variables:
+    GOCACHE: ${CI_PROJECT_DIR}/api/vendor/cache
+  cache:
+    key: test-cloud-cache
+    paths:
+      - api/vendor/cache
 
 test-create:
   stage: test
@@ -101,6 +115,12 @@ test-create:
   script:
   - cd api
   - go test -tags "create ${KUBERMATIC_EDITION}" -run nope ./pkg/test/e2e/api/...
+  variables:
+    GOCACHE: ${CI_PROJECT_DIR}/api/vendor/cache
+  cache:
+    key: test-create-cache
+    paths:
+      - api/vendor/cache
 
 test-e2e:
   stage: test
@@ -108,6 +128,12 @@ test-e2e:
   script:
   - cd api
   - go test -tags "e2e ${KUBERMATIC_EDITION}" -run nope ./pkg/test/e2e/api/...
+  variables:
+    GOCACHE: ${CI_PROJECT_DIR}/api/vendor/cache
+  cache:
+    key: test-e2e-cache
+    paths:
+      - api/vendor/cache
 
 test-integration:
   stage: test
@@ -115,6 +141,12 @@ test-integration:
   script:
   - cd api
   - go test -tags "integration ${KUBERMATIC_EDITION}" -run nope ./...
+  variables:
+    GOCACHE: ${CI_PROJECT_DIR}/api/vendor/cache
+  cache:
+    key: test-integration-cache
+    paths:
+      - api/vendor/cache
 
 build-kubermatic:
   stage: build
@@ -127,6 +159,12 @@ build-kubermatic:
   artifacts:
     paths:
     - api/_build
+  variables:
+    GOCACHE: ${CI_PROJECT_DIR}/api/vendor/cache
+  cache:
+    key: build-kubermatic
+    paths:
+      - api/vendor/cache
 
 build-dnatcontroller:
   stage: build
