@@ -161,8 +161,8 @@ func DeploymentCreator(data *resources.TemplateData, enableOIDCAuthentication bo
 				*dnatControllerSidecar,
 				{
 					Name:    resources.ApiserverDeploymentName,
-					Image:   data.ImageRegistry(resources.RegistryGCR) + "/google_containers/hyperkube-amd64:v" + data.Cluster().Spec.Version.String(),
-					Command: []string{"/hyperkube", "kube-apiserver"},
+					Image:   data.ImageRegistry(resources.RegistryK8SGCR) + "/kube-apiserver:v" + data.Cluster().Spec.Version.String(),
+					Command: []string{"/usr/local/bin/kube-apiserver"},
 					Env:     envVars,
 					Args:    flags,
 					Ports: []corev1.ContainerPort{
@@ -377,7 +377,7 @@ func getApiserverFlags(data *resources.TemplateData, etcdEndpoints []string, ena
 }
 
 func getVolumeMounts() []corev1.VolumeMount {
-	return []corev1.VolumeMount{
+	return append([]corev1.VolumeMount{
 		{
 			MountPath: "/etc/kubernetes/tls",
 			Name:      resources.ApiserverTLSSecretName,
@@ -433,11 +433,11 @@ func getVolumeMounts() []corev1.VolumeMount {
 			MountPath: "/var/log/kubernetes/audit",
 			ReadOnly:  false,
 		},
-	}
+	}, resources.GetHostCACertVolumeMounts()...)
 }
 
 func getVolumes() []corev1.Volume {
-	return []corev1.Volume{
+	return append([]corev1.Volume{
 		{
 			Name: resources.ApiserverTLSSecretName,
 			VolumeSource: corev1.VolumeSource{
@@ -551,7 +551,7 @@ func getVolumes() []corev1.Volume {
 				EmptyDir: &corev1.EmptyDirVolumeSource{},
 			},
 		},
-	}
+	}, resources.GetHostCACertVolumes()...)
 }
 
 type kubeAPIServerEnvData interface {
