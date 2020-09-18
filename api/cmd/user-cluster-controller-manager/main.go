@@ -21,7 +21,6 @@ import (
 	"encoding/json"
 	"errors"
 	"flag"
-	"github.com/kubermatic/kubermatic/api/pkg/controller/user-cluster-controller-manager/flatcar"
 	"net/http"
 	"net/url"
 	"strings"
@@ -280,10 +279,7 @@ func main() {
 		log.Fatalw("Failed to register the ContainerLinux controller", zap.Error(err))
 	}
 	log.Info("Registered ContainerLinux controller")
-	if err := flatcar.Add(mgr, runOp.overwriteRegistry, updateWindow); err != nil {
-		log.Fatalw("Failed to register the Flatcar controller", zap.Error(err))
-	}
-	log.Info("Registered Flatcar controller")
+
 	if err := nodelabeler.Add(ctx, log, mgr, nodeLabels); err != nil {
 		log.Fatalw("Failed to register nodelabel controller", zap.Error(err))
 	}
