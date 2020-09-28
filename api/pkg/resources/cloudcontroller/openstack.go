@@ -116,7 +116,7 @@ func openStackDeploymentCreator(data *resources.TemplateData) reconciling.NamedD
 				},
 			}
 			if data.Cluster().Spec.Version.Minor() == 18 {
-				dep.Spec.Template.Spec.Containers[1].Image = "scr.syseleven.de/syseleven-metakube-public/openstack-cloud-controller-manager-amd64:1.18.2"
+				dep.Spec.Template.Spec.Containers[1].Image = "scr.syseleven.de/syseleven-metakube-public/openstack-cloud-controller-manager:1.18.3"
 			}
 			defResourceRequirements := map[string]*corev1.ResourceRequirements{
 				osName:              osResourceRequirements.DeepCopy(),
