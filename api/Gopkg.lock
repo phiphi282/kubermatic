@@ -918,9 +918,9 @@
     "pkg/userdata/ubuntu",
   ]
   pruneopts = "NUT"
-  revision = "683a03cd263a658b89cbcb658eefbb187a70180c"
+  revision = "1dab77c97fb06ad6beabc9c65334f67b28bd42d5"
   source = "https://github.com/syseleven/machine-controller"
-  version = "v1.14.2-sys11-9"
+  version = "v1.14.2-sys11-10"
 
 [[projects]]
   digest = "1:d244f8666a838fe6ad70ec8fe77f50ebc29fdc3331a2729ba5886bef8435d10d"
