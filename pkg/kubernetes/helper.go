@@ -52,7 +52,11 @@ func RemoveFinalizer(obj metav1.Object, toRemove string) {
 }
 
 // AddFinalizer will add the given finalizer to the object. It uses a StringSet to avoid duplicates
+// If the object is in deletion no finalizers will be added
 func AddFinalizer(obj metav1.Object, finalizers ...string) {
+	if obj.GetDeletionTimestamp() != nil {
+		return
+	}
 	set := sets.NewString(obj.GetFinalizers()...)
 	set.Insert(finalizers...)
 	obj.SetFinalizers(set.List())
